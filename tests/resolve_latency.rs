@@ -20,12 +20,13 @@ fn typical_queries_complete_under_50ms_per_query() {
     let cwd = make_temp_dir("latency");
     fs::create_dir_all(cwd.join("src/components/button")).expect("create tree");
 
-    let resolver = Resolver {
-        config: AppConfig {
+    let resolver = Resolver::with_bookmark_lookup(
+        AppConfig {
             search_roots: vec![cwd.clone()],
             ..AppConfig::default()
         },
-    };
+        |_| None,
+    );
 
     let queries = [".", "src", "src/com/but", "...", "missing"];
     let iterations = 500_u32;

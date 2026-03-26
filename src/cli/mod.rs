@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 use crate::resolve::Resolver;
 
+mod bookmarks;
 mod resolve;
 mod stacks;
 
@@ -18,6 +19,17 @@ enum Commands {
         query: String,
         #[arg(long)]
         list: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    Mark {
+        name: String,
+        path: Option<String>,
+    },
+    Unmark {
+        name: String,
+    },
+    Bookmarks {
         #[arg(long)]
         json: bool,
     },
@@ -48,6 +60,9 @@ pub fn run() -> i32 {
         Commands::Resolve { query, list, json } => {
             resolve::run_resolve(&resolver, &query, list, json)
         }
+        Commands::Mark { name, path } => bookmarks::run_mark(&name, path.as_deref()),
+        Commands::Unmark { name } => bookmarks::run_unmark(&name),
+        Commands::Bookmarks { json } => bookmarks::run_list(json),
         Commands::Push { path, session } => stacks::run_push(&path, session.as_deref()),
         Commands::Pop { session } => stacks::run_pop(session.as_deref()),
         Commands::Undo { session } => stacks::run_undo(session.as_deref()),

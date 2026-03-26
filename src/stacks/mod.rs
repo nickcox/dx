@@ -161,7 +161,9 @@ mod tests {
     #[test]
     fn push_rejects_relative_path() {
         let mut stack = SessionStack::default();
-        let err = stack.push(p("relative/path")).expect_err("relative path fails");
+        let err = stack
+            .push(p("relative/path"))
+            .expect_err("relative path fails");
         assert!(matches!(err, StackError::PathNotAbsolute(_)));
     }
 

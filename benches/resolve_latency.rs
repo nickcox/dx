@@ -5,12 +5,13 @@ use dx::resolve::{ResolveMode, ResolveQuery, Resolver};
 
 fn main() {
     let cwd = std::env::current_dir().expect("cwd");
-    let resolver = Resolver {
-        config: AppConfig {
+    let resolver = Resolver::with_bookmark_lookup(
+        AppConfig {
             search_roots: vec![cwd.clone()],
             ..AppConfig::default()
         },
-    };
+        |_| None,
+    );
 
     let sample_queries = [".", "..", "~"];
 

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::config::AppConfig;
+use crate::{bookmarks, config::AppConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolveMode {
@@ -54,12 +54,26 @@ struct JsonOutput<'a> {
 #[derive(Debug, Clone)]
 pub struct Resolver {
     pub config: AppConfig,
+    bookmark_lookup: fn(&str) -> Option<PathBuf>,
 }
 
 impl Resolver {
     pub fn from_environment() -> Self {
         let config = AppConfig::load().unwrap_or_default();
-        Self { config }
+        Self {
+            config,
+            bookmark_lookup: bookmarks::lookup,
+        }
+    }
+
+    pub fn with_bookmark_lookup(
+        config: AppConfig,
+        bookmark_lookup: fn(&str) -> Option<PathBuf>,
+    ) -> Self {
+        Self {
+            config,
+            bookmark_lookup,
+        }
     }
 
     pub fn execute(&self, raw_query: &str, mode: ResolveMode) -> i32 {
@@ -145,6 +159,9 @@ impl Resolver {
         }
 
         if candidates.is_empty() {
+            if let Some(path) = (self.bookmark_lookup)(trimmed) {
+                return Ok(ResolveResult { path });
+            }
             return Err(ResolveError::NotFound);
         }
 
@@ -247,10 +264,17 @@ impl Resolver {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use crate::test_support;
+
     use super::*;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        test_support::env_lock()
+    }
 
     fn make_temp_dir(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -263,18 +287,37 @@ mod tests {
     }
 
     fn create_resolver_with_roots(roots: Vec<PathBuf>) -> Resolver {
-        Resolver {
-            config: AppConfig {
+        Resolver::with_bookmark_lookup(
+            AppConfig {
                 search_roots: roots,
                 ..AppConfig::default()
             },
+            |_| None,
+        )
+    }
+
+    fn create_resolver_with_roots_and_bookmarks(roots: Vec<PathBuf>) -> Resolver {
+        Resolver::with_bookmark_lookup(
+            AppConfig {
+                search_roots: roots,
+                ..AppConfig::default()
+            },
+            bookmarks::lookup,
+        )
+    }
+
+    fn set_bookmark_env(file: Option<String>) {
+        if let Some(path) = file {
+            env::set_var("DX_BOOKMARKS_FILE", path);
+        } else {
+            env::remove_var("DX_BOOKMARKS_FILE");
         }
     }
 
     #[test]
     fn resolves_absolute_existing_path() {
         let temp = make_temp_dir("resolve-abs");
-        let resolver = create_resolver_with_roots(vec![]);
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
         let query = ResolveQuery {
             raw: temp.to_str().expect("utf8 path"),
             cwd: &temp,
@@ -292,7 +335,7 @@ mod tests {
         let child = temp.join("src");
         fs::create_dir_all(&child).expect("create dir");
 
-        let resolver = create_resolver_with_roots(vec![]);
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
         let query = ResolveQuery {
             raw: "./src",
             cwd: &temp,
@@ -308,7 +351,7 @@ mod tests {
     #[test]
     fn errors_on_nonexistent_path() {
         let temp = make_temp_dir("resolve-miss");
-        let resolver = create_resolver_with_roots(vec![]);
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
 
         let query = ResolveQuery {
             raw: "./does-not-exist",
@@ -367,6 +410,104 @@ mod tests {
             .resolve(query, ResolveMode::Default)
             .expect("should resolve local");
         assert_eq!(result.path, local);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn bookmark_resolves_when_no_filesystem_match_exists() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("resolve-bookmark");
+        let bookmarks_file = temp.join("bookmarks.toml");
+        let bookmark_target = temp.join("target");
+        fs::create_dir_all(&bookmark_target).expect("create bookmark target");
+
+        let canonical_target = fs::canonicalize(&bookmark_target).expect("canonical target");
+        let toml = format!(
+            "[bookmarks]\nproj = \"{}\"\n",
+            canonical_target.display().to_string().replace('\\', "\\\\")
+        );
+        fs::write(&bookmarks_file, toml).expect("write bookmarks file");
+        set_bookmark_env(Some(bookmarks_file.display().to_string()));
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let query = ResolveQuery {
+            raw: "proj",
+            cwd: &temp,
+        };
+
+        let result = resolver
+            .resolve(query, ResolveMode::Default)
+            .expect("bookmark should resolve");
+        assert_eq!(result.path, canonical_target);
+
+        set_bookmark_env(None);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn fallback_root_takes_precedence_over_bookmark() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("resolve-fallback-over-bookmark");
+        let bookmarks_file = temp.join("bookmarks.toml");
+
+        let fallback_root = temp.join("root");
+        let fallback_match = fallback_root.join("proj");
+        fs::create_dir_all(&fallback_match).expect("create fallback match");
+
+        let bookmark_target = temp.join("bookmark-target");
+        fs::create_dir_all(&bookmark_target).expect("create bookmark target");
+        let canonical_bookmark = fs::canonicalize(&bookmark_target).expect("canonical bookmark");
+        let toml = format!(
+            "[bookmarks]\nproj = \"{}\"\n",
+            canonical_bookmark
+                .display()
+                .to_string()
+                .replace('\\', "\\\\")
+        );
+        fs::write(&bookmarks_file, toml).expect("write bookmarks file");
+        set_bookmark_env(Some(bookmarks_file.display().to_string()));
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![fallback_root]);
+        let query = ResolveQuery {
+            raw: "proj",
+            cwd: &temp,
+        };
+
+        let result = resolver
+            .resolve(query, ResolveMode::Default)
+            .expect("fallback should resolve");
+        assert_eq!(result.path, fallback_match);
+
+        set_bookmark_env(None);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn stale_bookmark_returns_no_match_and_resolution_fails() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("resolve-stale-bookmark");
+        let bookmarks_file = temp.join("bookmarks.toml");
+        let missing_target = temp.join("missing-target");
+
+        let toml = format!(
+            "[bookmarks]\nproj = \"{}\"\n",
+            missing_target.display().to_string().replace('\\', "\\\\")
+        );
+        fs::write(&bookmarks_file, toml).expect("write bookmarks file");
+        set_bookmark_env(Some(bookmarks_file.display().to_string()));
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let query = ResolveQuery {
+            raw: "proj",
+            cwd: &temp,
+        };
+
+        let err = resolver
+            .resolve(query, ResolveMode::Default)
+            .expect_err("stale bookmark should fail");
+        assert!(matches!(err, ResolveError::NotFound));
+
+        set_bookmark_env(None);
         let _ = fs::remove_dir_all(temp);
     }
 }
