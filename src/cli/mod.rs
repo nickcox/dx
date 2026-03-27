@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use crate::resolve::Resolver;
 
 mod bookmarks;
+mod init;
 mod resolve;
 mod stacks;
 
@@ -21,6 +22,11 @@ enum Commands {
         list: bool,
         #[arg(long)]
         json: bool,
+    },
+    Init {
+        shell: String,
+        #[arg(long = "command-not-found")]
+        command_not_found: bool,
     },
     Mark {
         name: String,
@@ -57,6 +63,10 @@ pub fn run() -> i32 {
     let resolver = Resolver::from_environment();
 
     match cli.command {
+        Commands::Init {
+            shell,
+            command_not_found,
+        } => init::run_init(&shell, command_not_found),
         Commands::Resolve { query, list, json } => {
             resolve::run_resolve(&resolver, &query, list, json)
         }

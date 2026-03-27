@@ -1,0 +1,181 @@
+## ADDED Requirements
+
+### Requirement: Init Subcommand
+The `dx init <shell>` subcommand SHALL accept a shell identifier and print shell-specific hook code to stdout. The supported shell identifiers SHALL be `bash`, `zsh`, `fish`, and `pwsh`.
+
+If an unsupported shell identifier is provided, the command SHALL exit with a non-zero exit code and print a diagnostic to stderr.
+
+The output SHALL be self-contained: evaluating it in the target shell SHALL define all hooks without requiring additional files or downloads.
+
+#### Scenario: Generate Bash hooks
+- **WHEN** `dx init bash` is invoked
+- **THEN** the command SHALL print valid Bash code to stdout that, when evaluated, defines a `cd` wrapper function and exports `DX_SESSION`
+
+#### Scenario: Generate Zsh hooks
+- **WHEN** `dx init zsh` is invoked
+- **THEN** the command SHALL print valid Zsh code to stdout that, when evaluated, defines a `cd` wrapper function and exports `DX_SESSION`
+
+#### Scenario: Generate Fish hooks
+- **WHEN** `dx init fish` is invoked
+- **THEN** the command SHALL print valid Fish code to stdout that, when evaluated, defines a `cd` wrapper function and sets `DX_SESSION` as a universal or exported variable
+
+#### Scenario: Generate PowerShell hooks
+- **WHEN** `dx init pwsh` is invoked
+- **THEN** the command SHALL print valid PowerShell code to stdout that, when evaluated via `Invoke-Expression`, defines a `cd` wrapper function and sets `$env:DX_SESSION`
+
+#### Scenario: Unsupported shell
+- **WHEN** `dx init unknown` is invoked
+- **THEN** the command SHALL exit with a non-zero exit code and print a diagnostic to stderr listing the supported shells
+
+### Requirement: Command Not Found Opt-In Flag
+The `dx init` subcommand SHALL accept a `--command-not-found` flag. When this flag is present, the generated hook code SHALL include a `command_not_found` handler in addition to the cd wrapper. When the flag is absent, the generated hook code SHALL NOT include any `command_not_found` handler.
+
+#### Scenario: Init without command-not-found flag
+- **WHEN** `dx init bash` is invoked without `--command-not-found`
+- **THEN** the generated code SHALL define a cd wrapper but SHALL NOT define a `command_not_found_handle` function
+
+#### Scenario: Init with command-not-found flag
+- **WHEN** `dx init bash --command-not-found` is invoked
+- **THEN** the generated code SHALL define both a cd wrapper and a `command_not_found_handle` function
+
+#### Scenario: PowerShell with command-not-found flag
+- **WHEN** `dx init pwsh --command-not-found` is invoked
+- **THEN** the generated code SHALL include `CommandNotFoundAction` registration when that member is detected at runtime, and SHALL skip it gracefully if the member is absent
+
+### Requirement: Session Identity Export
+The generated hook code SHALL export `DX_SESSION` set to the current shell's process ID at init time. This SHALL use `$$` for Bash and Zsh, `$fish_pid` for Fish, and `$PID` for PowerShell.
+
+If `DX_SESSION` is already set in the environment when the hook code is evaluated, the hook code SHALL NOT overwrite it.
+
+#### Scenario: DX_SESSION set on Bash init
+- **WHEN** Bash evaluates the output of `dx init bash` and `DX_SESSION` is not already set
+- **THEN** `DX_SESSION` SHALL be exported with the value of `$$`
+
+#### Scenario: DX_SESSION set on Fish init
+- **WHEN** Fish evaluates the output of `dx init fish` and `DX_SESSION` is not already set
+- **THEN** `DX_SESSION` SHALL be set to the value of `$fish_pid`
+
+#### Scenario: DX_SESSION already set
+- **WHEN** `DX_SESSION=custom-id` is set before evaluating `dx init bash` output
+- **THEN** the hook code SHALL preserve the existing value and NOT overwrite it
+
+### Requirement: cd Wrapper — No Arguments
+When the cd wrapper is invoked with no arguments, it SHALL call the shell's native cd (e.g., `builtin cd` for Bash/Zsh, `cd` in Fish, `Set-Location ~` in PowerShell) to navigate to the user's home directory. After a successful directory change, the wrapper SHALL call `dx push` with the new working directory. The push call SHALL be fire-and-forget: push failure SHALL NOT affect the cd exit code.
+
+#### Scenario: cd with no arguments
+- **WHEN** a user invokes `cd` with no arguments in a hooked shell
+- **THEN** the shell SHALL change to `$HOME` and invoke `dx push` with the home directory path
+
+#### Scenario: Push failure on no-arg cd
+- **WHEN** `cd` with no arguments succeeds but `dx push` fails (e.g., session dir unwritable)
+- **THEN** the cd SHALL still succeed and the shell SHALL be in `$HOME`
+
+### Requirement: cd Wrapper — Dash Argument
+When the cd wrapper is invoked with `-` as the sole argument, it SHALL call the shell's native cd with `-` to navigate to the previous directory. After a successful directory change, the wrapper SHALL call `dx push` with the new working directory.
+
+#### Scenario: cd dash navigates to previous directory
+- **WHEN** a user invokes `cd -` in a hooked shell
+- **THEN** the shell SHALL change to the previous directory (`$OLDPWD` equivalent) and invoke `dx push` with the new working directory
+
+### Requirement: cd Wrapper — Path Resolution
+When the cd wrapper is invoked with a path argument (not `-`), it SHALL first attempt `dx resolve "<arg>"`. If resolve succeeds, the wrapper SHALL call the shell's native cd with the resolved path. If resolve fails (non-zero exit), the wrapper SHALL fall through to the shell's native cd with the original argument unmodified. After a successful directory change (regardless of whether resolve was used), the wrapper SHALL call `dx push` with the new working directory.
+
+#### Scenario: Resolve succeeds
+- **WHEN** `cd pr/dx` is invoked and `dx resolve "pr/dx"` exits 0 with output `/home/user/projects/dx`
+- **THEN** the shell SHALL call `builtin cd /home/user/projects/dx` and then `dx push /home/user/projects/dx`
+
+#### Scenario: Resolve fails, native cd succeeds
+- **WHEN** `cd /tmp` is invoked and `dx resolve "/tmp"` exits non-zero
+- **THEN** the shell SHALL fall through to `builtin cd /tmp` and then `dx push /tmp`
+
+#### Scenario: Both resolve and native cd fail
+- **WHEN** `cd nonexistent` is invoked, `dx resolve` fails, and `builtin cd nonexistent` also fails
+- **THEN** the cd wrapper SHALL propagate the non-zero exit code from the native cd and SHALL NOT call `dx push`
+
+### Requirement: cd Wrapper — Flag Passthrough
+When the cd wrapper is invoked with flags (e.g., `-L`, `-P`), those flags SHALL be passed through to the shell's native cd command. The wrapper SHALL only resolve the path argument, not flags.
+
+#### Scenario: Physical flag passthrough
+- **WHEN** `cd -P /some/symlink` is invoked
+- **THEN** the flags SHALL be passed to `builtin cd -P` and `dx resolve` SHALL receive only the path argument
+
+### Requirement: command_not_found Handler — Path-Like Heuristic
+When the opt-in `command_not_found` handler receives an unrecognized command, it SHALL only invoke `dx resolve` if the input matches a path-like heuristic: contains `/`, starts with `.` or `~`, or matches a multi-dot pattern (e.g., `...`, `....`). If the input does not match the heuristic, the handler SHALL immediately produce the shell's standard "command not found" error without invoking dx.
+
+#### Scenario: Slash-containing input triggers resolve
+- **WHEN** the command `pr/dx` is not found and the command_not_found handler is active
+- **THEN** the handler SHALL invoke `dx resolve "pr/dx"`
+
+#### Scenario: Dot-prefixed input triggers resolve
+- **WHEN** the command `./foo` is not found and the command_not_found handler is active
+- **THEN** the handler SHALL invoke `dx resolve "./foo"`
+
+#### Scenario: Multi-dot input triggers resolve
+- **WHEN** the command `...` is not found and the command_not_found handler is active
+- **THEN** the handler SHALL invoke `dx resolve "..."`
+
+#### Scenario: Plain word does not trigger resolve
+- **WHEN** the command `gti` is not found and the command_not_found handler is active
+- **THEN** the handler SHALL NOT invoke `dx resolve` and SHALL produce the standard "command not found" error
+
+### Requirement: command_not_found Handler — Resolve Success
+When the `command_not_found` handler invokes `dx resolve` and it succeeds, the handler SHALL call the shell's native cd with the resolved path and then call `dx push` with the new working directory. The handler SHALL exit with code 0.
+
+#### Scenario: Auto-cd on resolve success
+- **WHEN** `pr/dx` triggers the handler and `dx resolve "pr/dx"` returns `/home/user/projects/dx`
+- **THEN** the shell SHALL change directory to `/home/user/projects/dx`, call `dx push`, and the command SHALL exit 0
+
+### Requirement: command_not_found Handler — Resolve Failure
+When the `command_not_found` handler invokes `dx resolve` and it fails (non-zero exit), the handler SHALL produce the shell's standard "command not found" error message and exit with code 127.
+
+#### Scenario: Standard error on resolve failure
+- **WHEN** `some/bad/path` triggers the handler and `dx resolve` exits non-zero
+- **THEN** the handler SHALL print the standard "command not found" error to stderr and exit 127
+
+### Requirement: command_not_found Handler — Recursion Guard
+When the `command_not_found` handler is entered and `DX_RESOLVE_GUARD` is already set in the environment, the handler SHALL immediately produce the standard "command not found" error without invoking `dx resolve`. When the handler invokes `dx resolve`, it SHALL set `DX_RESOLVE_GUARD=1` for the duration of that call and unset it afterwards.
+
+#### Scenario: Guard prevents recursion
+- **WHEN** the command_not_found handler is entered and `DX_RESOLVE_GUARD` is set to `1`
+- **THEN** the handler SHALL NOT invoke `dx resolve` and SHALL produce the standard "command not found" error
+
+#### Scenario: Guard is set during resolve call
+- **WHEN** the handler invokes `dx resolve "some/path"`
+- **THEN** `DX_RESOLVE_GUARD` SHALL be set to `1` in the environment of the `dx resolve` process and SHALL be unset after the call returns
+
+### Requirement: PowerShell Set-Location Wrapper
+The PowerShell hook code SHALL define a `cd` function that wraps `Set-Location` (PowerShell has no `builtin cd`). The wrapper SHALL follow the same resolve-then-navigate-then-push flow as POSIX shells but using `Set-Location` as the native navigation command.
+
+#### Scenario: PowerShell cd wrapper uses Set-Location
+- **WHEN** `cd pr/dx` is invoked in a PowerShell session with dx hooks
+- **THEN** the hook SHALL call `dx resolve`, and on success call `Set-Location` with the resolved path, then `dx push`
+
+#### Scenario: PowerShell CommandNotFoundAction feature detection
+- **WHEN** `dx init pwsh --command-not-found` output is evaluated and `$ExecutionContext.InvokeCommand` has a `CommandNotFoundAction` member
+- **THEN** the hook code SHALL register a handler via `CommandNotFoundAction`
+
+#### Scenario: PowerShell without CommandNotFoundAction
+- **WHEN** `dx init pwsh --command-not-found` output is evaluated and `CommandNotFoundAction` member does not exist
+- **THEN** the hook code SHALL skip command_not_found registration gracefully without errors
+
+### Requirement: Fish Auto-cd Cooperation
+The Fish hook code SHALL cooperate with Fish's built-in auto-cd feature. The `fish_command_not_found` handler (when enabled) SHALL only attempt `dx resolve` for inputs that Fish's native auto-cd would not handle (abbreviated paths, multi-dot patterns, bookmark names). If the input is a literal existing directory, Fish's auto-cd SHALL take precedence.
+
+#### Scenario: Fish auto-cd handles literal directory
+- **WHEN** a user types a literal directory name that exists on disk in a Fish shell with dx hooks
+- **THEN** Fish's native auto-cd SHALL handle the navigation (the dx command_not_found handler is never reached)
+
+#### Scenario: Fish handler resolves abbreviated path
+- **WHEN** a user types an abbreviated path like `pr/dx` that is not a literal directory, and the Fish command_not_found handler is active
+- **THEN** the handler SHALL invoke `dx resolve "pr/dx"` and navigate on success
+
+### Requirement: Shell Coverage
+`dx init` SHALL support all four target shells: Bash, Zsh, Fish, and PowerShell. Each shell's generated hook code SHALL be idiomatic for that shell and SHALL provide equivalent functionality: cd wrapper with resolve integration, session identity export, fire-and-forget push recording, and (when opted in) command_not_found handling.
+
+#### Scenario: All shells produce output
+- **WHEN** `dx init bash`, `dx init zsh`, `dx init fish`, and `dx init pwsh` are each invoked
+- **THEN** each SHALL produce non-empty output to stdout and exit with code 0
+
+#### Scenario: Consistent cd wrapper across shells
+- **WHEN** the hook code from each shell is evaluated and `cd pr/dx` is invoked where `dx resolve "pr/dx"` succeeds
+- **THEN** each shell SHALL navigate to the resolved path and record the change via `dx push`
