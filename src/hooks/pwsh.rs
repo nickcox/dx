@@ -19,6 +19,72 @@ function __dx_push_pwd {
     }
 }
 
+function __dx_complete_first {
+    param([string[]]$Lines)
+
+    foreach ($line in $Lines) {
+        if ($line) {
+            return $line
+        }
+    }
+    return $null
+}
+
+function __dx_complete_mode {
+    param(
+        [string]$Mode,
+        [string]$Word,
+        [string[]]$ExtraArgs
+    )
+
+    if (-not (Get-Command dx -ErrorAction SilentlyContinue)) {
+        return @()
+    }
+
+    $args = @("complete", $Mode)
+    if ($ExtraArgs) {
+        $args += $ExtraArgs
+    }
+    if ($Word) {
+        $args += @($Word)
+    }
+
+    $output = (& dx @args 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        return @()
+    }
+
+    return @($output | Where-Object { $_ -and $_.Trim().Length -gt 0 })
+}
+
+function __dx_navigate_wrapper {
+    param(
+        [ValidateSet('up', 'back', 'forward')]
+        [string]$Mode,
+        [string]$Selector
+    )
+
+    if (-not (Get-Command dx -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    $target = $null
+    if ($Selector) {
+        $target = (dx navigate $Mode $Selector)
+    } else {
+        $target = (dx navigate $Mode)
+    }
+
+    if ($LASTEXITCODE -ne 0 -or -not $target) {
+        return
+    }
+
+    __dx_set_location_native @($target)
+    if ($?) {
+        __dx_push_pwd
+    }
+}
+
 function __dx_set_location_native {
     param([string[]]$Args)
     Set-Location @Args
@@ -73,6 +139,109 @@ function cd {
     }
 
     if ($?) { __dx_push_pwd }
+}
+
+function up {
+    param([string]$Selector)
+    __dx_navigate_wrapper -Mode up -Selector $Selector
+}
+
+function back {
+    param([string]$Selector)
+    __dx_navigate_wrapper -Mode back -Selector $Selector
+}
+
+function forward {
+    param([string]$Selector)
+    __dx_navigate_wrapper -Mode forward -Selector $Selector
+}
+
+Set-Alias -Name 'cd-' -Value back -Scope Global
+Set-Alias -Name 'cd+' -Value forward -Scope Global
+
+function cdf {
+    param([string]$Query)
+    $target = __dx_complete_first (__dx_complete_mode -Mode frecents -Word $Query)
+    if ($target) {
+        __dx_set_location_native @($target)
+        if ($?) { __dx_push_pwd }
+    }
+}
+
+Set-Alias -Name z -Value cdf -Scope Global
+
+function cdr {
+    param([string]$Query)
+    $target = __dx_complete_first (__dx_complete_mode -Mode recents -Word $Query)
+    if ($target) {
+        __dx_set_location_native @($target)
+        if ($?) { __dx_push_pwd }
+    }
+}
+
+function __dx_emit_completion {
+    param([string[]]$Values)
+
+    foreach ($value in $Values) {
+        [System.Management.Automation.CompletionResult]::new($value, $value, 'ParameterValue', $value)
+    }
+}
+
+Register-ArgumentCompleter -CommandName dx -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+
+    $elements = @($commandAst.CommandElements | ForEach-Object { $_.Extent.Text })
+    if ($elements.Count -le 1) {
+        __dx_emit_completion @('resolve', 'complete', 'init', 'mark', 'unmark', 'bookmarks', 'push', 'pop', 'undo', 'redo', 'navigate')
+        return
+    }
+
+    $sub = $elements[1]
+    switch ($sub) {
+        'resolve' {
+            __dx_emit_completion (__dx_complete_mode -Mode paths -Word $wordToComplete)
+            break
+        }
+        'complete' {
+            if ($elements.Count -le 3) {
+                __dx_emit_completion @('paths', 'ancestors', 'frecents', 'recents', 'stack')
+            }
+            break
+        }
+        default {
+            break
+        }
+    }
+}
+
+Register-ArgumentCompleter -CommandName cd,Set-Location -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    __dx_emit_completion (__dx_complete_mode -Mode paths -Word $wordToComplete)
+}
+
+Register-ArgumentCompleter -CommandName up -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    __dx_emit_completion (__dx_complete_mode -Mode ancestors -Word $wordToComplete)
+}
+
+Register-ArgumentCompleter -CommandName cdf,z -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    __dx_emit_completion (__dx_complete_mode -Mode frecents -Word $wordToComplete)
+}
+
+Register-ArgumentCompleter -CommandName cdr -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    __dx_emit_completion (__dx_complete_mode -Mode recents -Word $wordToComplete)
+}
+
+Register-ArgumentCompleter -CommandName back,cd- -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    __dx_emit_completion (__dx_complete_mode -Mode stack -Word $wordToComplete -ExtraArgs @('--direction', 'back'))
+}
+
+Register-ArgumentCompleter -CommandName forward,cd+ -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    __dx_emit_completion (__dx_complete_mode -Mode stack -Word $wordToComplete -ExtraArgs @('--direction', 'forward'))
 }
 "#,
     );

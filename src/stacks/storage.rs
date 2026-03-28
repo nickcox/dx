@@ -186,8 +186,9 @@ fn is_valid_session_id(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, OnceLock};
     use std::thread;
+
+    use crate::test_support;
 
     use super::*;
 
@@ -203,10 +204,7 @@ mod tests {
     }
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("lock env")
+        test_support::env_lock()
     }
 
     #[test]

@@ -83,6 +83,12 @@ mod tests {
     fn generate_bash_without_command_not_found_contains_cd_only() {
         let output = generate(Shell::Bash, false);
         assert!(output.contains("cd()"));
+        assert!(output.contains("up()"));
+        assert!(output.contains("back()"));
+        assert!(output.contains("forward()"));
+        assert!(output.contains("cdf()"));
+        assert!(output.contains("cdr()"));
+        assert!(output.contains("_dx_complete_dx dx"));
         assert!(output.contains("DX_SESSION"));
         assert!(!output.contains("command_not_found_handle"));
     }
@@ -99,6 +105,8 @@ mod tests {
     fn generate_zsh_uses_handler_suffix() {
         let output = generate(Shell::Zsh, true);
         assert!(output.contains("command_not_found_handler"));
+        assert!(output.contains("compdef _dx_complete_dx dx"));
+        assert!(output.contains("compdef _dx_complete_ancestors up"));
         assert!(!output.contains("command_not_found_handle()"));
     }
 
@@ -106,6 +114,8 @@ mod tests {
     fn generate_fish_without_command_not_found_excludes_handler() {
         let output = generate(Shell::Fish, false);
         assert!(output.contains("function cd"));
+        assert!(output.contains("function up"));
+        assert!(output.contains("complete -c dx"));
         assert!(output.contains("DX_SESSION"));
         assert!(!output.contains("fish_command_not_found"));
     }
@@ -114,6 +124,8 @@ mod tests {
     fn generate_pwsh_with_command_not_found_includes_guard_and_action() {
         let output = generate(Shell::Pwsh, true);
         assert!(output.contains("Set-Location"));
+        assert!(output.contains("function up"));
+        assert!(output.contains("Register-ArgumentCompleter -CommandName dx"));
         assert!(output.contains("CommandNotFoundAction"));
         assert!(output.contains("DX_RESOLVE_GUARD"));
     }

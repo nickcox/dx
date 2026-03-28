@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use crate::resolve::Resolver;
 
 mod bookmarks;
+mod complete;
 mod init;
 mod resolve;
 mod stacks;
@@ -27,6 +28,16 @@ enum Commands {
         shell: String,
         #[arg(long = "command-not-found")]
         command_not_found: bool,
+    },
+    Complete {
+        #[command(subcommand)]
+        command: complete::CompleteCommand,
+    },
+    Navigate {
+        mode: complete::NavigateMode,
+        selector: Option<String>,
+        #[arg(long)]
+        session: Option<String>,
     },
     Mark {
         name: String,
@@ -70,6 +81,12 @@ pub fn run() -> i32 {
         Commands::Resolve { query, list, json } => {
             resolve::run_resolve(&resolver, &query, list, json)
         }
+        Commands::Complete { command } => complete::run_complete(&resolver, command),
+        Commands::Navigate {
+            mode,
+            selector,
+            session,
+        } => complete::run_navigate(mode, selector.as_deref(), session.as_deref()),
         Commands::Mark { name, path } => bookmarks::run_mark(&name, path.as_deref()),
         Commands::Unmark { name } => bookmarks::run_unmark(&name),
         Commands::Bookmarks { json } => bookmarks::run_list(json),

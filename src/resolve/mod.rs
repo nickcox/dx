@@ -3,6 +3,7 @@ pub mod precedence;
 pub mod roots;
 pub mod traversal;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -171,16 +172,7 @@ impl Resolver {
             });
         }
 
-        candidates.sort_by(|left, right| {
-            left.components()
-                .count()
-                .cmp(&right.components().count())
-                .then_with(|| left.as_os_str().cmp(right.as_os_str()))
-        });
-        candidates.dedup();
-        if let Some(max) = self.config.resolve.max_list_results {
-            candidates.truncate(max);
-        }
+        prepare_candidates(&mut candidates, self.config.resolve.max_list_results);
 
         match mode {
             ResolveMode::List => Err(ResolveError::Ambiguous {
@@ -196,6 +188,69 @@ impl Resolver {
                 candidates,
             }),
         }
+    }
+
+    pub fn collect_completion_candidates(&self, raw_query: &str) -> Vec<PathBuf> {
+        let trimmed = raw_query.trim();
+        if trimmed.is_empty() {
+            return Vec::new();
+        }
+
+        let cwd = match std::env::current_dir() {
+            Ok(value) => value,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut output = Vec::new();
+        let mut seen = HashSet::new();
+
+        if let Some(path) = precedence::resolve_direct(&cwd, trimmed) {
+            if path.is_dir() {
+                push_unique(&mut output, &mut seen, path);
+            }
+        }
+
+        if let Some(path) = traversal::resolve_step_up(&cwd, trimmed) {
+            if path.is_dir() {
+                push_unique(&mut output, &mut seen, path);
+            }
+        }
+
+        let mut abbreviation_candidates = abbreviation::resolve_abbreviation(
+            &self.config.search_roots,
+            trimmed,
+            self.config.resolve.case_sensitive,
+        );
+        prepare_candidates(
+            &mut abbreviation_candidates,
+            self.config.resolve.max_list_results,
+        );
+        for candidate in abbreviation_candidates {
+            push_unique(&mut output, &mut seen, candidate);
+        }
+
+        let mut fallback_candidates = roots::resolve_fallbacks(
+            &self.config.search_roots,
+            trimmed,
+            self.config.resolve.case_sensitive,
+        );
+        prepare_candidates(
+            &mut fallback_candidates,
+            self.config.resolve.max_list_results,
+        );
+        for candidate in fallback_candidates {
+            push_unique(&mut output, &mut seen, candidate);
+        }
+
+        if let Some(path) = (self.bookmark_lookup)(trimmed) {
+            push_unique(&mut output, &mut seen, path);
+        }
+
+        if let Some(max) = self.config.resolve.max_list_results {
+            output.truncate(max);
+        }
+
+        output
     }
 
     fn emit_error(&self, err: ResolveError, mode: ResolveMode) -> i32 {
@@ -259,6 +314,26 @@ impl Resolver {
                 1
             }
         }
+    }
+}
+
+fn push_unique(output: &mut Vec<PathBuf>, seen: &mut HashSet<String>, candidate: PathBuf) {
+    let key = candidate.display().to_string();
+    if seen.insert(key) {
+        output.push(candidate);
+    }
+}
+
+fn prepare_candidates(candidates: &mut Vec<PathBuf>, max: Option<usize>) {
+    candidates.sort_by(|left, right| {
+        left.components()
+            .count()
+            .cmp(&right.components().count())
+            .then_with(|| left.as_os_str().cmp(right.as_os_str()))
+    });
+    candidates.dedup();
+    if let Some(max) = max {
+        candidates.truncate(max);
     }
 }
 

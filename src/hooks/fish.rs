@@ -21,6 +21,58 @@ function __dx_cd_native
   builtin cd $argv
 end
 
+function __dx_nav_wrapper --argument mode selector
+  if not type -q dx
+    return 1
+  end
+
+  set -l target
+  if test -n "$selector"
+    set target (dx navigate $mode "$selector")
+  else
+    set target (dx navigate $mode)
+  end
+
+  if test -z "$target"
+    return 1
+  end
+
+  __dx_cd_native "$target"
+  if test $status -ne 0
+    return $status
+  end
+
+  __dx_push_pwd
+  return 0
+end
+
+function __dx_jump_mode --argument mode query
+  if not type -q dx
+    return 1
+  end
+
+  set -l target
+  if test -n "$query"
+    set -l values (dx complete $mode "$query" 2>/dev/null)
+    set target $values[1]
+  else
+    set -l values (dx complete $mode 2>/dev/null)
+    set target $values[1]
+  end
+
+  if test -z "$target"
+    return 1
+  end
+
+  __dx_cd_native "$target"
+  if test $status -ne 0
+    return $status
+  end
+
+  __dx_push_pwd
+  return 0
+end
+
 function cd
   if test (count $argv) -eq 0
     __dx_cd_native
@@ -80,6 +132,52 @@ function cd
 
   return $__dx_status
 end
+
+function up
+  __dx_nav_wrapper up "$argv[1]"
+end
+
+function back
+  __dx_nav_wrapper back "$argv[1]"
+end
+
+function forward
+  __dx_nav_wrapper forward "$argv[1]"
+end
+
+function cd-
+  back $argv
+end
+
+function cd+
+  forward $argv
+end
+
+function cdf
+  __dx_jump_mode frecents "$argv[1]"
+end
+
+function z
+  cdf $argv
+end
+
+function cdr
+  __dx_jump_mode recents "$argv[1]"
+end
+
+complete -c dx -n '__fish_use_subcommand' -a 'resolve complete init mark unmark bookmarks push pop undo redo navigate'
+complete -c dx -n '__fish_seen_subcommand_from complete; and not __fish_seen_subcommand_from paths ancestors frecents recents stack' -a 'paths ancestors frecents recents stack'
+complete -c dx -n '__fish_seen_subcommand_from resolve' -a '(dx complete paths (commandline -ct) 2>/dev/null)'
+
+complete -c cd -a '(dx complete paths (commandline -ct) 2>/dev/null)'
+complete -c up -a '(dx complete ancestors (commandline -ct) 2>/dev/null)'
+complete -c cdf -a '(dx complete frecents (commandline -ct) 2>/dev/null)'
+complete -c z -a '(dx complete frecents (commandline -ct) 2>/dev/null)'
+complete -c cdr -a '(dx complete recents (commandline -ct) 2>/dev/null)'
+complete -c back -a '(dx complete stack --direction back (commandline -ct) 2>/dev/null)'
+complete -c cd- -a '(dx complete stack --direction back (commandline -ct) 2>/dev/null)'
+complete -c forward -a '(dx complete stack --direction forward (commandline -ct) 2>/dev/null)'
+complete -c cd+ -a '(dx complete stack --direction forward (commandline -ct) 2>/dev/null)'
 "#,
     );
 

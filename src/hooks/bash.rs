@@ -18,6 +18,60 @@ __dx_cd_native() {
   builtin cd "$@"
 }
 
+__dx_complete_first() {
+  local __dx_target=""
+  local __dx_line
+  while IFS= read -r __dx_line; do
+    if [[ -n "$__dx_line" ]]; then
+      __dx_target="$__dx_line"
+      break
+    fi
+  done
+  printf '%s' "$__dx_target"
+}
+
+__dx_nav_wrapper() {
+  local __dx_mode="$1"
+  local __dx_selector="${2:-}"
+  command -v dx >/dev/null 2>&1 || return 1
+
+  local __dx_target=""
+  if [[ -n "$__dx_selector" ]]; then
+    __dx_target="$(dx navigate "$__dx_mode" "$__dx_selector")"
+  else
+    __dx_target="$(dx navigate "$__dx_mode")"
+  fi
+
+  if [[ -z "$__dx_target" ]]; then
+    return 1
+  fi
+
+  __dx_cd_native "$__dx_target" || return $?
+  __dx_push_pwd
+  return 0
+}
+
+__dx_jump_mode() {
+  local __dx_mode="$1"
+  local __dx_query="${2:-}"
+  command -v dx >/dev/null 2>&1 || return 1
+
+  local __dx_target=""
+  if [[ -n "$__dx_query" ]]; then
+    __dx_target="$(__dx_complete_first < <(dx complete "$__dx_mode" "$__dx_query" 2>/dev/null))"
+  else
+    __dx_target="$(__dx_complete_first < <(dx complete "$__dx_mode" 2>/dev/null))"
+  fi
+
+  if [[ -z "$__dx_target" ]]; then
+    return 1
+  fi
+
+  __dx_cd_native "$__dx_target" || return $?
+  __dx_push_pwd
+  return 0
+}
+
 cd() {
   local __dx_status=0
 
@@ -79,6 +133,137 @@ cd() {
 
   return $__dx_status
 }
+
+up() {
+  __dx_nav_wrapper up "${1:-}"
+}
+
+back() {
+  __dx_nav_wrapper back "${1:-}"
+}
+
+forward() {
+  __dx_nav_wrapper forward "${1:-}"
+}
+
+cd-() {
+  back "$@"
+}
+
+cd+() {
+  forward "$@"
+}
+
+cdf() {
+  __dx_jump_mode frecents "${1:-}"
+}
+
+z() {
+  cdf "$@"
+}
+
+cdr() {
+  __dx_jump_mode recents "${1:-}"
+}
+
+_dx_complete_paths() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+  command -v dx >/dev/null 2>&1 || return 1
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && COMPREPLY+=("$line")
+  done < <(dx complete paths "$cur" 2>/dev/null)
+}
+
+_dx_complete_ancestors() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+  command -v dx >/dev/null 2>&1 || return 1
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && COMPREPLY+=("$line")
+  done < <(dx complete ancestors "$cur" 2>/dev/null)
+}
+
+_dx_complete_frecents() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+  command -v dx >/dev/null 2>&1 || return 1
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && COMPREPLY+=("$line")
+  done < <(dx complete frecents "$cur" 2>/dev/null)
+}
+
+_dx_complete_recents() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+  command -v dx >/dev/null 2>&1 || return 1
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && COMPREPLY+=("$line")
+  done < <(dx complete recents "$cur" 2>/dev/null)
+}
+
+_dx_complete_stack_back() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+  command -v dx >/dev/null 2>&1 || return 1
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && COMPREPLY+=("$line")
+  done < <(dx complete stack --direction back "$cur" 2>/dev/null)
+}
+
+_dx_complete_stack_forward() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+  command -v dx >/dev/null 2>&1 || return 1
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && COMPREPLY+=("$line")
+  done < <(dx complete stack --direction forward "$cur" 2>/dev/null)
+}
+
+_dx_complete_dx() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  local sub="${COMP_WORDS[1]:-}"
+  COMPREPLY=()
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "resolve complete init mark unmark bookmarks push pop undo redo navigate" -- "$cur") )
+    return 0
+  fi
+
+  case "$sub" in
+    resolve)
+      _dx_complete_paths
+      ;;
+    complete)
+      if [[ ${COMP_CWORD} -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "paths ancestors frecents recents stack" -- "$cur") )
+      fi
+      ;;
+    push)
+      return 1
+      ;;
+    *)
+      ;;
+  esac
+  return 0
+}
+
+complete -o default -F _dx_complete_dx dx
+complete -o default -F _dx_complete_paths cd
+complete -F _dx_complete_ancestors up
+complete -F _dx_complete_frecents cdf
+complete -F _dx_complete_frecents z
+complete -F _dx_complete_recents cdr
+complete -F _dx_complete_stack_back back
+complete -F _dx_complete_stack_back cd-
+complete -F _dx_complete_stack_forward forward
+complete -F _dx_complete_stack_forward cd+
 "#,
     );
 

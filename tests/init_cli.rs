@@ -13,7 +13,12 @@ fn init_bash_prints_non_empty_output() {
         .expect("run init bash");
 
     assert!(output.status.success());
-    assert!(!String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.trim().is_empty());
+    assert!(stdout.contains("_dx_complete_dx dx"));
+    assert!(stdout.contains("up()"));
+    assert!(stdout.contains("back()"));
+    assert!(stdout.contains("forward()"));
 }
 
 #[test]
@@ -24,7 +29,13 @@ fn init_zsh_prints_non_empty_output() {
         .expect("run init zsh");
 
     assert!(output.status.success());
-    assert!(!String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.trim().is_empty());
+    assert!(stdout.contains("compdef _dx_complete_dx dx"));
+    assert!(stdout.contains("compdef _dx_complete_ancestors up"));
+    assert!(stdout.contains("up()"));
+    assert!(stdout.contains("back()"));
+    assert!(stdout.contains("forward()"));
 }
 
 #[test]
@@ -35,7 +46,12 @@ fn init_fish_prints_non_empty_output() {
         .expect("run init fish");
 
     assert!(output.status.success());
-    assert!(!String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.trim().is_empty());
+    assert!(stdout.contains("complete -c dx"));
+    assert!(stdout.contains("function up"));
+    assert!(stdout.contains("function back"));
+    assert!(stdout.contains("function forward"));
 }
 
 #[test]
@@ -46,7 +62,12 @@ fn init_pwsh_prints_non_empty_output() {
         .expect("run init pwsh");
 
     assert!(output.status.success());
-    assert!(!String::from_utf8_lossy(&output.stdout).trim().is_empty());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.trim().is_empty());
+    assert!(stdout.contains("Register-ArgumentCompleter -CommandName dx"));
+    assert!(stdout.contains("function up"));
+    assert!(stdout.contains("function back"));
+    assert!(stdout.contains("function forward"));
 }
 
 #[test]

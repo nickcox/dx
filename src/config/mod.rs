@@ -149,8 +149,9 @@ fn split_paths(raw: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    use crate::test_support;
 
     use super::*;
 
@@ -166,10 +167,7 @@ mod tests {
     }
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("lock env")
+        test_support::env_lock()
     }
 
     #[test]
