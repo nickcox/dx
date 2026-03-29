@@ -64,37 +64,53 @@ The completion function names SHALL use a `_dx_complete_` prefix (e.g., `_dx_com
 - **THEN** the completion function SHALL invoke `dx complete frecents proj` and offer matching frecency candidates
 
 ### Requirement: Navigation Wrapper Functions
-`dx init` output SHALL generate navigation wrapper functions for `up`, `back`, `forward`, `cdf`/`z`, `cdr`, `cd-`, and `cd+`. Each wrapper SHALL accept an optional selector argument, resolve it to a target directory, call the shell's native cd to change directory, and then call `dx push` with the new directory.
+`dx init` output SHALL generate navigation wrapper functions for `up`, `back`, `forward`, `cdf`/`z`, `cdr`, `cd-`, and `cd+`. Each wrapper SHALL accept an optional selector argument.
 
 The `cd-` and `back` wrappers SHALL be aliases for the same behavior (navigate backward in the session stack). The `cd+` and `forward` wrappers SHALL be aliases for the same behavior (navigate forward in the session stack).
 
+Navigation wrappers fall into three categories with distinct stack interaction contracts:
+
+**Forward-navigation wrappers** (`up`, `cd`, `cdf`/`z`, `cdr`, command_not_found): These wrappers perform new forward navigation. Before navigating, they SHALL call `dx push $PWD` to seed the current directory as the session baseline (this is idempotent if the session already has `cwd` set to the current directory). After the shell's native cd completes, they SHALL NOT call `dx push` again — the next navigation's seed-push will record the destination as the new baseline, naturally moving the previous baseline into the undo stack.
+
+**Stack-transition wrappers** (`back`, `forward`, `cd-`, `cd+`): These wrappers traverse the existing undo/redo history. They SHALL call `dx undo` (for back) or `dx redo` (for forward) which performs the correct stack transition (moving the current `cwd` to redo/undo respectively). They SHALL NOT call `dx push`, as push clears the redo stack and would corrupt undo/redo semantics. When a selector is provided, `dx navigate` resolves the target path first, then `dx undo --target <path>` or `dx redo --target <path>` consumes entries until the target is reached.
+
+**Jump wrappers** (`cdf`/`z`, `cdr`): These wrappers jump to a directory from an external source. They SHALL call `dx push $PWD` to seed the origin, then call `dx push $destination` after the shell's native cd completes to record the destination.
+
 #### Scenario: up with no argument
 - **WHEN** the user invokes `up` with no arguments in a hooked shell
-- **THEN** the wrapper SHALL navigate to the immediate parent directory and record the change via `dx push`
+- **THEN** the wrapper SHALL seed the current directory via `dx push $PWD`, resolve the target via `dx navigate up`, and call the shell's native cd to the target
 
 #### Scenario: up with numeric selector
 - **WHEN** the user invokes `up 3` in a hooked shell
-- **THEN** the wrapper SHALL resolve selector `3` against ancestor candidates and navigate to the 3rd ancestor
+- **THEN** the wrapper SHALL seed the current directory, resolve selector `3` against ancestor candidates via `dx navigate up 3`, and navigate to the 3rd ancestor
 
 #### Scenario: up with path selector
 - **WHEN** the user invokes `up code` from `/home/user/code/projects/dx` in a hooked shell
-- **THEN** the wrapper SHALL resolve selector `code` against ancestor candidates and navigate to `/home/user/code`
+- **THEN** the wrapper SHALL seed the current directory, resolve selector `code` via `dx navigate up code`, and navigate to `/home/user/code`
 
 #### Scenario: back with no argument
 - **WHEN** the user invokes `back` in a hooked shell with a non-empty undo stack
-- **THEN** the wrapper SHALL navigate to the most recent undo entry and record the change via `dx push`
+- **THEN** the wrapper SHALL call `dx undo` to transition one step back in the undo stack and cd to the returned path; `dx push` SHALL NOT be called
+
+#### Scenario: back with selector
+- **WHEN** the user invokes `back 2` in a hooked shell with undo entries `[/a, /b, /c]`
+- **THEN** the wrapper SHALL resolve the target via `dx navigate back 2`, then call `dx undo --target <path>` to consume undo entries until the target is reached, and cd to the returned path
 
 #### Scenario: forward with no argument
 - **WHEN** the user invokes `forward` in a hooked shell with a non-empty redo stack
-- **THEN** the wrapper SHALL navigate to the most recent redo entry and record the change via `dx push`
+- **THEN** the wrapper SHALL call `dx redo` to transition one step forward in the redo stack and cd to the returned path; `dx push` SHALL NOT be called
+
+#### Scenario: back then forward round-trip
+- **WHEN** the user navigates `up` twice (from /a/b/c to /a/b to /a) and then invokes `back`
+- **THEN** `back` SHALL return to /a/b, and a subsequent `forward` SHALL return to /a; the undo and redo stacks SHALL be consistent throughout
 
 #### Scenario: cdf jumps to frecent directory
 - **WHEN** the user invokes `cdf proj` in a hooked shell and zoxide returns `/home/user/projects` as the top match
-- **THEN** the wrapper SHALL navigate to `/home/user/projects` and record the change via `dx push`
+- **THEN** the wrapper SHALL seed the current directory via `dx push $PWD`, navigate to `/home/user/projects`, and record the destination via `dx push`
 
 #### Scenario: cdr jumps to recent directory
 - **WHEN** the user invokes `cdr proj` in a hooked shell and the session recents contain `/home/user/projects/dx`
-- **THEN** the wrapper SHALL navigate to `/home/user/projects/dx` and record the change via `dx push`
+- **THEN** the wrapper SHALL seed the current directory via `dx push $PWD`, navigate to `/home/user/projects/dx`, and record the destination via `dx push`
 
 ### Requirement: Wrapper Selector Resolution via dx
 Navigation wrappers (`up`, `back`, `forward`) SHALL delegate selector resolution to `dx` rather than implementing matching logic in shell code. The wrapper SHALL invoke a `dx` subcommand that accepts the selector, resolves it against the appropriate candidate list, and prints a single absolute path to stdout.

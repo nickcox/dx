@@ -35,6 +35,8 @@ __dx_nav_wrapper() {
   local __dx_selector="${2:-}"
   command -v dx >/dev/null 2>&1 || return 1
 
+  __dx_push_pwd
+
   local __dx_target=""
   if [[ -n "$__dx_selector" ]]; then
     __dx_target="$(dx navigate "$__dx_mode" "$__dx_selector")"
@@ -49,6 +51,32 @@ __dx_nav_wrapper() {
   __dx_cd_native "$__dx_target" || return $?
   __dx_push_pwd
   return 0
+}
+
+__dx_stack_wrapper() {
+  local __dx_op="$1"
+  local __dx_selector="${2:-}"
+  command -v dx >/dev/null 2>&1 || return 1
+
+  local __dx_undo_or_redo
+  if [[ "$__dx_op" == "back" ]]; then
+    __dx_undo_or_redo="undo"
+  else
+    __dx_undo_or_redo="redo"
+  fi
+
+  local __dx_dest=""
+  if [[ -n "$__dx_selector" ]]; then
+    local __dx_target
+    __dx_target="$(dx navigate "$__dx_op" "$__dx_selector")" || return 1
+    [[ -n "$__dx_target" ]] || return 1
+    __dx_dest="$(dx "$__dx_undo_or_redo" --target "$__dx_target")" || return 1
+  else
+    __dx_dest="$(dx "$__dx_undo_or_redo")" || return 1
+  fi
+
+  [[ -n "$__dx_dest" ]] || return 1
+  __dx_cd_native "$__dx_dest"
 }
 
 __dx_jump_mode() {
@@ -139,11 +167,11 @@ up() {
 }
 
 back() {
-  __dx_nav_wrapper back "${1:-}"
+  __dx_stack_wrapper back "${1:-}"
 }
 
 forward() {
-  __dx_nav_wrapper forward "${1:-}"
+  __dx_stack_wrapper forward "${1:-}"
 }
 
 cd-() {

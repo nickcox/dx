@@ -26,6 +26,8 @@ function __dx_nav_wrapper --argument mode selector
     return 1
   end
 
+  __dx_push_pwd
+
   set -l target
   if test -n "$selector"
     set target (dx navigate $mode "$selector")
@@ -44,6 +46,34 @@ function __dx_nav_wrapper --argument mode selector
 
   __dx_push_pwd
   return 0
+end
+
+function __dx_stack_wrapper --argument op selector
+  if not type -q dx
+    return 1
+  end
+
+  set -l undo_or_redo
+  if test "$op" = "back"
+    set undo_or_redo "undo"
+  else
+    set undo_or_redo "redo"
+  end
+
+  set -l dest
+  if test -n "$selector"
+    set -l target (dx navigate $op "$selector")
+    or return 1
+    test -n "$target"; or return 1
+    set dest (dx $undo_or_redo --target "$target")
+    or return 1
+  else
+    set dest (dx $undo_or_redo)
+    or return 1
+  end
+
+  test -n "$dest"; or return 1
+  __dx_cd_native "$dest"
 end
 
 function __dx_jump_mode --argument mode query
@@ -138,11 +168,11 @@ function up
 end
 
 function back
-  __dx_nav_wrapper back "$argv[1]"
+  __dx_stack_wrapper back "$argv[1]"
 end
 
 function forward
-  __dx_nav_wrapper forward "$argv[1]"
+  __dx_stack_wrapper forward "$argv[1]"
 end
 
 function cd-

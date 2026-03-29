@@ -94,6 +94,46 @@ mod tests {
     }
 
     #[test]
+    fn bash_back_forward_use_stack_wrapper_not_nav_wrapper() {
+        let output = generate(Shell::Bash, false);
+        // back/forward should use __dx_stack_wrapper (dx undo/redo), not __dx_nav_wrapper (dx push)
+        assert!(output.contains("back() {\n  __dx_stack_wrapper back"));
+        assert!(output.contains("forward() {\n  __dx_stack_wrapper forward"));
+        assert!(output.contains("__dx_stack_wrapper()"));
+        assert!(output.contains("dx \"$__dx_undo_or_redo\""));
+    }
+
+    #[test]
+    fn bash_up_seeds_origin_before_navigate() {
+        let output = generate(Shell::Bash, false);
+        // __dx_nav_wrapper should call __dx_push_pwd before dx navigate
+        let nav_wrapper_start = output.find("__dx_nav_wrapper()").unwrap();
+        let nav_section = &output[nav_wrapper_start..];
+        let push_pos = nav_section.find("__dx_push_pwd").unwrap();
+        let navigate_pos = nav_section.find("dx navigate").unwrap();
+        assert!(
+            push_pos < navigate_pos,
+            "push_pwd should come before dx navigate in nav_wrapper"
+        );
+    }
+
+    #[test]
+    fn zsh_back_forward_use_stack_wrapper() {
+        let output = generate(Shell::Zsh, false);
+        assert!(output.contains("back() {\n  __dx_stack_wrapper back"));
+        assert!(output.contains("forward() {\n  __dx_stack_wrapper forward"));
+        assert!(output.contains("__dx_stack_wrapper()"));
+    }
+
+    #[test]
+    fn fish_back_forward_use_stack_wrapper() {
+        let output = generate(Shell::Fish, false);
+        assert!(output.contains("function back\n  __dx_stack_wrapper back"));
+        assert!(output.contains("function forward\n  __dx_stack_wrapper forward"));
+        assert!(output.contains("function __dx_stack_wrapper"));
+    }
+
+    #[test]
     fn generate_bash_with_command_not_found_contains_handler() {
         let output = generate(Shell::Bash, true);
         assert!(output.contains("cd()"));

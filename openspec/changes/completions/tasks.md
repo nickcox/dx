@@ -83,6 +83,24 @@
 - [x] 10.4 Add PowerShell wrapper functions to `src/hooks/pwsh.rs` with same wrapper set
 - [x] 10.5 Ensure `cd-`/`back` and `cd+`/`forward` are aliases for the same behavior in each shell
 
+## 14. Stack Navigation Fix — back/forward Use undo/redo, up Seeds Origin
+
+- [x] 14.1 Add optional `--target <path>` argument to `Undo` and `Redo` variants in `src/cli/mod.rs`
+- [x] 14.2 Implement targeted undo in `src/cli/stacks.rs`: `run_undo` with `--target` loops `stack.undo()` until `cwd` matches target path, returning error if target not found in undo stack
+- [x] 14.3 Implement targeted redo in `src/cli/stacks.rs`: `run_redo` with `--target` loops `stack.redo()` until `cwd` matches target path, returning error if target not found in redo stack
+- [x] 14.4 Update Bash `__dx_nav_wrapper` in `src/hooks/bash.rs`: `up` calls `dx push "$PWD"` to seed origin before navigating; no push after cd
+- [x] 14.5 Add Bash `__dx_stack_wrapper` in `src/hooks/bash.rs`: `back`/`forward` call `dx undo`/`dx redo` (with `--target` when selector provided via `dx navigate`); no `dx push` call
+- [x] 14.6 Update Zsh `__dx_nav_wrapper` in `src/hooks/zsh.rs`: same origin-seeding and no-push-after-cd for `up`
+- [x] 14.7 Add Zsh `__dx_stack_wrapper` in `src/hooks/zsh.rs`: same `dx undo`/`dx redo` pattern for `back`/`forward`
+- [x] 14.8 Update Fish `__dx_nav_wrapper` in `src/hooks/fish.rs`: same origin-seeding and no-push-after-cd for `up`
+- [x] 14.9 Add Fish `__dx_stack_wrapper` in `src/hooks/fish.rs`: same `dx undo`/`dx redo` pattern for `back`/`forward`
+- [x] 14.10 Update `back()`/`forward()` wrapper definitions in bash/zsh/fish to call `__dx_stack_wrapper` instead of `__dx_nav_wrapper`
+- [x] 14.11 Update unit tests in `src/hooks/mod.rs` to verify back/forward wrappers emit `dx undo`/`dx redo` instead of `dx push`, and up wrappers seed origin
+- [x] 14.12 Add integration tests in `tests/stacks_cli.rs` for `dx undo --target` and `dx redo --target` (happy path, target not found, out of range)
+- [x] 14.13 Add integration tests in `tests/navigate_cli.rs` for round-trip: `up; up; back` returns to intermediate; `back; forward` returns to previous
+- [x] 14.14 Run `cargo build` and fix any compilation errors
+- [x] 14.15 Run `cargo test` and fix any test failures
+
 ## 11. Shell Hook Updates — Completion Bindings
 
 - [x] 11.1 Add Bash completion functions (`_dx_complete_paths`, `_dx_complete_ancestors`, etc.) and `complete -F` bindings for `dx` and all wrapper functions in `src/hooks/bash.rs`

@@ -62,10 +62,14 @@ enum Commands {
     Undo {
         #[arg(long)]
         session: Option<String>,
+        #[arg(long)]
+        target: Option<String>,
     },
     Redo {
         #[arg(long)]
         session: Option<String>,
+        #[arg(long)]
+        target: Option<String>,
     },
 }
 
@@ -92,7 +96,11 @@ pub fn run() -> i32 {
         Commands::Bookmarks { json } => bookmarks::run_list(json),
         Commands::Push { path, session } => stacks::run_push(&path, session.as_deref()),
         Commands::Pop { session } => stacks::run_pop(session.as_deref()),
-        Commands::Undo { session } => stacks::run_undo(session.as_deref()),
-        Commands::Redo { session } => stacks::run_redo(session.as_deref()),
+        Commands::Undo { session, target } => {
+            stacks::run_undo(session.as_deref(), target.as_deref())
+        }
+        Commands::Redo { session, target } => {
+            stacks::run_redo(session.as_deref(), target.as_deref())
+        }
     }
 }

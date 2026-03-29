@@ -43,12 +43,79 @@ pub fn run_pop(cli_session: Option<&str>) -> i32 {
     run_stack_operation(cli_session, |stack| stack.pop())
 }
 
-pub fn run_undo(cli_session: Option<&str>) -> i32 {
-    run_stack_operation(cli_session, |stack| stack.undo())
+pub fn run_undo(cli_session: Option<&str>, target: Option<&str>) -> i32 {
+    match target {
+        Some(t) => run_targeted_stack_op(cli_session, t, |stack| stack.undo()),
+        None => run_stack_operation(cli_session, |stack| stack.undo()),
+    }
 }
 
-pub fn run_redo(cli_session: Option<&str>) -> i32 {
-    run_stack_operation(cli_session, |stack| stack.redo())
+pub fn run_redo(cli_session: Option<&str>, target: Option<&str>) -> i32 {
+    match target {
+        Some(t) => run_targeted_stack_op(cli_session, t, |stack| stack.redo()),
+        None => run_stack_operation(cli_session, |stack| stack.redo()),
+    }
+}
+
+fn run_targeted_stack_op(
+    cli_session: Option<&str>,
+    target: &str,
+    step: fn(&mut SessionStack) -> Result<PathBuf, StackError>,
+) -> i32 {
+    let target_path = PathBuf::from(target);
+    if !target_path.is_absolute() {
+        eprintln!("dx stacks: target must be an absolute path: {target}");
+        return 1;
+    }
+
+    let session_id = match resolve_session_id(cli_session) {
+        Ok(value) => value,
+        Err(code) => return code,
+    };
+
+    let dir = match storage::ensure_session_dir() {
+        Ok(value) => value,
+        Err(err) => return storage_error(err),
+    };
+
+    let mut stack = match storage::read_session(&dir, &session_id) {
+        Ok(value) => value,
+        Err(err) => return storage_error(err),
+    };
+
+    // Loop step() until cwd matches target. Cap iterations to prevent infinite loops.
+    let max_steps = stack.undo.len() + stack.redo.len() + 1;
+    let mut result = PathBuf::new();
+    let mut found = false;
+
+    for _ in 0..max_steps {
+        match step(&mut stack) {
+            Ok(path) => {
+                result = path.clone();
+                if path == target_path {
+                    found = true;
+                    break;
+                }
+            }
+            Err(err) => {
+                eprintln!("dx stacks: target not reachable: {}", target_path.display());
+                let _ = err;
+                return 1;
+            }
+        }
+    }
+
+    if !found {
+        eprintln!("dx stacks: target not reachable: {}", target_path.display());
+        return 1;
+    }
+
+    if let Err(err) = storage::write_session(&dir, &session_id, &stack) {
+        return storage_error(err);
+    }
+
+    println!("{}", result.display());
+    0
 }
 
 fn run_stack_operation(
