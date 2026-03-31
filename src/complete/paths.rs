@@ -89,7 +89,7 @@ mod tests {
             target.display().to_string().replace('\\', "\\\\")
         );
         fs::write(&bookmarks_file, toml).expect("write bookmarks file");
-        env::set_var("DX_BOOKMARKS_FILE", bookmarks_file.display().to_string());
+        unsafe { env::set_var("DX_BOOKMARKS_FILE", bookmarks_file.display().to_string()) };
 
         let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), bookmarks::lookup);
 
@@ -100,7 +100,7 @@ mod tests {
 
         assert!(output.contains(&target));
 
-        env::remove_var("DX_BOOKMARKS_FILE");
+        unsafe { env::remove_var("DX_BOOKMARKS_FILE") };
         let _ = fs::remove_dir_all(temp);
     }
 

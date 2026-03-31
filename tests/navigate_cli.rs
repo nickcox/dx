@@ -106,7 +106,7 @@ fn navigate_back_and_forward_use_stack_entries() {
     let temp = make_temp_dir("back-forward");
     let runtime = temp.join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
-    env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string());
+    unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
     let dir = storage::ensure_session_dir().expect("session dir");
     let state = SessionStack {
@@ -132,7 +132,7 @@ fn navigate_back_and_forward_use_stack_entries() {
     assert!(forward.status.success());
     assert_eq!(String::from_utf8_lossy(&forward.stdout).trim(), "/y");
 
-    env::remove_var("XDG_RUNTIME_DIR");
+    unsafe { env::remove_var("XDG_RUNTIME_DIR") };
     let _ = fs::remove_dir_all(temp);
 }
 
@@ -142,7 +142,7 @@ fn navigate_fails_for_out_of_range_and_no_match() {
     let temp = make_temp_dir("errors");
     let runtime = temp.join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
-    env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string());
+    unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
     let dir = storage::ensure_session_dir().expect("session dir");
     let state = SessionStack {
@@ -168,6 +168,6 @@ fn navigate_fails_for_out_of_range_and_no_match() {
     assert!(!no_match.status.success());
     assert!(String::from_utf8_lossy(&no_match.stderr).contains("did not match any candidate"));
 
-    env::remove_var("XDG_RUNTIME_DIR");
+    unsafe { env::remove_var("XDG_RUNTIME_DIR") };
     let _ = fs::remove_dir_all(temp);
 }

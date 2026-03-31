@@ -4,7 +4,6 @@
 
 * **Evaluate `dx init pwsh` output as a single script block**: In PowerShell, piping `dx init pwsh` directly to `Invoke-Expression` can execute line-by-line and break multi-line constructs in the generated hook script. Convert output to one string first, e.g. `Invoke-Expression ((& dx init pwsh | Out-String))` (or join lines with `` `n ``) before evaluation.
 * **Use one global env lock across test modules**: Tests that mutate process env vars (for example `DX_BOOKMARKS_FILE`, `XDG_DATA_HOME`) can flake under parallel execution if each module has its own `OnceLock<Mutex<()>>`. Module-local locks do not synchronize with each other. Use a single shared env lock helper (for example in `src/test_support.rs`) and have all env-mutating tests acquire it.
-* **Pin dependencies for Rust 1.77 compatibility**: This repo is being built with Rust/Cargo 1.77.1, so newer crates that require edition2024 or rustc >=1.82 will fail to resolve/build. Keep dependency versions pinned to compatible releases (for example clap 4.4.x and older indexmap), and avoid broad upgrades without checking MSRV impact first.
 * **Canonicalize paths in macOS CLI tests**: On macOS, equivalent temp paths may appear as `/var/...` vs `/private/var/...`, causing brittle string comparisons in integration tests. Normalize both expected and actual paths with `std::fs::canonicalize` before asserting equality. This avoids false failures in CLI and shell-hook path assertions.
 * **openspec strict markdown requirements**: The `openspec` CLI requires exact markdown formatting for parsing. In specs, scenarios MUST use exactly 4 hashtags (`#### Scenario:`); using 3 or bullets fails silently. Every requirement needs at least one scenario. `MODIFIED` requirements must include the entire original requirement block. In `tasks.md`, tasks MUST use exact `- [ ]` checkboxes to be tracked during the `apply` phase.
 * **Use apply instructions for real task progress**: For OpenSpec implementation progress, treat `openspec instructions apply --change <name> --json` as the source of truth, not `openspec status`. `status.isComplete` only reflects artifact creation and can be true while apply tasks are still 0/N. Drive work from `state`, `progress`, `tasks`, and `contextFiles`, and mark completion by updating `tasks.md` checkboxes with exact `- [ ]` / `- [x]` syntax.
@@ -24,3 +23,39 @@
 ## Pattern
 
 * **Archive flow requires explicit change selection**: In `/opsx-continue` and `/opsx-archive`, if no change name is provided, require explicit user selection from active changes; do not infer from context or auto-pick. Use `openspec list --json`, present the most recently modified options with schema/status recency, and let the user choose. Auto-selection is only acceptable for `/opsx-apply` when unambiguous.
+
+<!-- This section is maintained by the coding agent via lore (https://github.com/BYK/opencode-lore) -->
+## Long-term Knowledge
+
+### Pattern
+
+<!-- lore:019d3bdf-649a-77f2-92d0-5320c69b3d47 -->
+* **Archive flow requires explicit change selection**: In  and , if no change name is provided, require explicit user selection from active changes; do not infer from context or auto-pick. Use , present the most recently modified options with schema/status recency, and let the user choose. Auto-selection is only acceptable for  when unambiguous.
+
+<!-- lore:019d3bdf-6499-73f6-8282-abe598b775a8 -->
+* **Canonicalize paths in macOS CLI tests**: On macOS, equivalent temp paths may appear as  vs , causing brittle string comparisons in integration tests. Normalize both expected and actual paths with  before asserting equality. This avoids false failures in CLI and shell-hook path assertions.
+
+<!-- lore:019d3bdf-649a-77f2-92d0-531fd4f02b60 -->
+* **dx feature breakdown and implementation sequencing**: Completions use explicit modes, not intent inference. CLI contract: . Shell hooks route by command name to matching mode (→paths, →ancestors, →frecents, →recents, →stack). Plain output is one absolute path per line for ALL modes (including ancestors/stack — no numeric indexes). JSON output includes , , and  only — no  or  fields since caller context already knows these. Navigation wrappers (, , ) accept either: no arg (first candidate), integer (Nth candidate), or non-integer string (closest path match via exact→basename→prefix→substring scoring). Closest-match logic lives in Rust (), not shell scripts.
+
+<!-- lore:019d3bdf-649a-77f2-92d0-531e60627ae6 -->
+* **dx resolve execution contract**: translates input to absolute paths for shell hooks. It enforces a strict output contract: success prints exactly one absolute path to stdout; failure prints to stderr with a non-zero exit code. Precedence is strictly ordered (direct paths > step-up aliases > abbreviated segments > fallback roots). Ambiguous matches explicitly fail rather than guessing, unless  or  is specified.
+
+<!-- lore:019d3bdf-649a-77f2-92d0-531d5e0b2864 -->
+* **dx starts as single Rust binary crate**: The  CLI is designed as one Cargo binary crate at repo root (, ) with internal modules for , , and , rather than a multi-crate workspace. This keeps early implementation simple while preserving a clean seam to extract  into a library crate later if the project expands.
+
+<!-- lore:019d3bdf-6498-768d-917a-7f19655288af -->
+* **Evaluate  output as a single script block**: In PowerShell, piping  directly to  can execute line-by-line and break multi-line constructs in the generated hook script. Convert output to one string first, e.g.  (or join lines with ) before evaluation.
+
+<!-- lore:019d3bdf-6499-73f6-8282-abe70b24f65a -->
+* **Frecency strategy: zoxide-first, native SQLite deferred**: dx defers building its own frecency store in favor of using zoxide as an external frecency provider. Define a  trait with a  impl that shells out to . dx owns display, filtering, and selection — zoxide is just a candidate source. Build native SQLite store only if zoxide proves insufficient (scoring mismatch, latency, missing integration). This reversed D2 from the original design doc, which preferred own-store-first. Rationale: frecency is a solved problem, unique dx value is in path resolution, abbreviation expansion, session stacks, and interactive menu.
+
+<!-- lore:019d3bdf-649a-77f2-92d0-531cdcd4cdcf -->
+* **Navigation selector resolution lives in Rust, not shell scripts**: The  subcommand centralizes selector-to-path resolution in Rust rather than distributing it across per-shell wrapper scripts. Shell wrappers are thin: they call , get back one absolute path, then  to it and . Selector semantics: no arg = first candidate, integer = Nth candidate (1-based), non-integer = closest path match. Closest-match tie-break is deterministic: exact path → exact basename → path prefix → basename prefix → substring, with mode-native ordering preserved for ties. This keeps shell hooks trivial and testable from a single Rust test suite.
+
+<!-- lore:019d3bdf-6499-73f6-8282-abe6fdae1213 -->
+* **Use apply instructions for real task progress**: For OpenSpec implementation progress, treat  as the source of truth, not .  only reflects artifact creation and can be true while apply tasks are still 0/N. Drive work from , , , and , and mark completion by updating  checkboxes with exact  /  syntax.
+
+<!-- lore:019d3bdf-6499-73f6-8282-abe390e72aab -->
+* **Use one global env lock across test modules**: Tests that mutate process env vars (for example , ) can flake under parallel execution if each module has its own . Module-local locks do not synchronize with each other. Use a single shared env lock helper (for example in ) and have all env-mutating tests acquire it.
+<!-- End lore-managed section -->

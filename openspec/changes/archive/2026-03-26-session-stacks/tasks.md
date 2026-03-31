@@ -58,4 +58,4 @@
 ## 7. Cross-Platform Verification
 
 - [x] 7.1 Verify session dir resolution uses temp_dir() correctly on macOS (canonicalize /var vs /private/var in assertions)
-- [x] 7.2 Verify build and tests pass on current Rust 1.77 toolchain with pinned dependencies
+- [x] 7.2 Verify build and tests pass

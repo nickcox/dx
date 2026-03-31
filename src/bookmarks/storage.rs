@@ -174,9 +174,9 @@ mod tests {
 
     fn set_env(name: &str, value: Option<String>) {
         if let Some(value) = value {
-            env::set_var(name, value);
+            unsafe { env::set_var(name, value) };
         } else {
-            env::remove_var(name);
+            unsafe { env::remove_var(name) };
         }
     }
 

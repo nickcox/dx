@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn resolves_home_paths() {
         let previous = env::var("HOME").ok();
-        env::set_var("HOME", "/tmp/home-test");
+        unsafe { env::set_var("HOME", "/tmp/home-test") };
 
         let resolved_home = resolve_direct(Path::new("/"), "~").expect("home result");
         assert_eq!(resolved_home, PathBuf::from("/tmp/home-test"));
@@ -105,9 +105,9 @@ mod tests {
         assert_eq!(resolved_child, PathBuf::from("/tmp/home-test/work"));
 
         if let Some(value) = previous {
-            env::set_var("HOME", value);
+            unsafe { env::set_var("HOME", value) };
         } else {
-            env::remove_var("HOME");
+            unsafe { env::remove_var("HOME") };
         }
     }
 }

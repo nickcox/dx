@@ -224,17 +224,17 @@ max_list_results = 25
         )
         .expect("write config file");
 
-        env::set_var("DX_CONFIG", file.display().to_string());
-        env::remove_var("DX_SEARCH_ROOTS");
-        env::remove_var("DX_CASE_SENSITIVE");
-        env::remove_var("DX_MAX_LIST_RESULTS");
+        unsafe { env::set_var("DX_CONFIG", file.display().to_string()) };
+        unsafe { env::remove_var("DX_SEARCH_ROOTS") };
+        unsafe { env::remove_var("DX_CASE_SENSITIVE") };
+        unsafe { env::remove_var("DX_MAX_LIST_RESULTS") };
 
         let loaded = AppConfig::load().expect("load config");
         assert_eq!(loaded.search_roots, vec![PathBuf::from("/tmp/r1")]);
         assert!(!loaded.resolve.case_sensitive);
         assert_eq!(loaded.resolve.max_list_results, Some(12));
 
-        env::remove_var("DX_CONFIG");
+        unsafe { env::remove_var("DX_CONFIG") };
         let _ = fs::remove_dir_all(temp);
     }
 
@@ -249,10 +249,10 @@ max_list_results = 25
         )
         .expect("write config file");
 
-        env::set_var("DX_CONFIG", file.display().to_string());
-        env::set_var("DX_SEARCH_ROOTS", "/tmp/r2:/tmp/r3");
-        env::set_var("DX_CASE_SENSITIVE", "false");
-        env::set_var("DX_MAX_LIST_RESULTS", "7");
+        unsafe { env::set_var("DX_CONFIG", file.display().to_string()) };
+        unsafe { env::set_var("DX_SEARCH_ROOTS", "/tmp/r2:/tmp/r3") };
+        unsafe { env::set_var("DX_CASE_SENSITIVE", "false") };
+        unsafe { env::set_var("DX_MAX_LIST_RESULTS", "7") };
 
         let loaded = AppConfig::load().expect("load config");
         assert_eq!(
@@ -262,10 +262,10 @@ max_list_results = 25
         assert!(!loaded.resolve.case_sensitive);
         assert_eq!(loaded.resolve.max_list_results, Some(7));
 
-        env::remove_var("DX_CONFIG");
-        env::remove_var("DX_SEARCH_ROOTS");
-        env::remove_var("DX_CASE_SENSITIVE");
-        env::remove_var("DX_MAX_LIST_RESULTS");
+        unsafe { env::remove_var("DX_CONFIG") };
+        unsafe { env::remove_var("DX_SEARCH_ROOTS") };
+        unsafe { env::remove_var("DX_CASE_SENSITIVE") };
+        unsafe { env::remove_var("DX_MAX_LIST_RESULTS") };
         let _ = fs::remove_dir_all(temp);
     }
 }

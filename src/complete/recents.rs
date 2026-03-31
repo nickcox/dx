@@ -63,7 +63,7 @@ mod tests {
         let temp = make_temp_dir("history");
         let runtime = temp.join("runtime");
         fs::create_dir_all(&runtime).expect("create runtime");
-        env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string());
+        unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
@@ -87,7 +87,7 @@ mod tests {
             ]
         );
 
-        env::remove_var("XDG_RUNTIME_DIR");
+        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
         let _ = fs::remove_dir_all(temp);
     }
 
@@ -97,7 +97,7 @@ mod tests {
         let temp = make_temp_dir("empty");
         let runtime = temp.join("runtime");
         fs::create_dir_all(&runtime).expect("create runtime");
-        env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string());
+        unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack::default();
@@ -106,7 +106,7 @@ mod tests {
         let output = complete(Some("s1"), None);
         assert!(output.is_empty());
 
-        env::remove_var("XDG_RUNTIME_DIR");
+        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
         let _ = fs::remove_dir_all(temp);
     }
 
@@ -116,7 +116,7 @@ mod tests {
         let temp = make_temp_dir("filter");
         let runtime = temp.join("runtime");
         fs::create_dir_all(&runtime).expect("create runtime");
-        env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string());
+        unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
@@ -135,7 +135,7 @@ mod tests {
             vec![std::path::PathBuf::from("/home/user/projects/dx")]
         );
 
-        env::remove_var("XDG_RUNTIME_DIR");
+        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
         let _ = fs::remove_dir_all(temp);
     }
 

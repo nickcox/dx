@@ -383,9 +383,9 @@ mod tests {
 
     fn set_bookmark_env(file: Option<String>) {
         if let Some(path) = file {
-            env::set_var("DX_BOOKMARKS_FILE", path);
+            unsafe { env::set_var("DX_BOOKMARKS_FILE", path) };
         } else {
-            env::remove_var("DX_BOOKMARKS_FILE");
+            unsafe { env::remove_var("DX_BOOKMARKS_FILE") };
         }
     }
 

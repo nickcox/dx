@@ -137,12 +137,12 @@ mod tests {
         let _guard = env_lock();
         let temp = make_temp_dir("empty-list");
         let file = temp.join("bookmarks.toml");
-        env::set_var("DX_BOOKMARKS_FILE", file.display().to_string());
+        unsafe { env::set_var("DX_BOOKMARKS_FILE", file.display().to_string()) };
 
         let code = run_list(false);
         assert_eq!(code, 0);
 
-        env::remove_var("DX_BOOKMARKS_FILE");
+        unsafe { env::remove_var("DX_BOOKMARKS_FILE") };
         let _ = fs::remove_dir_all(temp);
     }
 }

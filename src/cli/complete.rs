@@ -192,7 +192,7 @@ mod tests {
         let temp = make_temp_dir("out-of-range");
         let runtime = temp.join("runtime");
         fs::create_dir_all(&runtime).expect("create runtime");
-        std::env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string());
+        unsafe { std::env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
@@ -205,7 +205,7 @@ mod tests {
         let code = run_navigate(NavigateMode::Back, Some("2"), Some("s1"));
         assert_eq!(code, 1);
 
-        std::env::remove_var("XDG_RUNTIME_DIR");
+        unsafe { std::env::remove_var("XDG_RUNTIME_DIR") };
         let _ = fs::remove_dir_all(temp);
     }
 }

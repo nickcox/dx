@@ -68,4 +68,4 @@
 ## 8. Cross-Platform Verification
 
 - [x] 8.1 Ensure macOS path canonicalization (resolve `/var` vs `/private/var`) in test assertions
-- [x] 8.2 Verify all new code compiles and tests pass with Rust 1.77
+- [x] 8.2 Verify all new code compiles and tests pass

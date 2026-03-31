@@ -211,19 +211,19 @@ mod tests {
     fn session_directory_prefers_xdg_runtime_when_set() {
         let _guard = env_lock();
         let runtime = make_temp_dir("xdg");
-        env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string());
+        unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
         let dir = session_directory();
         assert_eq!(dir, runtime.join("dx-sessions"));
 
-        env::remove_var("XDG_RUNTIME_DIR");
+        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
         let _ = fs::remove_dir_all(runtime);
     }
 
     #[test]
     fn session_directory_falls_back_to_temp_dir() {
         let _guard = env_lock();
-        env::remove_var("XDG_RUNTIME_DIR");
+        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
 
         let dir = session_directory();
         assert_eq!(dir, env::temp_dir().join("dx-sessions"));

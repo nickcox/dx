@@ -24,4 +24,4 @@ dx can resolve abbreviated paths and maintain per-session undo/redo stacks, but 
 - **New files**: `src/bookmarks/mod.rs`, `src/bookmarks/storage.rs`, `src/cli/bookmarks.rs`, `tests/bookmarks_cli.rs`.
 - **Modified files**: `src/cli/mod.rs` (register new subcommands), `src/lib.rs` (wire bookmarks module), `src/resolve/precedence.rs` (add bookmark stage).
 - **New persistent state**: `$XDG_DATA_HOME/dx/bookmarks.toml` created on first `dx mark` invocation.
-- **Dependencies**: No new crate dependencies expected (serde + toml are already available or trivial to add within Rust 1.77 constraints).
+- **Dependencies**: No new crate dependencies expected (serde + toml are already available).

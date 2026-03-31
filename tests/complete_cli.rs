@@ -136,7 +136,7 @@ fn complete_recents_and_stack_use_session_state() {
     let temp = make_temp_dir("recents-stack");
     let runtime = temp.join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
-    env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string());
+    unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
     let dir = storage::ensure_session_dir().expect("session dir");
     let state = SessionStack {
@@ -196,7 +196,7 @@ fn complete_recents_and_stack_use_session_state() {
         .collect::<Vec<_>>();
     assert_eq!(forward_lines, vec!["/x".to_string()]);
 
-    env::remove_var("XDG_RUNTIME_DIR");
+    unsafe { env::remove_var("XDG_RUNTIME_DIR") };
     let _ = fs::remove_dir_all(temp);
 }
 
