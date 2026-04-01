@@ -350,7 +350,7 @@ fn hook_scripts_check_exit_status_before_applying() {
     let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
     let zsh_out = String::from_utf8_lossy(&zsh.stdout);
     assert!(
-        zsh_out.contains("$? -ne 0"),
+        zsh_out.contains("__dx_exit") && zsh_out.contains("-ne 0"),
         "zsh should check dx menu exit status"
     );
 

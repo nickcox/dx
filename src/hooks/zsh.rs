@@ -299,8 +299,12 @@ __dx_menu_widget() {
 
   local __dx_json
   __dx_json="$(dx menu --buffer "$BUFFER" --cursor $CURSOR --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
-  if [[ $? -ne 0 ]] || [[ "$__dx_json" != *'"action":"replace"'* ]]; then
-    zle expand-or-complete
+  local __dx_exit=$?
+
+  # On cancel (noop) or error, just redraw the prompt at its current position
+  # and leave the buffer unchanged — do NOT fall through to native completion.
+  if [[ $__dx_exit -ne 0 ]] || [[ "$__dx_json" != *'"action":"replace"'* ]]; then
+    zle reset-prompt
     return
   fi
 
@@ -313,6 +317,7 @@ __dx_menu_widget() {
 
   BUFFER="${BUFFER[1,$__dx_rs]}${__dx_value}${BUFFER[$((${__dx_re}+1)),-1]}"
   CURSOR=$(( __dx_rs + ${#__dx_value} ))
+  zle reset-prompt
 }
 
 zle -N __dx_menu_widget
