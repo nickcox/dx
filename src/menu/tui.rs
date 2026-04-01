@@ -24,13 +24,12 @@ mod imp {
     };
     use ratatui::{
         backend::CrosstermBackend,
-        layout::Rect,
+        layout::{Constraint, Direction, Layout, Rect},
         style::{Color, Modifier, Style},
-        widgets::{Block, List, ListItem, ListState},
+        text::Span,
+        widgets::{Block, List, ListItem, ListState, Paragraph},
         Terminal, TerminalOptions, Viewport,
     };
-
-    const MENU_HEIGHT: u16 = 10;
 
     /// Query the cursor row by writing `\033[6n` to and reading `\033[<row>;<col>R`
     /// from `/dev/tty` directly.  This works even when stdout is a pipe.
@@ -73,10 +72,7 @@ mod imp {
 
     impl Drop for CleanupGuard {
         fn drop(&mut self) {
-            // Move cursor back to prompt row first so the shell redraws
-            // the prompt in the right place after we exit.
             let _ = execute!(stderr(), cursor::MoveTo(0, self.prompt_row));
-            // Clear the menu lines.
             for row in self.area.top()..self.area.bottom() {
                 let _ = execute!(
                     stderr(),
@@ -84,7 +80,6 @@ mod imp {
                     terminal::Clear(terminal::ClearType::CurrentLine)
                 );
             }
-            // Return cursor to prompt row and restore state.
             let _ = execute!(stderr(), cursor::MoveTo(0, self.prompt_row), cursor::Show);
             let _ = terminal::disable_raw_mode();
         }
@@ -98,16 +93,20 @@ mod imp {
             return None;
         }
 
+        // Single match — select immediately without showing the menu.
+        if candidates.len() == 1 {
+            return Some(0);
+        }
+
         let (cols, rows) = terminal::size().ok()?;
-        let height = MENU_HEIGHT.min(candidates.len() as u16 + 2); // +2 for border
+        // List rows capped at 10, plus 1 top border + 1 status bar row.
+        let list_rows = 10u16.min(candidates.len() as u16);
+        // list rows + top border + bottom border + status bar
+        let height = list_rows + 3;
 
-        // Find out where the cursor (prompt line) currently is.
         let prompt_row = cursor_row_via_tty().unwrap_or(rows.saturating_sub(1));
-
-        // How many rows are available below the prompt?
         let rows_below = rows.saturating_sub(prompt_row + 1);
 
-        // If there isn't enough room, scroll up to make space.
         let prompt_row = if rows_below < height {
             let scroll_needed = height - rows_below;
             let mut err = stderr();
@@ -145,8 +144,20 @@ mod imp {
         list_state.select(Some(0));
 
         loop {
+            let selected_path = list_state
+                .selected()
+                .and_then(|i| candidates.get(i))
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+
             terminal
                 .draw(|frame| {
+                    // Split into list area (all but last row) and status bar (last row).
+                    let chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([Constraint::Min(1), Constraint::Length(1)])
+                        .split(frame.area());
+
                     let items: Vec<ListItem> = candidates
                         .iter()
                         .map(|p| ListItem::new(p.display().to_string()))
@@ -162,7 +173,15 @@ mod imp {
                         )
                         .highlight_symbol("▸ ");
 
-                    frame.render_stateful_widget(list, frame.area(), &mut list_state);
+                    frame.render_stateful_widget(list, chunks[0], &mut list_state);
+
+                    let status = Paragraph::new(Span::styled(
+                        format!(" {selected_path}"),
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::DIM),
+                    ));
+                    frame.render_widget(status, chunks[1]);
                 })
                 .ok()?;
 
@@ -172,11 +191,17 @@ mod imp {
                     (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                         return None;
                     }
-                    (KeyCode::Up, _) | (KeyCode::Char('k'), KeyModifiers::NONE) => {
-                        move_selection(&mut list_state, candidates.len(), -1);
-                    }
-                    (KeyCode::Down, _) | (KeyCode::Char('j'), KeyModifiers::NONE) => {
+                    // Down: arrow, Tab, j
+                    (KeyCode::Down, _)
+                    | (KeyCode::Tab, KeyModifiers::NONE)
+                    | (KeyCode::Char('j'), KeyModifiers::NONE) => {
                         move_selection(&mut list_state, candidates.len(), 1);
+                    }
+                    // Up: arrow, Shift+Tab, k
+                    (KeyCode::Up, _)
+                    | (KeyCode::BackTab, _)
+                    | (KeyCode::Char('k'), KeyModifiers::NONE) => {
+                        move_selection(&mut list_state, candidates.len(), -1);
                     }
                     _ => {}
                 },
