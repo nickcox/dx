@@ -1,5 +1,9 @@
 # AGENTS.md — Shared Project Knowledge
 
+## Rust version
+
+This project uses Rost 2024 Edition so crates should be compatible with that. The local complier is `rustc 1.94.1`.
+
 ## Gotcha
 
 * **Evaluate `dx init pwsh` output as a single script block**: In PowerShell, piping `dx init pwsh` directly to `Invoke-Expression` can execute line-by-line and break multi-line constructs in the generated hook script. Convert output to one string first, e.g. `Invoke-Expression ((& dx init pwsh | Out-String))` (or join lines with `` `n ``) before evaluation.
@@ -27,6 +31,11 @@
 <!-- This section is maintained by the coding agent via lore (https://github.com/BYK/opencode-lore) -->
 ## Long-term Knowledge
 
+### Gotcha
+
+<!-- lore:019d4769-cbfb-7293-9bdc-70a43b93850a -->
+* **Use ADDED vs MODIFIED correctly in delta specs**: In OpenSpec delta specs for existing capabilities, use \`## ADDED Requirements\` when introducing new requirements and reserve \`## MODIFIED Requirements\` only for changing existing requirement text. If you use MODIFIED, include the full updated original requirement block (not partial snippets), or archive/sync can lose behavior detail. A capability marked "modified" in proposal can still have an ADDED-only delta if existing requirements are untouched.
+
 ### Pattern
 
 <!-- lore:019d3bdf-649a-77f2-92d0-5320c69b3d47 -->
@@ -52,6 +61,9 @@
 
 <!-- lore:019d3bdf-649a-77f2-92d0-531cdcd4cdcf -->
 * **Navigation selector resolution lives in Rust, not shell scripts**: The  subcommand centralizes selector-to-path resolution in Rust rather than distributing it across per-shell wrapper scripts. Shell wrappers are thin: they call , get back one absolute path, then  to it and . Selector semantics: no arg = first candidate, integer = Nth candidate (1-based), non-integer = closest path match. Closest-match tie-break is deterministic: exact path → exact basename → path prefix → basename prefix → substring, with mode-native ordering preserved for ties. This keeps shell hooks trivial and testable from a single Rust test suite.
+
+<!-- lore:019d3bdf-6499-73f6-8282-abe40f0a6481 -->
+* **Pin dependencies for Rust 1.77 compatibility**: This repo targets Rust/Cargo 1.77.1, so dependency choices must stay MSRV-safe. When adding newer feature areas (for example TUI), pin crates to versions that still build on 1.77 (e.g., \`ratatui\` 0.26.x with a compatible \`crossterm\`) instead of latest releases. Treat broad upgrades as risky until rustc/edition requirements are verified.
 
 <!-- lore:019d3bdf-6499-73f6-8282-abe6fdae1213 -->
 * **Use apply instructions for real task progress**: For OpenSpec implementation progress, treat  as the source of truth, not .  only reflects artifact creation and can be true while apply tasks are still 0/N. Drive work from , , , and , and mark completion by updating  checkboxes with exact  /  syntax.
