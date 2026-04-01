@@ -1,4 +1,4 @@
-pub fn generate(command_not_found: bool) -> String {
+pub fn generate(command_not_found: bool, menu: bool) -> String {
     let mut script = String::from(
         r#"if not set -q DX_SESSION
   set -gx DX_SESSION $fish_pid
@@ -210,6 +210,53 @@ complete -c forward -a '(dx complete stack --direction forward (commandline -ct)
 complete -c cd+ -a '(dx complete stack --direction forward (commandline -ct) 2>/dev/null)'
 "#,
     );
+
+    if menu {
+        script.push_str(
+            r#"
+function __dx_menu_complete
+  if test "$DX_MENU" = "0"; or not type -q dx
+    commandline -f complete
+    return
+  end
+
+  set -l buf (commandline)
+  set -l cur (commandline -C)
+  set -l first (string split ' ' -- "$buf")[1]
+
+  switch "$first"
+    case cd up cdf z cdr back forward 'cd-' 'cd+'
+      # dx navigation command — try menu
+    case '*'
+      commandline -f complete
+      return
+  end
+
+  set -l json (dx menu --buffer "$buf" --cursor $cur --cwd "$PWD" --session "$DX_SESSION" </dev/tty 2>/dev/tty)
+  if test $status -ne 0
+    commandline -f complete
+    return
+  end
+
+  if not string match -q '*"action":"replace"*' -- "$json"
+    commandline -f complete
+    return
+  end
+
+  set -l value (string replace -r '.*"value":"([^"]*)".*' '$1' -- "$json")
+  set -l rs (string replace -r '.*"replaceStart":([0-9]+).*' '$1' -- "$json")
+  set -l re (string replace -r '.*"replaceEnd":([0-9]+).*' '$1' -- "$json")
+
+  set -l prefix (string sub -l $rs -- "$buf")
+  set -l suffix (string sub -s (math $re + 1) -- "$buf")
+  commandline -r -- "$prefix$value$suffix"
+  commandline -C (math $rs + (string length "$value"))
+end
+
+bind \t __dx_menu_complete
+"#,
+        );
+    }
 
     if command_not_found {
         script.push_str(

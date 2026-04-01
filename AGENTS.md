@@ -39,7 +39,7 @@ This project uses Rost 2024 Edition so crates should be compatible with that. Th
 ### Pattern
 
 <!-- lore:019d3bdf-649a-77f2-92d0-5320c69b3d47 -->
-* **Archive flow requires explicit change selection**: In  and , if no change name is provided, require explicit user selection from active changes; do not infer from context or auto-pick. Use , present the most recently modified options with schema/status recency, and let the user choose. Auto-selection is only acceptable for  when unambiguous.
+* **Archive flow requires explicit change selection**: OpenSpec flows must require explicit change selection whenever multiple active changes exist. For \`/opsx-apply\`, prompt the user with numbered options and proceed only after a clear choice; auto-select is acceptable only when exactly one change is unambiguous. This keeps apply/archive behavior predictable and avoids acting on the wrong change.
 
 <!-- lore:019d3bdf-6499-73f6-8282-abe598b775a8 -->
 * **Canonicalize paths in macOS CLI tests**: On macOS, equivalent temp paths may appear as  vs , causing brittle string comparisons in integration tests. Normalize both expected and actual paths with  before asserting equality. This avoids false failures in CLI and shell-hook path assertions.
@@ -58,6 +58,9 @@ This project uses Rost 2024 Edition so crates should be compatible with that. Th
 
 <!-- lore:019d3bdf-6499-73f6-8282-abe70b24f65a -->
 * **Frecency strategy: zoxide-first, native SQLite deferred**: dx defers building its own frecency store in favor of using zoxide as an external frecency provider. Define a  trait with a  impl that shells out to . dx owns display, filtering, and selection — zoxide is just a candidate source. Build native SQLite store only if zoxide proves insufficient (scoring mismatch, latency, missing integration). This reversed D2 from the original design doc, which preferred own-store-first. Rationale: frecency is a solved problem, unique dx value is in path resolution, abbreviation expansion, session stacks, and interactive menu.
+
+<!-- lore:019d477f-2757-7f97-9122-2c67e9d248d2 -->
+* **Menu integration is opt-in with noop fallback**: Menu completion uses a split I/O contract: hooks invoke \`dx menu\` with stdin (and UI interaction) on \`/dev/tty\` while keeping stdout reserved for machine-readable JSON action parsing. In completion contexts where stdout is captured, this TTY wiring is required for interactivity. The menu must stay open until explicit select/cancel or unrecoverable error, and terminal state (raw mode, alt screen, mouse capture) must be restored on every exit path; \`noop\` is valid for cancel/non-interactive/no-candidate flows, not a successful interactive start with candidates.
 
 <!-- lore:019d3bdf-649a-77f2-92d0-531cdcd4cdcf -->
 * **Navigation selector resolution lives in Rust, not shell scripts**: The  subcommand centralizes selector-to-path resolution in Rust rather than distributing it across per-shell wrapper scripts. Shell wrappers are thin: they call , get back one absolute path, then  to it and . Selector semantics: no arg = first candidate, integer = Nth candidate (1-based), non-integer = closest path match. Closest-match tie-break is deterministic: exact path → exact basename → path prefix → basename prefix → substring, with mode-native ordering preserved for ties. This keeps shell hooks trivial and testable from a single Rust test suite.

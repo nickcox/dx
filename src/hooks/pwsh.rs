@@ -1,4 +1,4 @@
-pub fn generate(command_not_found: bool) -> String {
+pub fn generate(command_not_found: bool, menu: bool) -> String {
     let mut script = String::from(
         r#"if (-not $env:DX_SESSION) {
     $env:DX_SESSION = [string]$PID
@@ -281,6 +281,53 @@ Register-ArgumentCompleter -CommandName forward,cd+ -ScriptBlock {
 }
 "#,
     );
+
+    if menu {
+        script.push_str(
+            r#"
+if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
+    Set-PSReadLineKeyHandler -Key Tab -ScriptBlock {
+        param($key, $arg)
+
+        $line = $null
+        $cursor = $null
+        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+
+        $dxCmds = @('cd', 'up', 'cdf', 'z', 'cdr', 'back', 'forward', 'cd-', 'cd+')
+        $first = ($line -split '\s+', 2)[0]
+
+        if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or $first -notin $dxCmds) {
+            [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)
+            return
+        }
+
+        $json = $null
+        try {
+            $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION 2>$null)
+        } catch { }
+
+        if ($LASTEXITCODE -ne 0 -or -not $json) {
+            [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)
+            return
+        }
+
+        $result = $null
+        try {
+            $result = $json | ConvertFrom-Json
+        } catch { }
+
+        if (-not $result -or $result.action -ne 'replace') {
+            [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)
+            return
+        }
+
+        [Microsoft.PowerShell.PSConsoleReadLine]::Replace($result.replaceStart, $result.replaceEnd - $result.replaceStart, $result.value)
+        [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($result.replaceStart + $result.value.Length)
+    }
+}
+"#,
+        );
+    }
 
     if command_not_found {
         script.push_str(

@@ -4,6 +4,7 @@ pub mod complete;
 pub mod config;
 pub mod frecency;
 pub mod hooks;
+pub mod menu;
 pub mod resolve;
 pub mod stacks;
 pub mod test_support;

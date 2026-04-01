@@ -1,4 +1,4 @@
-pub fn generate(command_not_found: bool) -> String {
+pub fn generate(command_not_found: bool, menu: bool) -> String {
     let mut script = String::from(
         r#"if [[ -z "${DX_SESSION:-}" ]]; then
   export DX_SESSION="$$"
@@ -278,6 +278,48 @@ compdef _dx_complete_stack_back back 'cd-'
 compdef _dx_complete_stack_forward forward 'cd+'
 "#,
     );
+
+    if menu {
+        script.push_str(
+            r#"
+__dx_menu_widget() {
+  if [[ "${DX_MENU:-}" == "0" ]] || ! (( $+commands[dx] )); then
+    zle expand-or-complete
+    return
+  fi
+
+  local __dx_first="${BUFFER%% *}"
+  case "$__dx_first" in
+    cd|up|cdf|z|cdr|back|forward|cd-|cd+) ;;
+    *)
+      zle expand-or-complete
+      return
+      ;;
+  esac
+
+  local __dx_json
+  __dx_json="$(dx menu --buffer "$BUFFER" --cursor $CURSOR --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
+  if [[ $? -ne 0 ]] || [[ "$__dx_json" != *'"action":"replace"'* ]]; then
+    zle expand-or-complete
+    return
+  fi
+
+  local __dx_value="${__dx_json##*\"value\":\"}"
+  __dx_value="${__dx_value%%\"*}"
+  local __dx_rs="${__dx_json##*\"replaceStart\":}"
+  __dx_rs="${__dx_rs%%[,\}]*}"
+  local __dx_re="${__dx_json##*\"replaceEnd\":}"
+  __dx_re="${__dx_re%%[,\}]*}"
+
+  BUFFER="${BUFFER[1,$__dx_rs]}${__dx_value}${BUFFER[$((${__dx_re}+1)),-1]}"
+  CURSOR=$(( __dx_rs + ${#__dx_value} ))
+}
+
+zle -N __dx_menu_widget
+bindkey '^I' __dx_menu_widget
+"#,
+        );
+    }
 
     if command_not_found {
         script.push_str(

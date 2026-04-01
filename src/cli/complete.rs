@@ -144,7 +144,7 @@ pub fn run_navigate(mode: NavigateMode, selector: Option<&str>, session: Option<
     }
 }
 
-fn resolve_session(cli_session: Option<&str>) -> Option<String> {
+pub(super) fn resolve_session(cli_session: Option<&str>) -> Option<String> {
     if let Some(value) = cli_session.filter(|value| !value.trim().is_empty()) {
         return Some(value.to_string());
     }

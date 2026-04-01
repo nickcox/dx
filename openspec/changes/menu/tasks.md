@@ -27,8 +27,8 @@
 
 ## 5. Completion-Context Hardening
 
-- [ ] 5.1 Ensure shell completion invocations for menu use controlling TTY stdin (`</dev/tty`) while preserving stdout JSON capture.
-- [ ] 5.2 Implement terminal cleanup guard logic that restores raw mode, alternate screen, and mouse capture on all exit paths (Esc, Ctrl+C, read/draw error).
-- [ ] 5.3 Add regression tests for completion-context interactivity (`cd M<Tab>` path) proving menu stays open until selection/cancel.
-- [ ] 5.4 Add regression tests for terminal recovery after cancellation/error to prevent escaped control-sequence leakage.
-- [ ] 5.5 Add opt-in debug instrumentation contract (env-gated) and document how to troubleshoot menu no-op/flash behavior.
+- [x] 5.1 Ensure shell completion invocations for menu use controlling TTY stdin (`</dev/tty`) while preserving stdout JSON capture.
+- [x] 5.2 Implement terminal cleanup guard logic that restores raw mode, alternate screen, and mouse capture on all exit paths (Esc, Ctrl+C, read/draw error).
+- [x] 5.3 Add regression tests for completion-context interactivity (`cd M<Tab>` path) proving menu stays open until selection/cancel.
+- [x] 5.4 Add regression tests for terminal recovery after cancellation/error to prevent escaped control-sequence leakage.
+- [x] 5.5 Add opt-in debug instrumentation contract (env-gated) and document how to troubleshoot menu no-op/flash behavior.

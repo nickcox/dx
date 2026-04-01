@@ -1,0 +1,411 @@
+use std::process::Command;
+
+fn dx() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_dx"))
+}
+
+// --- 4.2 Non-interactive / noop behavior ---
+
+#[test]
+fn menu_without_tty_outputs_noop_json() {
+    // When run non-interactively (no TTY), dx menu should output {"action":"noop"}
+    let output = dx()
+        .args(["menu", "--buffer", "cd foo", "--cursor", "6"])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success(), "exit code should be 0");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed["action"], "noop");
+}
+
+#[test]
+fn menu_unrecognized_command_outputs_noop() {
+    let output = dx()
+        .args(["menu", "--buffer", "ls -la", "--cursor", "5"])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(r#""action":"noop"#),
+        "unrecognized command should produce noop"
+    );
+}
+
+#[test]
+fn menu_empty_buffer_outputs_noop() {
+    let output = dx()
+        .args(["menu", "--buffer", "", "--cursor", "0"])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed["action"], "noop");
+}
+
+// --- 4.2 Selection output contract ---
+
+#[test]
+fn menu_noop_json_has_only_action_field() {
+    let output = dx()
+        .args(["menu", "--buffer", "cd x", "--cursor", "4"])
+        .output()
+        .expect("dx menu should run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed["action"], "noop");
+    // noop should not have replaceStart/replaceEnd/value fields
+    assert!(parsed.get("replaceStart").is_none());
+    assert!(parsed.get("replaceEnd").is_none());
+    assert!(parsed.get("value").is_none());
+}
+
+// --- 4.2 Shell hook invocation / action application contracts ---
+
+#[test]
+fn init_bash_with_menu_flag_includes_menu_code() {
+    let output = dx()
+        .args(["init", "bash", "--menu"])
+        .output()
+        .expect("dx init bash --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("__dx_try_menu"),
+        "bash with --menu should include __dx_try_menu"
+    );
+    assert!(
+        stdout.contains("_dx_menu_wrapper"),
+        "bash with --menu should include _dx_menu_wrapper"
+    );
+    assert!(
+        stdout.contains("dx menu --buffer"),
+        "bash with --menu should invoke dx menu"
+    );
+    assert!(
+        stdout.contains("</dev/tty"),
+        "bash menu should redirect stdin from /dev/tty"
+    );
+}
+
+#[test]
+fn init_zsh_with_menu_flag_includes_menu_widget() {
+    let output = dx()
+        .args(["init", "zsh", "--menu"])
+        .output()
+        .expect("dx init zsh --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("__dx_menu_widget"),
+        "zsh with --menu should include __dx_menu_widget"
+    );
+    assert!(
+        stdout.contains("zle -N __dx_menu_widget"),
+        "zsh with --menu should register the ZLE widget"
+    );
+    assert!(
+        stdout.contains("bindkey '^I' __dx_menu_widget"),
+        "zsh with --menu should bind Tab"
+    );
+    assert!(
+        stdout.contains("</dev/tty"),
+        "zsh menu should redirect stdin from /dev/tty"
+    );
+}
+
+#[test]
+fn init_fish_with_menu_flag_includes_menu_binding() {
+    let output = dx()
+        .args(["init", "fish", "--menu"])
+        .output()
+        .expect("dx init fish --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("__dx_menu_complete"),
+        "fish with --menu should include __dx_menu_complete"
+    );
+    assert!(
+        stdout.contains(r"bind \t __dx_menu_complete"),
+        "fish with --menu should bind Tab"
+    );
+    assert!(
+        stdout.contains("</dev/tty"),
+        "fish menu should redirect stdin from /dev/tty"
+    );
+}
+
+#[test]
+fn init_pwsh_with_menu_flag_includes_psreadline_handler() {
+    let output = dx()
+        .args(["init", "pwsh", "--menu"])
+        .output()
+        .expect("dx init pwsh --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Set-PSReadLineKeyHandler -Key Tab"),
+        "pwsh with --menu should include Tab key handler"
+    );
+    assert!(
+        stdout.contains("ConvertFrom-Json"),
+        "pwsh with --menu should parse JSON"
+    );
+    assert!(
+        stdout.contains("TabCompleteNext"),
+        "pwsh with --menu should fall back to TabCompleteNext"
+    );
+}
+
+// --- 4.3 Regression: menu disabled leaves existing behavior unchanged ---
+
+#[test]
+fn init_bash_without_menu_excludes_menu_code() {
+    let output = dx()
+        .args(["init", "bash"])
+        .output()
+        .expect("dx init bash should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("__dx_try_menu"),
+        "bash without --menu should NOT include __dx_try_menu"
+    );
+    assert!(
+        !stdout.contains("_dx_menu_wrapper"),
+        "bash without --menu should NOT include _dx_menu_wrapper"
+    );
+    // Standard completions should still be present
+    assert!(
+        stdout.contains("_dx_complete_paths"),
+        "standard completion functions should still exist"
+    );
+}
+
+#[test]
+fn init_zsh_without_menu_excludes_menu_widget() {
+    let output = dx()
+        .args(["init", "zsh"])
+        .output()
+        .expect("dx init zsh should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("__dx_menu_widget"),
+        "zsh without --menu should NOT include __dx_menu_widget"
+    );
+    // Standard completions should still be present
+    assert!(
+        stdout.contains("compdef _dx_complete_paths cd"),
+        "standard completions should still exist"
+    );
+}
+
+#[test]
+fn init_fish_without_menu_excludes_menu_binding() {
+    let output = dx()
+        .args(["init", "fish"])
+        .output()
+        .expect("dx init fish should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("__dx_menu_complete"),
+        "fish without --menu should NOT include __dx_menu_complete"
+    );
+}
+
+#[test]
+fn init_pwsh_without_menu_excludes_tab_handler() {
+    let output = dx()
+        .args(["init", "pwsh"])
+        .output()
+        .expect("dx init pwsh should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("Set-PSReadLineKeyHandler -Key Tab"),
+        "pwsh without --menu should NOT include Tab handler"
+    );
+    // Standard completions should still be present
+    assert!(
+        stdout.contains("Register-ArgumentCompleter"),
+        "standard completions should still exist"
+    );
+}
+
+// --- 5.3 Completion-context interactivity contracts ---
+// Full PTY-based "stays open" tests require a pseudo-terminal and are deferred.
+// These verify the structural contracts that enable correct interactive behavior.
+
+#[test]
+fn menu_with_valid_dx_command_without_tty_returns_noop() {
+    // In a non-TTY context (CI/piped), dx menu for a valid command
+    // should still return noop (since no interactive TUI is possible).
+    // This proves the TTY gate is effective — without TTY the menu
+    // does not attempt to open, and falls back cleanly.
+    for cmd in [
+        "cd foo", "up", "cdf proj", "z proj", "cdr", "back", "forward", "cd- ", "cd+ ",
+    ] {
+        let cursor = cmd.len().to_string();
+        let output = dx()
+            .args(["menu", "--buffer", cmd, "--cursor", &cursor])
+            .output()
+            .unwrap_or_else(|_| panic!("dx menu should run for buffer '{cmd}'"));
+
+        assert!(output.status.success(), "should succeed for '{cmd}'");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
+            .unwrap_or_else(|_| panic!("should be valid JSON for '{cmd}': {stdout}"));
+        assert_eq!(
+            parsed["action"], "noop",
+            "non-TTY context should produce noop for '{cmd}'"
+        );
+    }
+}
+
+#[test]
+fn menu_stderr_is_silent_on_noop() {
+    // When menu falls back to noop, stderr should be empty (no diagnostic noise).
+    let output = dx()
+        .args(["menu", "--buffer", "cd foo", "--cursor", "6"])
+        .output()
+        .expect("dx menu should run");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.is_empty(),
+        "stderr should be silent on noop, got: {stderr}"
+    );
+}
+
+// --- 5.4 Terminal recovery contracts ---
+// Full terminal-state recovery tests require PTY instrumentation (deferred).
+// These verify the structural guarantee: hooks fall back cleanly on error/noop.
+
+#[test]
+fn hook_scripts_contain_fallback_on_noop() {
+    // Verify each shell's menu code falls back to native completion on noop
+    let bash = dx().args(["init", "bash", "--menu"]).output().unwrap();
+    let bash_out = String::from_utf8_lossy(&bash.stdout);
+    // Bash: _dx_menu_wrapper calls original completion when __dx_try_menu fails
+    assert!(
+        bash_out.contains("__dx_try_menu; then\n    return 0\n  fi"),
+        "bash menu wrapper should fall back to original completion"
+    );
+
+    let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
+    let zsh_out = String::from_utf8_lossy(&zsh.stdout);
+    // Zsh: __dx_menu_widget calls expand-or-complete on every failure path
+    assert!(
+        zsh_out.contains("zle expand-or-complete"),
+        "zsh menu widget should fall back to expand-or-complete"
+    );
+
+    let fish = dx().args(["init", "fish", "--menu"]).output().unwrap();
+    let fish_out = String::from_utf8_lossy(&fish.stdout);
+    // Fish: __dx_menu_complete calls commandline -f complete on fallback
+    assert!(
+        fish_out.contains("commandline -f complete"),
+        "fish menu should fall back to commandline -f complete"
+    );
+
+    let pwsh = dx().args(["init", "pwsh", "--menu"]).output().unwrap();
+    let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);
+    // PowerShell: Tab handler calls TabCompleteNext on fallback
+    assert!(
+        pwsh_out.contains("TabCompleteNext"),
+        "pwsh menu should fall back to TabCompleteNext"
+    );
+}
+
+#[test]
+fn hook_scripts_check_exit_status_before_applying() {
+    // Verify hooks check for non-zero exit / failed commands before applying
+    let bash = dx().args(["init", "bash", "--menu"]).output().unwrap();
+    let bash_out = String::from_utf8_lossy(&bash.stdout);
+    assert!(
+        bash_out.contains(r#"|| return 1"#),
+        "bash should check dx menu exit status"
+    );
+
+    let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
+    let zsh_out = String::from_utf8_lossy(&zsh.stdout);
+    assert!(
+        zsh_out.contains("$? -ne 0"),
+        "zsh should check dx menu exit status"
+    );
+
+    let fish = dx().args(["init", "fish", "--menu"]).output().unwrap();
+    let fish_out = String::from_utf8_lossy(&fish.stdout);
+    assert!(
+        fish_out.contains("test $status -ne 0"),
+        "fish should check dx menu exit status"
+    );
+
+    let pwsh = dx().args(["init", "pwsh", "--menu"]).output().unwrap();
+    let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);
+    assert!(
+        pwsh_out.contains("$LASTEXITCODE -ne 0"),
+        "pwsh should check dx menu exit status"
+    );
+}
+
+// --- 5.5 Debug instrumentation ---
+
+#[test]
+fn menu_debug_mode_emits_stderr_diagnostics() {
+    let output = dx()
+        .args(["menu", "--buffer", "cd foo", "--cursor", "6"])
+        .env("DX_MENU_DEBUG", "1")
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("[dx-menu-debug]"),
+        "DX_MENU_DEBUG=1 should emit debug output on stderr, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("buffer="),
+        "debug output should include buffer info"
+    );
+    // stdout should still be valid JSON
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let _: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should still be valid JSON");
+}
+
+#[test]
+fn menu_debug_mode_off_by_default() {
+    let output = dx()
+        .args(["menu", "--buffer", "cd foo", "--cursor", "6"])
+        .env_remove("DX_MENU_DEBUG")
+        .output()
+        .expect("dx menu should run");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("[dx-menu-debug]"),
+        "debug output should not appear without DX_MENU_DEBUG=1"
+    );
+}

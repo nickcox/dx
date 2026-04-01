@@ -204,6 +204,21 @@ impl Resolver {
         let mut output = Vec::new();
         let mut seen = HashSet::new();
 
+        // Filesystem prefix expansion: when the query looks like a rooted or
+        // relative filesystem path prefix, readdir the parent and return
+        // matching children.  Covers: /abs/pre, ~/pre, ./pre, ../pre.
+        if is_filesystem_prefix(trimmed) {
+            let candidates = expand_filesystem_prefix(&cwd, trimmed);
+            for path in candidates {
+                push_unique(&mut output, &mut seen, path);
+            }
+            // If we got filesystem hits, return them directly — no need to
+            // run the search-root / abbreviation pipeline for rooted queries.
+            if !output.is_empty() {
+                return output;
+            }
+        }
+
         if let Some(path) = precedence::resolve_direct(&cwd, trimmed) {
             if path.is_dir() {
                 push_unique(&mut output, &mut seen, path);
@@ -335,6 +350,95 @@ fn prepare_candidates(candidates: &mut Vec<PathBuf>, max: Option<usize>) {
     if let Some(max) = max {
         candidates.truncate(max);
     }
+}
+
+/// Returns true when the query is a filesystem path prefix that should be
+/// expanded via readdir rather than the search-root / abbreviation pipeline.
+/// Matches: absolute paths (/…), home-relative (~/…), and explicit relative
+/// paths (./… or ../…).
+fn is_filesystem_prefix(query: &str) -> bool {
+    query.starts_with('/')
+        || query.starts_with("~/")
+        || query == "~"
+        || query.starts_with("./")
+        || query.starts_with("../")
+}
+
+/// Expand a filesystem path prefix by reading the parent directory and
+/// returning all subdirectories whose name starts with the final component.
+fn expand_filesystem_prefix(cwd: &Path, query: &str) -> Vec<PathBuf> {
+    use std::env;
+
+    // Resolve home prefix first.
+    let expanded: std::borrow::Cow<str> = if query == "~" {
+        match env::var("HOME") {
+            Ok(home) => std::borrow::Cow::Owned(home),
+            Err(_) => return Vec::new(),
+        }
+    } else if let Some(rest) = query.strip_prefix("~/") {
+        match env::var("HOME") {
+            Ok(home) => std::borrow::Cow::Owned(format!("{home}/{rest}")),
+            Err(_) => return Vec::new(),
+        }
+    } else {
+        std::borrow::Cow::Borrowed(query)
+    };
+
+    let path = if expanded.starts_with('/') {
+        PathBuf::from(expanded.as_ref())
+    } else {
+        cwd.join(expanded.as_ref())
+    };
+
+    // If the path itself is an existing directory, return it directly.
+    if path.is_dir() && !query.ends_with('/') {
+        return vec![path];
+    }
+
+    // If path is a directory and query ends with '/', list its children.
+    if path.is_dir() && query.ends_with('/') {
+        let mut results = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&path) {
+            for entry in entries.flatten() {
+                if entry.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+                    results.push(entry.path());
+                }
+            }
+        }
+        results.sort();
+        return results;
+    }
+
+    // Otherwise treat it as a prefix: parent dir + prefix filter.
+    let parent = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => return Vec::new(),
+    };
+    let prefix = match path.file_name() {
+        Some(name) => name.to_string_lossy().to_lowercase(),
+        None => return Vec::new(),
+    };
+
+    let mut results = Vec::new();
+    let entries = match std::fs::read_dir(&parent) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    for entry in entries.flatten() {
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if !meta.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if name.starts_with(&*prefix) {
+            results.push(entry.path());
+        }
+    }
+    results.sort();
+    results
 }
 
 #[cfg(test)]

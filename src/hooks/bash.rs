@@ -1,4 +1,4 @@
-pub fn generate(command_not_found: bool) -> String {
+pub fn generate(command_not_found: bool, menu: bool) -> String {
     let mut script = String::from(
         r#"if [[ -z "${DX_SESSION:-}" ]]; then
   export DX_SESSION="$$"
@@ -294,6 +294,50 @@ complete -F _dx_complete_stack_forward forward
 complete -F _dx_complete_stack_forward cd+
 "#,
     );
+
+    if menu {
+        script.push_str(
+            r#"
+__dx_try_menu() {
+  [[ "${DX_MENU:-}" == "0" ]] && return 1
+  command -v dx >/dev/null 2>&1 || return 1
+  local __dx_json
+  __dx_json="$(dx menu --buffer "$COMP_LINE" --cursor "$COMP_POINT" --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)" || return 1
+  [[ "$__dx_json" == *'"action":"replace"'* ]] || return 1
+  local __dx_value="${__dx_json##*\"value\":\"}"
+  __dx_value="${__dx_value%%\"*}"
+  [[ -n "$__dx_value" ]] || return 1
+  COMPREPLY=("$__dx_value")
+  return 0
+}
+
+_dx_menu_wrapper() {
+  if __dx_try_menu; then
+    return 0
+  fi
+  local __dx_cmd="${COMP_LINE%% *}"
+  case "$__dx_cmd" in
+    cd) _dx_complete_paths ;;
+    up) _dx_complete_ancestors ;;
+    cdf|z) _dx_complete_frecents ;;
+    cdr) _dx_complete_recents ;;
+    back|cd-) _dx_complete_stack_back ;;
+    forward|cd+) _dx_complete_stack_forward ;;
+  esac
+}
+
+complete -o default -F _dx_menu_wrapper cd
+complete -F _dx_menu_wrapper up
+complete -F _dx_menu_wrapper cdf
+complete -F _dx_menu_wrapper z
+complete -F _dx_menu_wrapper cdr
+complete -F _dx_menu_wrapper back
+complete -F _dx_menu_wrapper cd-
+complete -F _dx_menu_wrapper forward
+complete -F _dx_menu_wrapper cd+
+"#,
+        );
+    }
 
     if command_not_found {
         script.push_str(

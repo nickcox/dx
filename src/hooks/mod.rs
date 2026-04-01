@@ -27,12 +27,12 @@ impl Shell {
     }
 }
 
-pub fn generate(shell: Shell, command_not_found: bool) -> String {
+pub fn generate(shell: Shell, command_not_found: bool, menu: bool) -> String {
     match shell {
-        Shell::Bash => bash::generate(command_not_found),
-        Shell::Zsh => zsh::generate(command_not_found),
-        Shell::Fish => fish::generate(command_not_found),
-        Shell::Pwsh => pwsh::generate(command_not_found),
+        Shell::Bash => bash::generate(command_not_found, menu),
+        Shell::Zsh => zsh::generate(command_not_found, menu),
+        Shell::Fish => fish::generate(command_not_found, menu),
+        Shell::Pwsh => pwsh::generate(command_not_found, menu),
     }
 }
 
@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn generate_bash_without_command_not_found_contains_cd_only() {
-        let output = generate(Shell::Bash, false);
+        let output = generate(Shell::Bash, false, false);
         assert!(output.contains("cd()"));
         assert!(output.contains("up()"));
         assert!(output.contains("back()"));
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn bash_back_forward_use_stack_wrapper_not_nav_wrapper() {
-        let output = generate(Shell::Bash, false);
+        let output = generate(Shell::Bash, false, false);
         // back/forward should use __dx_stack_wrapper (dx undo/redo), not __dx_nav_wrapper (dx push)
         assert!(output.contains("back() {\n  __dx_stack_wrapper back"));
         assert!(output.contains("forward() {\n  __dx_stack_wrapper forward"));
@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn bash_up_seeds_origin_before_navigate() {
-        let output = generate(Shell::Bash, false);
+        let output = generate(Shell::Bash, false, false);
         // __dx_nav_wrapper should call __dx_push_pwd before dx navigate
         let nav_wrapper_start = output.find("__dx_nav_wrapper()").unwrap();
         let nav_section = &output[nav_wrapper_start..];
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn zsh_back_forward_use_stack_wrapper() {
-        let output = generate(Shell::Zsh, false);
+        let output = generate(Shell::Zsh, false, false);
         assert!(output.contains("back() {\n  __dx_stack_wrapper back"));
         assert!(output.contains("forward() {\n  __dx_stack_wrapper forward"));
         assert!(output.contains("__dx_stack_wrapper()"));
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn fish_back_forward_use_stack_wrapper() {
-        let output = generate(Shell::Fish, false);
+        let output = generate(Shell::Fish, false, false);
         assert!(output.contains("function back\n  __dx_stack_wrapper back"));
         assert!(output.contains("function forward\n  __dx_stack_wrapper forward"));
         assert!(output.contains("function __dx_stack_wrapper"));
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn generate_bash_with_command_not_found_contains_handler() {
-        let output = generate(Shell::Bash, true);
+        let output = generate(Shell::Bash, true, false);
         assert!(output.contains("cd()"));
         assert!(output.contains("DX_SESSION"));
         assert!(output.contains("command_not_found_handle"));
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn generate_zsh_uses_handler_suffix() {
-        let output = generate(Shell::Zsh, true);
+        let output = generate(Shell::Zsh, true, false);
         assert!(output.contains("command_not_found_handler"));
         assert!(output.contains("compdef _dx_complete_dx dx"));
         assert!(output.contains("compdef _dx_complete_ancestors up"));
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn generate_fish_without_command_not_found_excludes_handler() {
-        let output = generate(Shell::Fish, false);
+        let output = generate(Shell::Fish, false, false);
         assert!(output.contains("function cd"));
         assert!(output.contains("function up"));
         assert!(output.contains("complete -c dx"));
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn generate_pwsh_with_command_not_found_includes_guard_and_action() {
-        let output = generate(Shell::Pwsh, true);
+        let output = generate(Shell::Pwsh, true, false);
         assert!(output.contains("Set-Location"));
         assert!(output.contains("function up"));
         assert!(output.contains("Register-ArgumentCompleter -CommandName dx"));
@@ -172,20 +172,20 @@ mod tests {
 
     #[test]
     fn generate_pwsh_without_command_not_found_excludes_action() {
-        let output = generate(Shell::Pwsh, false);
+        let output = generate(Shell::Pwsh, false, false);
         assert!(output.contains("Set-Location"));
         assert!(!output.contains("CommandNotFoundAction"));
     }
 
     #[test]
     fn pwsh_removes_cd_alias_before_wrapper_definition() {
-        let output = generate(Shell::Pwsh, false);
+        let output = generate(Shell::Pwsh, false, false);
         assert!(output.contains("Remove-Item Alias:cd -ErrorAction SilentlyContinue"));
     }
 
     #[test]
     fn pwsh_back_forward_use_stack_wrapper_and_undo_redo() {
-        let output = generate(Shell::Pwsh, false);
+        let output = generate(Shell::Pwsh, false, false);
         assert!(output.contains("function __dx_stack_wrapper"));
         assert!(output.contains("$undoOrRedo = if ($Mode -eq 'back') { 'undo' } else { 'redo' }"));
         assert!(output.contains("__dx_stack_wrapper -Mode back -Selector $Selector"));
@@ -194,10 +194,10 @@ mod tests {
 
     #[test]
     fn generate_all_shells_guard_existing_dx_session() {
-        let bash = generate(Shell::Bash, false);
-        let zsh = generate(Shell::Zsh, false);
-        let fish = generate(Shell::Fish, false);
-        let pwsh = generate(Shell::Pwsh, false);
+        let bash = generate(Shell::Bash, false, false);
+        let zsh = generate(Shell::Zsh, false, false);
+        let fish = generate(Shell::Fish, false, false);
+        let pwsh = generate(Shell::Pwsh, false, false);
 
         assert!(bash.contains("DX_SESSION:-"));
         assert!(zsh.contains("DX_SESSION:-"));
@@ -207,21 +207,21 @@ mod tests {
 
     #[test]
     fn bash_script_has_balanced_braces_and_quotes() {
-        assert_balanced_delimiters(&generate(Shell::Bash, true));
+        assert_balanced_delimiters(&generate(Shell::Bash, true, false));
     }
 
     #[test]
     fn zsh_script_has_balanced_braces_and_quotes() {
-        assert_balanced_delimiters(&generate(Shell::Zsh, true));
+        assert_balanced_delimiters(&generate(Shell::Zsh, true, false));
     }
 
     #[test]
     fn fish_script_has_balanced_braces_and_quotes() {
-        assert_balanced_delimiters(&generate(Shell::Fish, true));
+        assert_balanced_delimiters(&generate(Shell::Fish, true, false));
     }
 
     #[test]
     fn pwsh_script_has_balanced_braces_and_quotes() {
-        assert_balanced_delimiters(&generate(Shell::Pwsh, true));
+        assert_balanced_delimiters(&generate(Shell::Pwsh, true, false));
     }
 }
