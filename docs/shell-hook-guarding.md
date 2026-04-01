@@ -1,37 +1,50 @@
 # Shell Hook Guarding Strategy
 
-This document describes how shell hooks should invoke `dx resolve` safely from `cd` wrappers and command-not-found handlers.
+This document describes the guard and fallback behavior implemented by generated hooks from `dx init`.
 
 ## Goals
 
-- Preserve native shell behavior for regular commands.
-- Only call `dx resolve` for path-like inputs.
-- Prevent recursion loops when hooks call back into shell functions.
+- Preserve native shell behavior for non-path-like command typos.
+- Attempt `dx resolve` only when the token looks path-like.
+- Prevent command-not-found recursion loops.
+- Keep directory-changing semantics in shell wrappers, not in `dx`.
 
-## Guard Rules
+## Path-Like Heuristic
 
-1. **Path-like filter first**
-   - Only attempt `dx resolve` when token resembles a path shortcut:
-     - contains `/`
-     - contains `.`
-     - starts with `~`
-     - equals known alias (e.g., `up`)
-     - starts with multi-dot alias (`...` and longer)
+Command-not-found handlers only attempt `dx resolve` when the command token:
 
-2. **Recursion guard environment variable**
-   - Set `DX_RESOLVE_GUARD=1` for the nested resolve call from command-not-found handlers.
-   - If the guard is already set, bail out to native shell "command not found" behavior.
+- contains `/`
+- starts with `.`
+- starts with `~`
+- starts with `...` (multi-dot alias)
 
-3. **No shell-internal `cd` inside `dx` binary**
-   - The `dx` binary only prints resolved paths.
-   - The shell hook performs `builtin cd` itself.
+For non-path-like tokens, handlers immediately return native command-not-found behavior (Bash/Zsh/Fish exit 127 semantics preserved).
 
-4. **Fallback on resolve miss**
-   - If `dx resolve` exits non-zero or emits no path, fall back to native shell error handling.
+## Recursion Guard
 
-## Prototype Hook Files
+- Handlers check `DX_RESOLVE_GUARD` first.
+- If already set, they do not call `dx resolve` and return native command-not-found behavior.
+- For guarded resolve calls, handlers set `DX_RESOLVE_GUARD=1` only for the nested resolve invocation, then clear it.
 
-- `scripts/hooks/dx.bash`
-- `scripts/hooks/dx.zsh`
+## cd Wrapper Contract
 
-These are prototype integration scripts and intentionally minimal.
+- Wrappers call native shell directory-change primitives (`builtin cd` / `Set-Location`) and record stack state via `dx push`.
+- `dx` never changes the shell process directory itself; it only returns paths/state transitions.
+- If `dx resolve` fails, wrappers fall back to native `cd` behavior with original arguments.
+
+## Navigation Wrapper Contract
+
+- Selector resolution for `up|back|forward` is delegated to Rust via `dx navigate`.
+- Forward-navigation wrappers seed and record via `dx push` around successful navigation.
+- Stack-transition wrappers (`back`/`forward`/`cd-`/`cd+`) use `dx undo`/`dx redo` (and `--target` for selector-based jumps) and must not call `dx push`.
+
+## Source of Truth
+
+Current behavior is implemented in generated hook templates:
+
+- `src/hooks/bash.rs`
+- `src/hooks/zsh.rs`
+- `src/hooks/fish.rs`
+- `src/hooks/pwsh.rs`
+
+Legacy prototype scripts under `scripts/hooks/` are not authoritative.
