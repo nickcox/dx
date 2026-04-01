@@ -178,6 +178,21 @@ mod tests {
     }
 
     #[test]
+    fn pwsh_removes_cd_alias_before_wrapper_definition() {
+        let output = generate(Shell::Pwsh, false);
+        assert!(output.contains("Remove-Item Alias:cd -ErrorAction SilentlyContinue"));
+    }
+
+    #[test]
+    fn pwsh_back_forward_use_stack_wrapper_and_undo_redo() {
+        let output = generate(Shell::Pwsh, false);
+        assert!(output.contains("function __dx_stack_wrapper"));
+        assert!(output.contains("$undoOrRedo = if ($Mode -eq 'back') { 'undo' } else { 'redo' }"));
+        assert!(output.contains("__dx_stack_wrapper -Mode back -Selector $Selector"));
+        assert!(output.contains("__dx_stack_wrapper -Mode forward -Selector $Selector"));
+    }
+
+    #[test]
     fn generate_all_shells_guard_existing_dx_session() {
         let bash = generate(Shell::Bash, false);
         let zsh = generate(Shell::Zsh, false);

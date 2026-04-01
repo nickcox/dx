@@ -8,6 +8,8 @@ if (-not (Get-Variable -Name __dx_oldpwd -Scope Global -ErrorAction SilentlyCont
     $Global:__dx_oldpwd = $PWD.Path
 }
 
+Remove-Item Alias:cd -ErrorAction SilentlyContinue
+
 function __dx_is_path_like {
     param([string]$Cmd)
     return $Cmd -match '(/|^\.|^~|^\.{3,}$)'
@@ -57,9 +59,9 @@ function __dx_complete_mode {
     return @($output | Where-Object { $_ -and $_.Trim().Length -gt 0 })
 }
 
-function __dx_navigate_wrapper {
+function __dx_nav_wrapper {
     param(
-        [ValidateSet('up', 'back', 'forward')]
+        [ValidateSet('up')]
         [string]$Mode,
         [string]$Selector
     )
@@ -67,6 +69,8 @@ function __dx_navigate_wrapper {
     if (-not (Get-Command dx -ErrorAction SilentlyContinue)) {
         return
     }
+
+    __dx_push_pwd
 
     $target = $null
     if ($Selector) {
@@ -83,6 +87,38 @@ function __dx_navigate_wrapper {
     if ($?) {
         __dx_push_pwd
     }
+}
+
+function __dx_stack_wrapper {
+    param(
+        [ValidateSet('back', 'forward')]
+        [string]$Mode,
+        [string]$Selector
+    )
+
+    if (-not (Get-Command dx -ErrorAction SilentlyContinue)) {
+        return
+    }
+
+    $undoOrRedo = if ($Mode -eq 'back') { 'undo' } else { 'redo' }
+
+    $dest = $null
+    if ($Selector) {
+        $target = (dx navigate $Mode $Selector)
+        if ($LASTEXITCODE -ne 0 -or -not $target) {
+            return
+        }
+
+        $dest = (dx $undoOrRedo --target $target)
+    } else {
+        $dest = (dx $undoOrRedo)
+    }
+
+    if ($LASTEXITCODE -ne 0 -or -not $dest) {
+        return
+    }
+
+    __dx_set_location_native @($dest)
 }
 
 function __dx_set_location_native {
@@ -143,17 +179,17 @@ function cd {
 
 function up {
     param([string]$Selector)
-    __dx_navigate_wrapper -Mode up -Selector $Selector
+    __dx_nav_wrapper -Mode up -Selector $Selector
 }
 
 function back {
     param([string]$Selector)
-    __dx_navigate_wrapper -Mode back -Selector $Selector
+    __dx_stack_wrapper -Mode back -Selector $Selector
 }
 
 function forward {
     param([string]$Selector)
-    __dx_navigate_wrapper -Mode forward -Selector $Selector
+    __dx_stack_wrapper -Mode forward -Selector $Selector
 }
 
 Set-Alias -Name 'cd-' -Value back -Scope Global

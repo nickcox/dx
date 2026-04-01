@@ -149,6 +149,8 @@ When the `command_not_found` handler is entered and `DX_RESOLVE_GUARD` is alread
 ### Requirement: PowerShell Set-Location Wrapper
 The PowerShell hook code SHALL define a `cd` function that wraps `Set-Location` (PowerShell has no `builtin cd`). The wrapper SHALL follow the same resolve-then-navigate-then-push flow as POSIX shells but using `Set-Location` as the native navigation command.
 
+Before defining the `cd` function wrapper, the generated hook code SHALL remove `Alias:cd` (if present) so the function wrapper takes precedence.
+
 #### Scenario: PowerShell cd wrapper uses Set-Location
 - **WHEN** `cd pr/dx` is invoked in a PowerShell session with dx hooks
 - **THEN** the hook SHALL call `dx resolve`, and on success call `Set-Location` with the resolved path, then `dx push`
@@ -160,6 +162,33 @@ The PowerShell hook code SHALL define a `cd` function that wraps `Set-Location` 
 #### Scenario: PowerShell without CommandNotFoundAction
 - **WHEN** `dx init pwsh --command-not-found` output is evaluated and `CommandNotFoundAction` member does not exist
 - **THEN** the hook code SHALL skip command_not_found registration gracefully without errors
+
+#### Scenario: PowerShell removes cd alias before wrapper
+- **WHEN** `dx init pwsh` output is evaluated
+- **THEN** the script SHALL execute `Remove-Item Alias:cd -ErrorAction SilentlyContinue` before defining the `cd` function
+
+### Requirement: PowerShell Stack Transition Wrappers
+In PowerShell hooks, `back` and `forward` wrappers SHALL traverse existing session stack history using `dx undo` and `dx redo` rather than `dx navigate` plus `dx push`.
+
+For selector-based traversal, the wrapper SHALL first resolve a target path with `dx navigate back|forward <selector>`, then invoke `dx undo --target <path>` or `dx redo --target <path>` respectively.
+
+PowerShell stack-transition wrappers SHALL NOT call `dx push`.
+
+#### Scenario: PowerShell back without selector uses undo
+- **WHEN** a user invokes `back` in a PowerShell session with dx hooks and a non-empty undo stack
+- **THEN** the wrapper SHALL call `dx undo`, `Set-Location` to the returned path, and SHALL NOT call `dx push`
+
+#### Scenario: PowerShell forward without selector uses redo
+- **WHEN** a user invokes `forward` in a PowerShell session with dx hooks and a non-empty redo stack
+- **THEN** the wrapper SHALL call `dx redo`, `Set-Location` to the returned path, and SHALL NOT call `dx push`
+
+#### Scenario: PowerShell back with selector uses undo target
+- **WHEN** a user invokes `back 2` in a PowerShell session with dx hooks
+- **THEN** the wrapper SHALL resolve the target via `dx navigate back 2`, call `dx undo --target <path>`, and `Set-Location` to the returned path
+
+#### Scenario: PowerShell forward with selector uses redo target
+- **WHEN** a user invokes `forward code` in a PowerShell session with dx hooks
+- **THEN** the wrapper SHALL resolve the target via `dx navigate forward code`, call `dx redo --target <path>`, and `Set-Location` to the returned path
 
 ### Requirement: Fish Auto-cd Cooperation
 The Fish hook code SHALL cooperate with Fish's built-in auto-cd feature. The `fish_command_not_found` handler (when enabled) SHALL only attempt `dx resolve` for inputs that Fish's native auto-cd would not handle (abbreviated paths, multi-dot patterns, bookmark names). If the input is a literal existing directory, Fish's auto-cd SHALL take precedence.
