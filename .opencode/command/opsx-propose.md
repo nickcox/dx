@@ -19,7 +19,7 @@ When ready to implement, run /opsx-apply
 
 1. **If no input provided, ask what they want to build**
 
-   Use the **AskUserQuestion tool** (open-ended, no preset options) to ask:
+   Use the **Question tool** (open-ended, no preset options) to ask:
    > "What change do you want to work on? Describe what you want to build or fix."
 
    From their description, derive a kebab-case name (e.g., "add user authentication" → `add-user-auth`).
@@ -62,6 +62,10 @@ When ready to implement, run /opsx-apply
       - Create the artifact file using `template` as the structure
       - Apply `context` and `rules` as constraints - but do NOT copy them into the file
       - Show brief progress: "Created <artifact-id>"
+      - Use the opsx-review subagent to ask for a detailed review of the aritfact, including any suggestions for changes
+        - Implement the suggestions, if they make sense to use
+        - If you think that one or more of the suggestions would *not* improve the artifact then ask the user to decide, using the **Question tool**
+        - If the opsx-review subagent did not recommend any changes then move on to the next step, otherwise loop until no further actionable suggestions are received
 
    b. **Continue until all `applyRequires` artifacts are complete**
       - After creating each artifact, re-run `openspec status --change "<name>" --json`
@@ -69,7 +73,7 @@ When ready to implement, run /opsx-apply
       - Stop when all `applyRequires` artifacts are done
 
    c. **If an artifact requires user input** (unclear context):
-      - Use **AskUserQuestion tool** to clarify
+      - Use **Question tool** to clarify
       - Then continue with creation
 
 5. **Show final status**
