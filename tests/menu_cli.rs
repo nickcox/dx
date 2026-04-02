@@ -409,3 +409,36 @@ fn menu_debug_mode_off_by_default() {
         "debug output should not appear without DX_MENU_DEBUG=1"
     );
 }
+
+
+#[test]
+fn hook_scripts_apply_replace_action_contract() {
+    let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
+    let zsh_out = String::from_utf8_lossy(&zsh.stdout);
+    assert!(zsh_out.contains("replaceStart"));
+    assert!(zsh_out.contains("replaceEnd"));
+    assert!(zsh_out.contains("__dx_value"));
+
+    let fish = dx().args(["init", "fish", "--menu"]).output().unwrap();
+    let fish_out = String::from_utf8_lossy(&fish.stdout);
+    assert!(fish_out.contains("replaceStart"));
+    assert!(fish_out.contains("replaceEnd"));
+    assert!(fish_out.contains(r#"commandline -r -- "$prefix$value$suffix""#));
+
+    let pwsh = dx().args(["init", "pwsh", "--menu"]).output().unwrap();
+    let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);
+    assert!(pwsh_out.contains("$result.action -ne 'replace'"));
+    assert!(pwsh_out.contains("PSConsoleReadLine]::Replace("));
+}
+
+#[test]
+fn hook_scripts_do_not_perform_intermediate_menu_edits() {
+    let bash = dx().args(["init", "bash", "--menu"]).output().unwrap();
+    let bash_out = String::from_utf8_lossy(&bash.stdout);
+    assert!(bash_out.contains("dx menu --buffer"));
+    assert!(!bash_out.contains("dx menu --append"));
+
+    let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
+    let zsh_out = String::from_utf8_lossy(&zsh.stdout);
+    assert!(zsh_out.matches("dx menu --buffer").count() >= 1);
+}

@@ -13,6 +13,7 @@ use crate::resolve::Resolver;
 
 pub use action::MenuAction;
 pub use buffer::{parse_buffer, ParsedBuffer};
+pub use tui::MenuResult;
 
 /// Source completion candidates for the given mode and query,
 /// reusing the same pipelines as `dx complete`.

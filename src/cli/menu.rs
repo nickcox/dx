@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 
-use crate::menu::{self, parse_buffer, MenuAction};
+use crate::menu::{self, parse_buffer, MenuAction, MenuResult};
 use crate::resolve::Resolver;
 
 #[derive(Debug, Args)]
@@ -35,7 +35,6 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         );
     }
 
-    // Parse the buffer to extract mode, query, and replacement range.
     let parsed = match parse_buffer(&cmd.buffer, cmd.cursor) {
         Some(parsed) => parsed,
         None => {
@@ -58,7 +57,6 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         );
     }
 
-    // Source candidates for the resolved mode.
     let candidates = menu::source_candidates(
         resolver,
         parsed.mode,
@@ -78,11 +76,11 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         return 0;
     }
 
-    // Present interactive TUI on /dev/tty.  Falls back to noop when the
-    // TTY is unavailable (non-interactive context) or the user cancels.
-    match menu::tui::select(&candidates) {
-        Some(idx) => {
-            let selected = candidates[idx].display().to_string();
+    let initial_query = parsed.query.clone().unwrap_or_default();
+
+    match menu::tui::select(&candidates, &initial_query) {
+        Some(MenuResult::Selected { index, .. }) => {
+            let selected = candidates[index].display().to_string();
             let value = if parsed.needs_space_prefix {
                 format!(" {selected}")
             } else {
@@ -90,17 +88,40 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
             };
             let action = MenuAction::replace(parsed.replace_start, parsed.replace_end, value);
             if debug {
-                eprintln!(
-                    "[dx-menu-debug] action=replace value={:?}",
-                    action.to_json()
-                );
+                eprintln!("[dx-menu-debug] action=replace value={:?}", action.to_json());
             }
             println!("{}", action.to_json());
             0
         }
+        Some(MenuResult::Cancelled {
+            filter_query,
+            changed_query,
+        }) => {
+            if changed_query {
+                let value = if parsed.needs_space_prefix {
+                    format!(" {filter_query}")
+                } else {
+                    filter_query
+                };
+                let action = MenuAction::replace(parsed.replace_start, parsed.replace_end, value);
+                if debug {
+                    eprintln!(
+                        "[dx-menu-debug] cancel with changed query -> action=replace value={:?}",
+                        action.to_json()
+                    );
+                }
+                println!("{}", action.to_json());
+            } else {
+                if debug {
+                    eprintln!("[dx-menu-debug] cancel without query change -> noop");
+                }
+                println!("{}", MenuAction::noop().to_json());
+            }
+            0
+        }
         None => {
             if debug {
-                eprintln!("[dx-menu-debug] tui returned None -> noop (cancel or no TTY)");
+                eprintln!("[dx-menu-debug] tui unavailable -> noop");
             }
             println!("{}", MenuAction::noop().to_json());
             0

@@ -76,7 +76,8 @@ Invoke-Expression ((& dx init pwsh --menu | Out-String))
 When menu mode is enabled, pressing Tab on a dx navigation command (`cd`, `up`, `cdf`, `z`, `cdr`, `back`, `forward`, `cd-`, `cd+`) opens an interactive TUI list of candidates. Use arrow keys or `j`/`k` to navigate, Enter to select, Esc or Ctrl+C to cancel.
 
 - **Select**: replaces the query in the command buffer with the chosen path
-- **Cancel**: falls back to the shell's native completion
+- **Cancel after typing**: preserves typed filter refinement by applying a final `replace` action
+- **Cancel without typing**: falls back to native completion / noop semantics
 
 For non-dx commands, Tab behaves normally (native completion).
 
@@ -93,6 +94,7 @@ export DX_MENU=0
 The menu gracefully degrades in these cases:
 
 - **No TTY available**: outputs `{"action":"noop"}` and hooks fall back to native completion
+- **Typed filter cancel path**: may output `{"action":"replace", ...}` even without candidate selection so typed refinement is preserved
 - **No candidates**: outputs noop
 - **dx not found**: hooks fall back to native completion
 - **Command failure or invalid JSON**: hooks fall back to native completion
