@@ -21,7 +21,10 @@ mod imp {
         layout::{Constraint, Direction, Layout, Rect},
         style::{Color, Modifier, Style},
         text::Span,
-        widgets::{Block, List, ListItem, ListState, Paragraph},
+        widgets::{
+            Block, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+            ScrollbarState,
+        },
         Terminal, TerminalOptions, Viewport,
     };
 
@@ -183,6 +186,9 @@ mod imp {
                         .constraints([Constraint::Min(1), Constraint::Length(1)])
                         .split(frame.area());
 
+                    let list_area = chunks[0];
+                    let n = candidates.len();
+
                     let items: Vec<ListItem> = candidates
                         .iter()
                         .map(|p| ListItem::new(p.display().to_string()))
@@ -198,7 +204,27 @@ mod imp {
                         )
                         .highlight_symbol("▸ ");
 
-                    frame.render_stateful_widget(list, chunks[0], &mut list_state);
+                    frame.render_stateful_widget(list, list_area, &mut list_state);
+
+                    // Scrollbar — only rendered when candidates exceed visible rows.
+                    // Inner height = list_area height minus 2 border rows.
+                    let visible_rows = list_area.height.saturating_sub(2) as usize;
+                    if n > visible_rows {
+                        let selected = list_state.selected().unwrap_or(0);
+                        let mut scrollbar_state = ScrollbarState::new(n)
+                            .position(selected);
+                        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                            .begin_symbol(None)
+                            .end_symbol(None);
+                        // Render inside the border: inset the list area by 1 on each side.
+                        let scrollbar_area = Rect {
+                            x: list_area.x,
+                            y: list_area.y + 1,
+                            width: list_area.width,
+                            height: list_area.height.saturating_sub(2),
+                        };
+                        frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+                    }
 
                     let status = Paragraph::new(Span::styled(
                         format!(" filter: {filter_label} | {selected_path}"),
