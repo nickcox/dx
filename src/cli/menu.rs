@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 
-use crate::menu::{self, parse_buffer, MenuAction, MenuResult};
+use crate::menu::{self, parse_buffer, tui::QueryFn, MenuAction, MenuResult};
 use crate::resolve::Resolver;
 
 #[derive(Debug, Args)]
@@ -57,18 +57,18 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         );
     }
 
-    let candidates = menu::source_candidates(
+    let initial_candidates = menu::source_candidates(
         resolver,
-        parsed.mode,
+        parsed.mode.clone(),
         parsed.query.as_deref(),
         session.as_deref(),
     );
 
     if debug {
-        eprintln!("[dx-menu-debug] candidates={}", candidates.len());
+        eprintln!("[dx-menu-debug] candidates={}", initial_candidates.len());
     }
 
-    if candidates.is_empty() {
+    if initial_candidates.is_empty() {
         if debug {
             eprintln!("[dx-menu-debug] no candidates -> noop");
         }
@@ -78,9 +78,23 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
 
     let initial_query = parsed.query.clone().unwrap_or_default();
 
-    match menu::tui::select(&candidates, &initial_query) {
-        Some(MenuResult::Selected { index, .. }) => {
-            let selected = candidates[index].display().to_string();
+    // Build a re-query callback that calls source_candidates with the updated
+    // filter query. This ensures filtering is always consistent with
+    // `dx complete <mode>` — path prefixes (~/D, /Users/…), abbreviations,
+    // and all resolver logic work correctly instead of doing in-memory string
+    // matching against already-expanded paths.
+    let query_fn: QueryFn<'_> = Box::new(|q: &str| {
+        menu::source_candidates(
+            resolver,
+            parsed.mode.clone(),
+            if q.is_empty() { None } else { Some(q) },
+            session.as_deref(),
+        )
+    });
+
+    match menu::tui::select(initial_candidates, &initial_query, query_fn) {
+        Some(MenuResult::Selected { value, .. }) => {
+            let selected = value.display().to_string();
             let value = if parsed.needs_space_prefix {
                 format!(" {selected}")
             } else {
@@ -88,7 +102,10 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
             };
             let action = MenuAction::replace(parsed.replace_start, parsed.replace_end, value);
             if debug {
-                eprintln!("[dx-menu-debug] action=replace value={:?}", action.to_json());
+                eprintln!(
+                    "[dx-menu-debug] action=replace value={:?}",
+                    action.to_json()
+                );
             }
             println!("{}", action.to_json());
             0

@@ -3,7 +3,7 @@
 ### Requirement: In-Menu Incremental Filter Input
 When `dx menu` is open with multiple candidates, the menu runtime SHALL accept printable key input as an incremental filter string and SHALL update visible candidates after each keystroke.
 
-Filter matching SHALL follow `dx complete`-style prefix behavior for the active token: candidates SHALL remain visible only when their relevant display token starts with the current filter query (case-insensitive).
+Filter matching SHALL be implemented by re-invoking the same completion pipeline as `dx complete <mode>` with the updated filter query on each keystroke — not by in-memory string matching against already-sourced candidates. This ensures path-prefix queries (`~/D`, `/Users/nick/D`), abbreviation expansion, and all resolver logic work identically inside the menu as in `dx complete`.
 
 #### Scenario: Typing narrows visible list
 - **WHEN** the menu opens for `cd D` with visible candidates `Desktop`, `Documents`, `Downloads`, and `Dropbox`, and the user types `o`

@@ -23,11 +23,12 @@ Constraints:
 
 ## Decisions
 
-### D1: Add a menu-local filter state layered on top of initial candidates
+### D1: Re-query the resolver/completion pipeline on each filter change
 - Maintain `filter_query: String` inside `tui::run_loop`.
-- Derive `visible_candidates: Vec<usize>` each frame by case-insensitive prefix match against display labels/tokens.
-- Rationale: keeps resolver/completion behavior unchanged and makes filtering deterministic and low risk.
-- Alternative considered: request fresh candidates from `dx complete` on every keypress. Rejected because it adds subprocess overhead and shell coupling.
+- On each keypress (char append or backspace), invoke a `QueryFn` callback that calls `source_candidates` with the updated query, exactly as `dx complete <mode> <query>` would.
+- The caller (`cli/menu.rs`) wires the callback, passing the resolver, mode, and session into `tui::select` at call time.
+- Rationale: guarantees that path-prefix queries (`~/D`, `/Users/nick/D`), abbreviations, and all resolver logic work identically in-menu as in `dx complete`. In-memory string matching against already-expanded paths was incorrect for tilde-prefixed and resolver-expanded queries.
+- Alternative considered (original implementation): in-memory case-insensitive prefix match against display labels. Rejected because `expand_filesystem_prefix` converts `~/D` to absolute paths, so matching `~/d` against `/Users/nick/Desktop` always failed.
 
 ### D2: Persist filter text to shell buffer via final action
 - `dx menu` SHALL still emit exactly one final JSON action on exit.
@@ -57,7 +58,7 @@ Constraints:
 ## Risks / Trade-offs
 
 - [Cancel now mutates line in some cases] -> Restrict cancel mutation to typed-delta-only replacement of active token; verify with explicit tests.
-- [Selection/index drift after filter changes] -> Track selected item via original candidate index and clamp/reset deterministically when visibility changes.
+- [Re-query performance] -> Each keypress invokes the local completion pipeline (filesystem readdir, abbreviation expansion). This is fast in practice (< 5ms on typical queries) but theoretically unbounded for large trees under broad queries.
 - [No-match UX ambiguity] -> Show explicit no-match status and keep cancel available.
 - [Terminal redraw regressions] -> Reuse existing cleanup/cursor restoration paths and extend menu integration tests.
 

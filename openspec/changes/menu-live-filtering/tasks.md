@@ -1,8 +1,8 @@
 ## 1. Menu Filter State and Matching
 
 - [x] 1.1 Add `filter_query` state to menu runtime and recompute visible candidates on each input event.
-- [x] 1.2 Implement case-insensitive prefix matching consistent with `dx complete` expectations.
-- [x] 1.3 Preserve mapping from filtered rows back to original candidate indices for final selection.
+- [x] 1.2 Re-query the completion pipeline (resolver + `source_candidates`) on each filter change instead of in-memory matching, so path-prefix queries (`~/D`, `/Users/nick/D`) and abbreviations work identically to `dx complete`.
+- [x] 1.3 Pass a `QueryFn` callback from `cli/menu.rs` into `tui::select` so the TUI can invoke the resolver without circular dependencies.
 
 ## 2. Input Handling and Exit Action Semantics
 
