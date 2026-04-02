@@ -145,15 +145,17 @@ impl Resolver {
             return Ok(ResolveResult { path });
         }
 
+        let effective_roots = build_effective_roots(query.cwd, &self.config.search_roots);
+
         let mut candidates = abbreviation::resolve_abbreviation(
-            &self.config.search_roots,
+            &effective_roots,
             trimmed,
             self.config.resolve.case_sensitive,
         );
 
         if candidates.is_empty() {
             candidates = roots::resolve_fallbacks(
-                &self.config.search_roots,
+                &effective_roots,
                 trimmed,
                 self.config.resolve.case_sensitive,
             );
@@ -231,8 +233,10 @@ impl Resolver {
             }
         }
 
+        let effective_roots = build_effective_roots(&cwd, &self.config.search_roots);
+
         let mut abbreviation_candidates = abbreviation::resolve_abbreviation(
-            &self.config.search_roots,
+            &effective_roots,
             trimmed,
             self.config.resolve.case_sensitive,
         );
@@ -245,7 +249,7 @@ impl Resolver {
         }
 
         let mut fallback_candidates = roots::resolve_fallbacks(
-            &self.config.search_roots,
+            &effective_roots,
             trimmed,
             self.config.resolve.case_sensitive,
         );
@@ -331,6 +335,33 @@ impl Resolver {
         }
     }
 }
+
+
+fn normalized_root_key(path: &Path) -> String {
+    let normalized = std::fs::canonicalize(path)
+        .unwrap_or_else(|_| traversal::normalize_path(path));
+    normalized.display().to_string()
+}
+
+fn build_effective_roots(cwd: &Path, configured_roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    let mut roots = Vec::new();
+
+    for root in configured_roots {
+        let key = normalized_root_key(root);
+        if seen.insert(key) {
+            roots.push(root.clone());
+        }
+    }
+
+    let cwd_key = normalized_root_key(cwd);
+    if seen.insert(cwd_key) {
+        roots.push(cwd.to_path_buf());
+    }
+
+    roots
+}
+
 
 fn push_unique(output: &mut Vec<PathBuf>, seen: &mut HashSet<String>, candidate: PathBuf) {
     let key = candidate.display().to_string();
@@ -689,4 +720,21 @@ mod tests {
         set_bookmark_env(None);
         let _ = fs::remove_dir_all(temp);
     }
+
+    #[test]
+    fn effective_roots_include_cwd_when_no_roots_configured() {
+        let temp = make_temp_dir("effective-roots-cwd");
+        let roots = build_effective_roots(&temp, &[]);
+        assert_eq!(roots, vec![temp.clone()]);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn effective_roots_dedup_when_cwd_already_configured() {
+        let temp = make_temp_dir("effective-roots-dedup");
+        let roots = build_effective_roots(&temp, std::slice::from_ref(&temp));
+        assert_eq!(roots, vec![temp.clone()]);
+        let _ = fs::remove_dir_all(temp);
+    }
+
 }

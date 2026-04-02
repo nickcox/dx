@@ -106,6 +106,6 @@ If the menu doesn't appear when pressing Tab:
 1. Verify `--menu` was passed to `dx init`
 2. Check that `dx` is on your PATH: `command -v dx`
 3. Verify candidates exist: `dx complete paths <query>`
-4. For path completions, ensure `DX_SEARCH_ROOTS` is configured
+4. By default, path completion includes the current directory as an implicit root; set `DX_SEARCH_ROOTS` to add or override broader roots
 5. Check runtime disable: `echo $DX_MENU` (should not be `0`)
 6. Enable debug diagnostics: `export DX_MENU_DEBUG=1` — this emits per-invocation trace on stderr showing buffer, cursor, parsed mode, candidate count, and action taken

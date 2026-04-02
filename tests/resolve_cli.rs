@@ -106,3 +106,27 @@ fn json_mode_returns_structured_output() {
     assert_eq!(json["path"], canonical_string(&child));
     let _ = fs::remove_dir_all(cwd);
 }
+
+
+#[test]
+fn resolve_uses_cwd_as_implicit_root_when_unset() {
+    let cwd = make_temp_dir("cli-implicit-cwd-root");
+    let target = cwd.join("workspace/project/src");
+    fs::create_dir_all(&target).expect("create target");
+
+    let output = Command::new(dx_bin())
+        .arg("resolve")
+        .arg("wo/pr/sr")
+        .env_remove("DX_SEARCH_ROOTS")
+        .current_dir(&cwd)
+        .output()
+        .expect("run dx implicit cwd root");
+
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        canonical_string(&target)
+    );
+
+    let _ = fs::remove_dir_all(cwd);
+}

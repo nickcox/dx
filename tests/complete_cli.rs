@@ -277,3 +277,28 @@ fn complete_error_cases_return_non_zero() {
         .expect("run complete stack missing direction");
     assert!(!stack_missing_direction.status.success());
 }
+
+
+#[test]
+fn complete_paths_uses_cwd_as_implicit_root_when_unset() {
+    let temp = make_temp_dir("paths-implicit-cwd-root");
+    let cwd = temp.join("work");
+    let target = cwd.join("workspace/project");
+    fs::create_dir_all(&target).expect("create target");
+
+    let output = Command::new(dx_bin())
+        .args(["complete", "paths", "wo/pr"])
+        .env_remove("DX_SEARCH_ROOTS")
+        .current_dir(&cwd)
+        .output()
+        .expect("run complete paths implicit cwd root");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("workspace/project"),
+        "expected implicit cwd-root abbreviation candidate, got: {stdout}"
+    );
+
+    let _ = fs::remove_dir_all(temp);
+}
