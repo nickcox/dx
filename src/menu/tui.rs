@@ -9,7 +9,7 @@
 #[cfg(unix)]
 mod imp {
     use std::io::{stderr, Read, Write};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use crossterm::{
         cursor,
@@ -95,7 +95,25 @@ mod imp {
     /// Re-query callback type: given a query string, returns fresh candidates.
     pub type QueryFn<'a> = Box<dyn Fn(&str) -> Vec<PathBuf> + 'a>;
 
-    pub fn select(initial_candidates: Vec<PathBuf>, initial_query: &str, query_fn: QueryFn<'_>) -> Option<MenuResult> {
+    /// Compute a compact display label for a path:
+    /// - relative to `cwd` if the path is under it (e.g. `Desktop`)
+    /// - tilde-contracted if under `$HOME` (e.g. `~/code/dx`)
+    /// - full absolute path otherwise
+    fn display_label(path: &Path, cwd: &Path, home: Option<&Path>) -> String {
+        if let Ok(rel) = path.strip_prefix(cwd) {
+            let s = rel.display().to_string();
+            if s.is_empty() { ".".to_string() } else { s }
+        } else if let Some(h) = home {
+            if let Ok(rel) = path.strip_prefix(h) {
+                return format!("~/{}", rel.display());
+            }
+            path.display().to_string()
+        } else {
+            path.display().to_string()
+        }
+    }
+
+    pub fn select(initial_candidates: Vec<PathBuf>, initial_query: &str, cwd: &Path, query_fn: QueryFn<'_>) -> Option<MenuResult> {
         if initial_candidates.is_empty() {
             return Some(MenuResult::Cancelled {
                 filter_query: initial_query.to_string(),
@@ -139,12 +157,13 @@ mod imp {
 
         let _guard = CleanupGuard { prompt_row, area };
 
-        run_loop(initial_candidates, initial_query, area, &query_fn)
+        run_loop(initial_candidates, initial_query, cwd, area, &query_fn)
     }
 
     fn run_loop(
         initial_candidates: Vec<PathBuf>,
         initial_query: &str,
+        cwd: &Path,
         area: Rect,
         query_fn: &QueryFn<'_>,
     ) -> Option<MenuResult> {
@@ -165,6 +184,8 @@ mod imp {
         } else {
             list_state.select(Some(0));
         }
+
+        let home = dirs::home_dir();
 
         loop {
             let selected_path = list_state
@@ -191,7 +212,7 @@ mod imp {
 
                     let items: Vec<ListItem> = candidates
                         .iter()
-                        .map(|p| ListItem::new(p.display().to_string()))
+                        .map(|p| ListItem::new(display_label(p, cwd, home.as_deref())))
                         .collect();
 
                     let list = List::new(items)
@@ -302,11 +323,46 @@ mod imp {
         let next = (current + delta).rem_euclid(len as isize) as usize;
         state.select(Some(next));
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn display_label_relative_under_cwd() {
+            let cwd = Path::new("/Users/nick");
+            let path = Path::new("/Users/nick/Desktop");
+            assert_eq!(display_label(path, cwd, None), "Desktop");
+        }
+
+        #[test]
+        fn display_label_tilde_when_under_home_but_not_cwd() {
+            let cwd = Path::new("/tmp");
+            let home = Path::new("/Users/nick");
+            let path = Path::new("/Users/nick/code/dx");
+            assert_eq!(display_label(path, cwd, Some(home)), "~/code/dx");
+        }
+
+        #[test]
+        fn display_label_absolute_when_outside_home() {
+            let cwd = Path::new("/tmp");
+            let home = Path::new("/Users/nick");
+            let path = Path::new("/opt/homebrew/bin");
+            assert_eq!(display_label(path, cwd, Some(home)), "/opt/homebrew/bin");
+        }
+
+        #[test]
+        fn display_label_cwd_itself_shows_dot() {
+            let cwd = Path::new("/Users/nick");
+            let path = Path::new("/Users/nick");
+            assert_eq!(display_label(path, cwd, None), ".");
+        }
+    }
 }
 
 #[cfg(not(unix))]
 mod imp {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum MenuResult {
@@ -323,7 +379,7 @@ mod imp {
 
     pub type QueryFn<'a> = Box<dyn Fn(&str) -> Vec<PathBuf> + 'a>;
 
-    pub fn select(_candidates: Vec<PathBuf>, initial_query: &str, _query_fn: QueryFn<'_>) -> Option<MenuResult> {
+    pub fn select(_candidates: Vec<PathBuf>, initial_query: &str, _cwd: &Path, _query_fn: QueryFn<'_>) -> Option<MenuResult> {
         Some(MenuResult::Cancelled {
             filter_query: initial_query.to_string(),
             changed_query: false,

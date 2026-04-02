@@ -92,7 +92,13 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         )
     });
 
-    match menu::tui::select(initial_candidates, &initial_query, query_fn) {
+    let cwd = cmd
+        .cwd
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| std::path::PathBuf::from("/"));
+
+    match menu::tui::select(initial_candidates, &initial_query, &cwd, query_fn) {
         Some(MenuResult::Selected { value, .. }) => {
             let selected = value.display().to_string();
             let value = if parsed.needs_space_prefix {
