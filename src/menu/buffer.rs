@@ -18,7 +18,70 @@ pub struct ParsedBuffer {
     pub needs_space_prefix: bool,
 }
 
-/// Maps a shell command name to its completion mode.
+/// Removes shell quoting from a query token, preserving any trailing `/`.
+///
+/// The trailing `/` — whether typed by the user or appended by us after a
+/// menu selection — is always preserved so that `expand_filesystem_prefix`
+/// can enumerate the directory's children on the next Tab press.
+///
+/// Handles:
+/// - Single-quoted: `'foo bar'/` → `foo bar/`, `'it'\''s'/` → `it's/`
+/// - Double-quoted: `"foo bar"/` → `foo bar/`
+/// - Unquoted: `/usr/local/` → `/usr/local/` (unchanged)
+fn unquote_shell_quoted(s: &str) -> String {
+    // Single-quoted string (possibly with `'\''` escape sequences for embedded `'`).
+    // The trailing `/` sits outside the closing `'`; move it after unquoting.
+    //
+    // Example: `'foo bar'/`  → `foo bar/`
+    // Example: `'it'\''s'/` → `it's/`
+    // Example: `'foo bar'`   → `foo bar`
+    if s.starts_with('\'') {
+        let (s, trailing_slash) = if s.ends_with("'/") {
+            (&s[..s.len() - 1], "/")
+        } else {
+            (s, "")
+        };
+        let unquoted = s
+            .split("'\\''")
+            .map(|seg| {
+                let inner = seg.strip_prefix('\'').unwrap_or(seg);
+                let inner = inner.strip_suffix('\'').unwrap_or(inner);
+                inner
+            })
+            .collect::<Vec<_>>()
+            .join("'");
+        return format!("{unquoted}{trailing_slash}");
+    }
+
+    // Double-quoted: handle `\"` and `\\` escapes; preserve trailing `/`.
+    if s.starts_with('"') {
+        let (s, trailing_slash) = if s.ends_with("\"/") {
+            (&s[..s.len() - 1], "/")
+        } else {
+            (s, "")
+        };
+        let inner = s.strip_prefix('"').unwrap_or(s);
+        let inner = inner.strip_suffix('"').unwrap_or(inner);
+        let mut result = String::new();
+        let mut chars = inner.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\\' {
+                if let Some(&next) = chars.peek() {
+                    if matches!(next, '"' | '\\' | '$' | '`') {
+                        result.push(next);
+                        chars.next();
+                        continue;
+                    }
+                }
+            }
+            result.push(ch);
+        }
+        return format!("{result}{trailing_slash}");
+    }
+
+    // Unquoted — return as-is.
+    s.to_string()
+}
 fn command_to_mode(command: &str) -> Option<CompletionMode> {
     match command {
         "cd" => Some(CompletionMode::Paths),
@@ -86,7 +149,18 @@ pub fn parse_buffer(buffer: &str, cursor: usize) -> Option<ParsedBuffer> {
     let query = if query_text.is_empty() {
         None
     } else {
-        Some(query_text.to_string())
+        // Unquote shell-quoted tokens (e.g. `'/Library/Application Support'/` →
+        // `/Library/Application Support`) so the resolver receives a raw path.
+        // We strip the trailing `/` only when it follows a closing quote — that is
+        // the `/` we appended for Tab-ability.  A bare trailing `/` typed by the user
+        // (e.g. `cd /` or `cd /usr/`) is meaningful and must be preserved so that
+        // `expand_filesystem_prefix` lists the directory's children.
+        let unquoted = unquote_shell_quoted(query_text);
+        if unquoted.is_empty() {
+            None
+        } else {
+            Some(unquoted)
+        }
     };
 
     Some(ParsedBuffer {
@@ -225,5 +299,79 @@ mod tests {
         let p = parse_buffer("cd foo", 100).expect("should parse");
         assert_eq!(p.replace_end, 6);
         assert_eq!(p.query.as_deref(), Some("foo"));
+    }
+
+    // --- unquote_shell_quoted tests ---
+
+    #[test]
+    fn unquote_simple_path_with_slash() {
+        // Bare trailing slash preserved
+        assert_eq!(unquote_shell_quoted("Downloads/"), "Downloads/");
+    }
+
+    #[test]
+    fn unquote_bare_slash_preserved() {
+        assert_eq!(unquote_shell_quoted("/"), "/");
+    }
+
+    #[test]
+    fn unquote_absolute_with_trailing_slash_preserved() {
+        assert_eq!(unquote_shell_quoted("/usr/local/"), "/usr/local/");
+    }
+
+    #[test]
+    fn unquote_single_quoted_path_with_appended_slash() {
+        // Trailing `/` moved outside the unquoted result — preserved for drill-in
+        assert_eq!(
+            unquote_shell_quoted("'/Library/Application Support'/"),
+            "/Library/Application Support/"
+        );
+    }
+
+    #[test]
+    fn unquote_single_quoted_path_without_slash() {
+        assert_eq!(
+            unquote_shell_quoted("'/Library/Application Support'"),
+            "/Library/Application Support"
+        );
+    }
+
+    #[test]
+    fn unquote_single_quoted_with_embedded_single_quote() {
+        assert_eq!(unquote_shell_quoted("'it'\\''s here'/"), "it's here/");
+    }
+
+    #[test]
+    fn unquote_double_quoted_path() {
+        assert_eq!(unquote_shell_quoted("\"foo bar\"/"), "foo bar/");
+    }
+
+    #[test]
+    fn parse_buffer_handles_quoted_token_for_drill_in() {
+        // After selecting '/Library/Application Support'/ the buffer is:
+        // `cd '/Library/Application Support'/` — query must include the trailing slash
+        // so that expand_filesystem_prefix lists the directory's children.
+        let buf = "cd '/Library/Application Support'/";
+        let p = parse_buffer(buf, buf.len()).expect("should parse");
+        assert_eq!(p.mode, CompletionMode::Paths);
+        assert_eq!(p.query.as_deref(), Some("/Library/Application Support/"));
+        assert_eq!(p.replace_start, 3);
+        assert_eq!(p.replace_end, buf.len());
+    }
+
+    #[test]
+    fn parse_buffer_handles_simple_slash_suffix_for_drill_in() {
+        // `cd Downloads/` — slash preserved for child enumeration
+        let buf = "cd Downloads/";
+        let p = parse_buffer(buf, buf.len()).expect("should parse");
+        assert_eq!(p.query.as_deref(), Some("Downloads/"));
+    }
+
+    #[test]
+    fn parse_buffer_bare_slash_query() {
+        // `cd /` — slash preserved so resolver lists root children
+        let buf = "cd /";
+        let p = parse_buffer(buf, buf.len()).expect("should parse");
+        assert_eq!(p.query.as_deref(), Some("/"));
     }
 }
