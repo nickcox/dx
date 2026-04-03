@@ -38,7 +38,14 @@ pub fn source_candidates(
     };
 
     // Canonicalize cwd once for comparison (handles macOS /private/var symlinks).
-    let canonical_cwd = cwd.and_then(|p| std::fs::canonicalize(p).ok());
+    // For Paths mode we do NOT filter out cwd — the user may be navigating into
+    // its children via an explicit absolute/relative prefix, and removing cwd from
+    // the candidate list would block that. For all other modes (stack, recents, etc.)
+    // cwd appearing as a navigation target is noise and should be suppressed.
+    let canonical_cwd = match mode {
+        CompletionMode::Paths => None,
+        _ => cwd.and_then(|p| std::fs::canonicalize(p).ok()),
+    };
 
     // Deduplicate (first occurrence wins) and strip the cwd itself.
     let mut seen = HashSet::new();

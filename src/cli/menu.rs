@@ -126,10 +126,24 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| std::path::PathBuf::from("/"));
 
+    // For Paths mode, an empty/absent query means "list children of cwd".
+    // Substitute "./" so expand_filesystem_prefix enumerates the current directory.
+    let is_paths = matches!(parsed.mode, CompletionMode::Paths);
+    let query_is_empty = parsed.query.is_none() || parsed.query.as_deref() == Some("");
+    let initial_query_str: &str = if is_paths && query_is_empty {
+        "./"
+    } else {
+        parsed.query.as_deref().unwrap_or("")
+    };
+
     let initial_candidates = menu::source_candidates(
         resolver,
         parsed.mode.clone(),
-        parsed.query.as_deref(),
+        if initial_query_str.is_empty() {
+            None
+        } else {
+            Some(initial_query_str)
+        },
         session.as_deref(),
         Some(&cwd),
     );
@@ -149,10 +163,17 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     let initial_query = parsed.query.clone().unwrap_or_default();
 
     let query_fn: QueryFn<'_> = Box::new(|q: &str| {
+        let resolved_q = if q.is_empty() && matches!(parsed.mode, CompletionMode::Paths) {
+            Some("./")
+        } else if q.is_empty() {
+            None
+        } else {
+            Some(q)
+        };
         menu::source_candidates(
             resolver,
             parsed.mode.clone(),
-            if q.is_empty() { None } else { Some(q) },
+            resolved_q,
             session.as_deref(),
             Some(&cwd),
         )
