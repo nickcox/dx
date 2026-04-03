@@ -57,11 +57,18 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         );
     }
 
+    let cwd = cmd
+        .cwd
+        .clone()
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| std::path::PathBuf::from("/"));
+
     let initial_candidates = menu::source_candidates(
         resolver,
         parsed.mode.clone(),
         parsed.query.as_deref(),
         session.as_deref(),
+        Some(&cwd),
     );
 
     if debug {
@@ -78,25 +85,15 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
 
     let initial_query = parsed.query.clone().unwrap_or_default();
 
-    // Build a re-query callback that calls source_candidates with the updated
-    // filter query. This ensures filtering is always consistent with
-    // `dx complete <mode>` — path prefixes (~/D, /Users/…), abbreviations,
-    // and all resolver logic work correctly instead of doing in-memory string
-    // matching against already-expanded paths.
     let query_fn: QueryFn<'_> = Box::new(|q: &str| {
         menu::source_candidates(
             resolver,
             parsed.mode.clone(),
             if q.is_empty() { None } else { Some(q) },
             session.as_deref(),
+            Some(&cwd),
         )
     });
-
-    let cwd = cmd
-        .cwd
-        .clone()
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| std::path::PathBuf::from("/"));
 
     match menu::tui::select(initial_candidates, &initial_query, &cwd, query_fn) {
         Some(MenuResult::Selected { value, .. }) => {
