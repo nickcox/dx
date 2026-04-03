@@ -1,5 +1,5 @@
 ## Purpose
-Define expected behavior for persistent named directory bookmarks, including create/remove/list commands, resolve integration, and durable storage.
+Define expected behavior for persistent named directory bookmarks, including add/remove/list commands, resolve integration, and durable storage.
 
 ## Requirements
 
@@ -37,38 +37,38 @@ The system MUST validate that bookmark names are non-empty and contain only alph
 - **WHEN** a user provides an empty string as a bookmark name
 - **THEN** the system MUST reject it with a diagnostic message to stderr and exit with a non-zero code
 
-### Requirement: Mark Operation
-The `dx mark <name> [<path>]` command MUST save a bookmark associating the given name with an absolute directory path. If `<path>` is omitted, the current working directory MUST be used. The path MUST be canonicalized to an absolute path before storing. The parent directory of the store file MUST be created automatically if it does not exist.
+### Requirement: Add Operation
+The `dx bookmarks add <name> [<path>]` command MUST save a bookmark associating the given name with an absolute directory path. If `<path>` is omitted, the current working directory MUST be used. The path MUST be canonicalized to an absolute path before storing. The parent directory of the store file MUST be created automatically if it does not exist.
 
-#### Scenario: Mark current directory
-- **WHEN** the user runs `dx mark proj` without specifying a path
+#### Scenario: Add bookmark for current directory
+- **WHEN** the user runs `dx bookmarks add proj` without specifying a path
 - **THEN** the system MUST save a bookmark named `proj` pointing to the current working directory
 
-#### Scenario: Mark explicit path
-- **WHEN** the user runs `dx mark proj /home/user/code/project`
+#### Scenario: Add bookmark for explicit path
+- **WHEN** the user runs `dx bookmarks add proj /home/user/code/project`
 - **THEN** the system MUST save a bookmark named `proj` pointing to `/home/user/code/project`
 
 #### Scenario: Overwrite existing bookmark
-- **WHEN** a bookmark named `proj` already exists and the user runs `dx mark proj /new/path`
+- **WHEN** a bookmark named `proj` already exists and the user runs `dx bookmarks add proj /new/path`
 - **THEN** the system MUST replace the existing path with the new one without error
 
 #### Scenario: Auto-create store directory
 - **WHEN** the parent directory of the bookmark store file does not exist
 - **THEN** the system MUST create the directory hierarchy before writing the file
 
-#### Scenario: Mark nonexistent path
-- **WHEN** the user runs `dx mark proj /does/not/exist`
+#### Scenario: Add bookmark for nonexistent path
+- **WHEN** the user runs `dx bookmarks add proj /does/not/exist`
 - **THEN** the system MUST reject the operation with a diagnostic message to stderr and exit with a non-zero code
 
-### Requirement: Unmark Operation
-The `dx unmark <name>` command MUST remove the bookmark with the given name. If the named bookmark does not exist, the command MUST fail with a diagnostic message to stderr and a non-zero exit code.
+### Requirement: Remove Operation
+The `dx bookmarks remove <name>` command MUST remove the bookmark with the given name. If the named bookmark does not exist, the command MUST fail with a diagnostic message to stderr and a non-zero exit code.
 
 #### Scenario: Remove existing bookmark
-- **WHEN** a bookmark named `proj` exists and the user runs `dx unmark proj`
+- **WHEN** a bookmark named `proj` exists and the user runs `dx bookmarks remove proj`
 - **THEN** the system MUST remove the bookmark and exit with code 0
 
 #### Scenario: Remove nonexistent bookmark
-- **WHEN** no bookmark named `proj` exists and the user runs `dx unmark proj`
+- **WHEN** no bookmark named `proj` exists and the user runs `dx bookmarks remove proj`
 - **THEN** the system MUST output a diagnostic to stderr and exit with a non-zero code
 
 ### Requirement: List Operation
@@ -116,10 +116,10 @@ All write operations to the bookmark store MUST use atomic write semantics: writ
 ### Requirement: Output Contract
 All bookmark CLI commands MUST follow the dx output contract: success outputs result to stdout and exits with code 0; failure outputs diagnostic to stderr and exits with a non-zero code.
 
-#### Scenario: Mark success output
-- **WHEN** `dx mark proj` succeeds
+#### Scenario: Add success output
+- **WHEN** `dx bookmarks add proj` succeeds
 - **THEN** the system MUST exit with code 0
 
-#### Scenario: Unmark failure output
-- **WHEN** `dx unmark nonexistent` fails because the bookmark does not exist
+#### Scenario: Remove failure output
+- **WHEN** `dx bookmarks remove nonexistent` fails because the bookmark does not exist
 - **THEN** the system MUST output a diagnostic message to stderr and exit with a non-zero code

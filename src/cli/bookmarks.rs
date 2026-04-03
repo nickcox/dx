@@ -2,9 +2,42 @@ use std::collections::BTreeMap;
 use std::env;
 use std::path::PathBuf;
 
+use clap::Subcommand;
+
 use crate::bookmarks::{storage, BookmarkError};
 
-pub fn run_mark(name: &str, path: Option<&str>) -> i32 {
+#[derive(Debug, Subcommand)]
+pub enum BookmarksCommand {
+    /// Save a bookmark for a directory
+    Add {
+        /// Bookmark name (alphanumeric, hyphens, underscores)
+        name: String,
+        /// Directory path to bookmark (defaults to current directory)
+        path: Option<String>,
+    },
+    /// Remove a saved bookmark
+    Remove {
+        /// Bookmark name to remove
+        name: String,
+    },
+    /// List saved bookmarks (default when no subcommand given)
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+pub fn run_bookmarks(command: Option<BookmarksCommand>, json: bool) -> i32 {
+    match command {
+        Some(BookmarksCommand::Add { name, path }) => run_add(&name, path.as_deref()),
+        Some(BookmarksCommand::Remove { name }) => run_remove(&name),
+        Some(BookmarksCommand::List { json: list_json }) => run_list(list_json),
+        // bare `dx bookmarks` or `dx bookmarks --json`
+        None => run_list(json),
+    }
+}
+
+fn run_add(name: &str, path: Option<&str>) -> i32 {
     let mut store = match storage::read_store() {
         Ok(value) => value,
         Err(err) => return storage_error(err),
@@ -45,7 +78,7 @@ pub fn run_mark(name: &str, path: Option<&str>) -> i32 {
     0
 }
 
-pub fn run_unmark(name: &str) -> i32 {
+fn run_remove(name: &str) -> i32 {
     let mut store = match storage::read_store() {
         Ok(value) => value,
         Err(err) => return storage_error(err),
@@ -62,7 +95,7 @@ pub fn run_unmark(name: &str) -> i32 {
     0
 }
 
-pub fn run_list(json: bool) -> i32 {
+fn run_list(json: bool) -> i32 {
     let store = match storage::read_store() {
         Ok(value) => value,
         Err(err) => return storage_error(err),

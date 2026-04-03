@@ -41,7 +41,7 @@ The architecture comprises two distinct layers:
 - **Constraint:** Uses a fast, persistent store (e.g., SQLite or binary file in `~/.local/share/cd-extras/`) with file-locking to handle concurrent writes from multiple shell sessions.
 
 ### 3.4 Bookmarks
-- `mark` / `unmark`: Allow users to explicitly save persistent alias-like bookmarks to specific directories.
+- `dx bookmarks add` / `dx bookmarks remove`: Allow users to explicitly save persistent alias-like bookmarks to specific directories.
 
 ### 3.5 Auto-CD (Optional)
 - Allow users to simply type a directory name without the `cd` prefix.

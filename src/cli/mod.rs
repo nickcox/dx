@@ -42,23 +42,15 @@ enum Commands {
         #[arg(long)]
         session: Option<String>,
     },
-    Mark {
-        name: String,
-        path: Option<String>,
-    },
-    Unmark {
-        name: String,
-    },
     Bookmarks {
-        #[arg(long)]
+        /// Output as JSON
+        #[arg(long, global = true)]
         json: bool,
+        #[command(subcommand)]
+        command: Option<bookmarks::BookmarksCommand>,
     },
     Push {
         path: String,
-        #[arg(long)]
-        session: Option<String>,
-    },
-    Pop {
         #[arg(long)]
         session: Option<String>,
     },
@@ -96,11 +88,8 @@ pub fn run() -> i32 {
             selector,
             session,
         } => complete::run_navigate(mode, selector.as_deref(), session.as_deref()),
-        Commands::Mark { name, path } => bookmarks::run_mark(&name, path.as_deref()),
-        Commands::Unmark { name } => bookmarks::run_unmark(&name),
-        Commands::Bookmarks { json } => bookmarks::run_list(json),
+        Commands::Bookmarks { json, command } => bookmarks::run_bookmarks(command, json),
         Commands::Push { path, session } => stacks::run_push(&path, session.as_deref()),
-        Commands::Pop { session } => stacks::run_pop(session.as_deref()),
         Commands::Menu(cmd) => menu::run_menu(&resolver, cmd),
         Commands::Undo { session, target } => {
             stacks::run_undo(session.as_deref(), target.as_deref())

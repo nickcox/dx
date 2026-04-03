@@ -1,5 +1,5 @@
 ## Purpose
-Define expected behavior for session-scoped directory stack operations (`push`, `pop`, `undo`, `redo`) and persistence.
+Define expected behavior for session-scoped directory stack operations (`push`, `undo`, `redo`) and persistence.
 
 ## Requirements
 
@@ -89,22 +89,6 @@ If `<path>` equals the current `cwd`, the push SHALL be a no-op (no duplicate en
 - **WHEN** session state is `{ "cwd": "/a", "undo": ["/b"], "redo": ["/c"] }` and `dx push /a --session 100` is invoked
 - **THEN** session state SHALL remain `{ "cwd": "/a", "undo": ["/b"], "redo": ["/c"] }` and stdout SHALL contain `/a`
 
-### Requirement: Pop Operation
-`dx pop` SHALL destructively remove the top of the undo stack:
-1. If the `undo` stack is empty, fail with a non-zero exit code and print a diagnostic to stderr.
-2. Otherwise, pop the top entry from `undo` and set it as `cwd`.
-3. The `redo` stack is NOT modified.
-4. Print the new `cwd` to stdout.
-5. Exit with code 0.
-
-#### Scenario: Pop with entries on undo stack
-- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b", "/c"], "redo": ["/d"] }` and `dx pop --session 100` is invoked
-- **THEN** session state SHALL be `{ "cwd": "/c", "undo": ["/b"], "redo": ["/d"] }` and stdout SHALL contain `/c`
-
-#### Scenario: Pop with empty undo stack
-- **WHEN** session state is `{ "cwd": "/a", "undo": [], "redo": [] }` and `dx pop --session 100` is invoked
-- **THEN** the command SHALL exit with a non-zero code and print a diagnostic to stderr, and session state SHALL be unchanged
-
 ### Requirement: Undo Operation
 `dx undo` SHALL non-destructively navigate backward:
 1. If the `undo` stack is empty, fail with a non-zero exit code and print a diagnostic to stderr.
@@ -164,7 +148,7 @@ This ensures readers never observe a partially-written file.
 - **THEN** the session file SHALL contain valid, complete JSON after the operation
 
 ### Requirement: Output Contract
-All stack subcommands (`push`, `pop`, `undo`, `redo`) SHALL follow a consistent output contract:
+All stack subcommands (`push`, `undo`, `redo`) SHALL follow a consistent output contract:
 - **On success**: Print exactly one absolute path to stdout, followed by a newline. Exit with code 0.
 - **On failure**: Print nothing to stdout. Print a human-readable diagnostic to stderr. Exit with a non-zero code.
 

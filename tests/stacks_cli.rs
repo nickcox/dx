@@ -119,63 +119,6 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
 }
 
 #[test]
-fn pop_with_history_succeeds_then_empty_pop_fails() {
-    let temp = make_temp_dir("stacks-pop");
-    let runtime = temp.join("runtime");
-    fs::create_dir_all(&runtime).expect("create runtime");
-
-    let a = temp.join("a");
-    let b = temp.join("b");
-    fs::create_dir_all(&a).expect("create a");
-    fs::create_dir_all(&b).expect("create b");
-
-    let a = canonical(&a);
-    let b = canonical(&b);
-
-    let _ = Command::new(dx_bin())
-        .args(["push", a.to_str().expect("utf8 path"), "--session", "s2"])
-        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
-        .current_dir(&temp)
-        .output()
-        .expect("push a");
-    let _ = Command::new(dx_bin())
-        .args(["push", b.to_str().expect("utf8 path"), "--session", "s2"])
-        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
-        .current_dir(&temp)
-        .output()
-        .expect("push b");
-
-    let pop_ok = Command::new(dx_bin())
-        .args(["pop", "--session", "s2"])
-        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
-        .current_dir(&temp)
-        .output()
-        .expect("pop ok");
-    assert!(pop_ok.status.success());
-    assert_eq!(
-        String::from_utf8_lossy(&pop_ok.stdout).trim(),
-        a.display().to_string()
-    );
-
-    let pop_fail = Command::new(dx_bin())
-        .args(["pop", "--session", "s2"])
-        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
-        .current_dir(&temp)
-        .output()
-        .expect("pop fail");
-    assert!(!pop_fail.status.success());
-    assert!(String::from_utf8_lossy(&pop_fail.stdout).trim().is_empty());
-    assert!(String::from_utf8_lossy(&pop_fail.stderr).contains("nothing to pop"));
-
-    let state = read_session(&runtime.join("dx-sessions").join("s2.json"));
-    assert_eq!(state.cwd, Some(a));
-    assert!(state.undo.is_empty());
-    assert!(state.redo.is_empty());
-
-    let _ = fs::remove_dir_all(temp);
-}
-
-#[test]
 fn missing_session_id_returns_error() {
     let temp = make_temp_dir("stacks-missing-session");
     let runtime = temp.join("runtime");

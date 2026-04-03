@@ -89,7 +89,7 @@ When completing arguments for `dx` itself, the completion function SHALL inspect
 - `dx resolve ...` SHALL complete using `dx complete paths`
 - `dx complete ...` SHALL complete mode names: `paths`, `ancestors`, `frecents`, `recents`, `stack`
 - `dx push ...` SHALL fall through to filesystem default completion in shells that support native fallback
-- Other subcommands (`undo`, `redo`, `pop`, `mark`, `unmark`, `bookmarks`, `init`, `navigate`) SHALL NOT offer path completion
+- Other subcommands (`undo`, `redo`, `bookmarks`, `init`, `navigate`) SHALL NOT offer path completion
 
 #### Scenario: Complete dx resolve argument
 - **WHEN** the user types `dx resolve pr<TAB>` in a hooked shell

@@ -39,10 +39,6 @@ pub fn run_push(path: &str, cli_session: Option<&str>) -> i32 {
     0
 }
 
-pub fn run_pop(cli_session: Option<&str>) -> i32 {
-    run_stack_operation(cli_session, |stack| stack.pop())
-}
-
 pub fn run_undo(cli_session: Option<&str>, target: Option<&str>) -> i32 {
     match target {
         Some(t) => run_targeted_stack_op(cli_session, t, |stack| stack.undo()),

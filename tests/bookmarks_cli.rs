@@ -25,21 +25,26 @@ fn canonical(path: &Path) -> PathBuf {
 }
 
 #[test]
-fn mark_then_list_shows_entry() {
-    let temp = make_temp_dir("mark-list");
+fn bookmarks_add_then_list_shows_entry() {
+    let temp = make_temp_dir("add-list");
     let target = temp.join("proj");
     fs::create_dir_all(&target).expect("create target");
     let target = canonical(&target);
 
     let store = temp.join("bookmarks.toml");
 
-    let mark = Command::new(dx_bin())
-        .args(["mark", "proj", target.to_str().expect("utf8 path")])
+    let add = Command::new(dx_bin())
+        .args([
+            "bookmarks",
+            "add",
+            "proj",
+            target.to_str().expect("utf8 path"),
+        ])
         .env("DX_BOOKMARKS_FILE", store.display().to_string())
         .current_dir(&temp)
         .output()
-        .expect("run mark");
-    assert!(mark.status.success());
+        .expect("run bookmarks add");
+    assert!(add.status.success());
 
     let list = Command::new(dx_bin())
         .arg("bookmarks")
@@ -59,28 +64,33 @@ fn mark_then_list_shows_entry() {
 }
 
 #[test]
-fn mark_then_unmark_then_list_is_empty() {
-    let temp = make_temp_dir("mark-unmark");
+fn bookmarks_add_then_remove_then_list_is_empty() {
+    let temp = make_temp_dir("add-remove");
     let target = temp.join("proj");
     fs::create_dir_all(&target).expect("create target");
     let target = canonical(&target);
     let store = temp.join("bookmarks.toml");
 
-    let mark = Command::new(dx_bin())
-        .args(["mark", "proj", target.to_str().expect("utf8 path")])
+    let add = Command::new(dx_bin())
+        .args([
+            "bookmarks",
+            "add",
+            "proj",
+            target.to_str().expect("utf8 path"),
+        ])
         .env("DX_BOOKMARKS_FILE", store.display().to_string())
         .current_dir(&temp)
         .output()
-        .expect("run mark");
-    assert!(mark.status.success());
+        .expect("run bookmarks add");
+    assert!(add.status.success());
 
-    let unmark = Command::new(dx_bin())
-        .args(["unmark", "proj"])
+    let remove = Command::new(dx_bin())
+        .args(["bookmarks", "remove", "proj"])
         .env("DX_BOOKMARKS_FILE", store.display().to_string())
         .current_dir(&temp)
         .output()
-        .expect("run unmark");
-    assert!(unmark.status.success());
+        .expect("run bookmarks remove");
+    assert!(remove.status.success());
 
     let list = Command::new(dx_bin())
         .arg("bookmarks")
@@ -96,20 +106,25 @@ fn mark_then_unmark_then_list_is_empty() {
 }
 
 #[test]
-fn mark_then_resolve_returns_bookmarked_path() {
-    let temp = make_temp_dir("mark-resolve");
+fn bookmarks_add_then_resolve_returns_bookmarked_path() {
+    let temp = make_temp_dir("add-resolve");
     let target = temp.join("proj");
     fs::create_dir_all(&target).expect("create target");
     let target = canonical(&target);
     let store = temp.join("bookmarks.toml");
 
-    let mark = Command::new(dx_bin())
-        .args(["mark", "proj", target.to_str().expect("utf8 path")])
+    let add = Command::new(dx_bin())
+        .args([
+            "bookmarks",
+            "add",
+            "proj",
+            target.to_str().expect("utf8 path"),
+        ])
         .env("DX_BOOKMARKS_FILE", store.display().to_string())
         .current_dir(&temp)
         .output()
-        .expect("run mark");
-    assert!(mark.status.success());
+        .expect("run bookmarks add");
+    assert!(add.status.success());
 
     let resolve = Command::new(dx_bin())
         .args(["resolve", "proj"])
@@ -126,25 +141,25 @@ fn mark_then_resolve_returns_bookmarked_path() {
 }
 
 #[test]
-fn unmark_nonexistent_and_invalid_name_fail() {
+fn bookmarks_remove_nonexistent_and_invalid_name_fail() {
     let temp = make_temp_dir("errors");
     let store = temp.join("bookmarks.toml");
 
-    let unmark = Command::new(dx_bin())
-        .args(["unmark", "missing"])
+    let remove = Command::new(dx_bin())
+        .args(["bookmarks", "remove", "missing"])
         .env("DX_BOOKMARKS_FILE", store.display().to_string())
         .current_dir(&temp)
         .output()
-        .expect("run unmark missing");
-    assert!(!unmark.status.success());
-    assert!(String::from_utf8_lossy(&unmark.stderr).contains("bookmark not found"));
+        .expect("run bookmarks remove missing");
+    assert!(!remove.status.success());
+    assert!(String::from_utf8_lossy(&remove.stderr).contains("bookmark not found"));
 
     let invalid = Command::new(dx_bin())
-        .args(["mark", "bad/name"])
+        .args(["bookmarks", "add", "bad/name"])
         .env("DX_BOOKMARKS_FILE", store.display().to_string())
         .current_dir(&temp)
         .output()
-        .expect("run mark invalid");
+        .expect("run bookmarks add invalid");
     assert!(!invalid.status.success());
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("invalid bookmark name"));
 
@@ -159,13 +174,18 @@ fn bookmarks_json_and_env_override_work() {
     let target = canonical(&target);
     let store = temp.join("custom/store.toml");
 
-    let mark = Command::new(dx_bin())
-        .args(["mark", "proj", target.to_str().expect("utf8 path")])
+    let add = Command::new(dx_bin())
+        .args([
+            "bookmarks",
+            "add",
+            "proj",
+            target.to_str().expect("utf8 path"),
+        ])
         .env("DX_BOOKMARKS_FILE", store.display().to_string())
         .current_dir(&temp)
         .output()
-        .expect("run mark");
-    assert!(mark.status.success());
+        .expect("run bookmarks add");
+    assert!(add.status.success());
     assert!(store.exists());
 
     let list = Command::new(dx_bin())
