@@ -13,7 +13,7 @@ end
 
 function __dx_push_pwd
   if type -q dx
-    dx push "$PWD" >/dev/null 2>/dev/null
+    dx stack push "$PWD" >/dev/null 2>/dev/null
   end
 end
 
@@ -65,10 +65,10 @@ function __dx_stack_wrapper --argument op selector
     set -l target (dx navigate $op "$selector")
     or return 1
     test -n "$target"; or return 1
-    set dest (dx $undo_or_redo --target "$target")
+    set dest (dx stack $undo_or_redo --target "$target")
     or return 1
   else
-    set dest (dx $undo_or_redo)
+    set dest (dx stack $undo_or_redo)
     or return 1
   end
 
@@ -195,7 +195,7 @@ function cdr
   __dx_jump_mode recents "$argv[1]"
 end
 
-complete -c dx -n '__fish_use_subcommand' -a 'resolve complete init mark unmark bookmarks push pop undo redo navigate'
+complete -c dx -n '__fish_use_subcommand' -a 'resolve complete init bookmarks stack navigate menu'
 complete -c dx -n '__fish_seen_subcommand_from complete; and not __fish_seen_subcommand_from paths ancestors frecents recents stack' -a 'paths ancestors frecents recents stack'
 complete -c dx -n '__fish_seen_subcommand_from resolve' -a '(dx complete paths (commandline -ct) 2>/dev/null)'
 

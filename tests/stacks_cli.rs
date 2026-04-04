@@ -46,7 +46,13 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
     let d = canonical(&d);
 
     let push_a = Command::new(dx_bin())
-        .args(["push", a.to_str().expect("utf8 path"), "--session", "s1"])
+        .args([
+            "stack",
+            "push",
+            a.to_str().expect("utf8 path"),
+            "--session",
+            "s1",
+        ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
         .current_dir(&temp)
@@ -59,7 +65,13 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
     );
 
     let push_b = Command::new(dx_bin())
-        .args(["push", b.to_str().expect("utf8 path"), "--session", "s1"])
+        .args([
+            "stack",
+            "push",
+            b.to_str().expect("utf8 path"),
+            "--session",
+            "s1",
+        ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
         .current_dir(&temp)
@@ -72,7 +84,7 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
     );
 
     let undo = Command::new(dx_bin())
-        .args(["undo", "--session", "s1"])
+        .args(["stack", "undo", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
         .current_dir(&temp)
@@ -85,7 +97,7 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
     );
 
     let redo = Command::new(dx_bin())
-        .args(["redo", "--session", "s1"])
+        .args(["stack", "redo", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
         .current_dir(&temp)
@@ -98,7 +110,13 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
     );
 
     let push_d = Command::new(dx_bin())
-        .args(["push", d.to_str().expect("utf8 path"), "--session", "s1"])
+        .args([
+            "stack",
+            "push",
+            d.to_str().expect("utf8 path"),
+            "--session",
+            "s1",
+        ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
         .current_dir(&temp)
@@ -129,12 +147,12 @@ fn missing_session_id_returns_error() {
     let target = canonical(&target);
 
     let output = Command::new(dx_bin())
-        .args(["push", target.to_str().expect("utf8 path")])
+        .args(["stack", "push", target.to_str().expect("utf8 path")])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
         .current_dir(&temp)
         .output()
-        .expect("run dx push");
+        .expect("run dx stack push");
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
@@ -158,7 +176,7 @@ fn dx_session_env_is_used_and_cli_flag_overrides() {
     let cli_dir = canonical(&cli_dir);
 
     let by_env = Command::new(dx_bin())
-        .args(["push", env_dir.to_str().expect("utf8 path")])
+        .args(["stack", "push", env_dir.to_str().expect("utf8 path")])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env("DX_SESSION", "env-session")
         .current_dir(&temp)
@@ -168,6 +186,7 @@ fn dx_session_env_is_used_and_cli_flag_overrides() {
 
     let by_cli = Command::new(dx_bin())
         .args([
+            "stack",
             "push",
             cli_dir.to_str().expect("utf8 path"),
             "--session",
@@ -201,6 +220,7 @@ fn session_directory_is_auto_created_with_temp_fallback() {
 
     let output = Command::new(dx_bin())
         .args([
+            "stack",
             "push",
             target.to_str().expect("utf8 path"),
             "--session",
@@ -250,7 +270,13 @@ fn undo_with_target_jumps_multiple_entries() {
     // push a -> b -> c -> d
     for dir in [&a, &b, &c, &d] {
         let out = Command::new(dx_bin())
-            .args(["push", dir.to_str().unwrap(), "--session", "target1"])
+            .args([
+                "stack",
+                "push",
+                dir.to_str().unwrap(),
+                "--session",
+                "target1",
+            ])
             .env("XDG_RUNTIME_DIR", runtime.display().to_string())
             .env_remove("DX_SESSION")
             .output()
@@ -261,6 +287,7 @@ fn undo_with_target_jumps_multiple_entries() {
     // undo --target a (should consume c, b, reach a)
     let undo = Command::new(dx_bin())
         .args([
+            "stack",
             "undo",
             "--session",
             "target1",
@@ -305,7 +332,13 @@ fn redo_with_target_jumps_multiple_entries() {
     // push a -> b -> c
     for dir in [&a, &b, &c] {
         let out = Command::new(dx_bin())
-            .args(["push", dir.to_str().unwrap(), "--session", "target2"])
+            .args([
+                "stack",
+                "push",
+                dir.to_str().unwrap(),
+                "--session",
+                "target2",
+            ])
             .env("XDG_RUNTIME_DIR", runtime.display().to_string())
             .env_remove("DX_SESSION")
             .output()
@@ -316,6 +349,7 @@ fn redo_with_target_jumps_multiple_entries() {
     // undo --target a (go back to beginning)
     let _ = Command::new(dx_bin())
         .args([
+            "stack",
             "undo",
             "--session",
             "target2",
@@ -330,6 +364,7 @@ fn redo_with_target_jumps_multiple_entries() {
     // redo --target c (skip b, jump to c)
     let redo = Command::new(dx_bin())
         .args([
+            "stack",
             "redo",
             "--session",
             "target2",
@@ -372,7 +407,13 @@ fn undo_with_unreachable_target_fails() {
     // push a -> b
     for dir in [&a, &b] {
         let out = Command::new(dx_bin())
-            .args(["push", dir.to_str().unwrap(), "--session", "target3"])
+            .args([
+                "stack",
+                "push",
+                dir.to_str().unwrap(),
+                "--session",
+                "target3",
+            ])
             .env("XDG_RUNTIME_DIR", runtime.display().to_string())
             .env_remove("DX_SESSION")
             .output()
@@ -383,6 +424,7 @@ fn undo_with_unreachable_target_fails() {
     // undo --target /nonexistent should fail
     let undo = Command::new(dx_bin())
         .args([
+            "stack",
             "undo",
             "--session",
             "target3",
@@ -395,6 +437,196 @@ fn undo_with_unreachable_target_fails() {
         .unwrap();
     assert!(!undo.status.success());
     assert!(String::from_utf8_lossy(&undo.stderr).contains("target not reachable"));
+
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
+fn stack_list_plain_supports_directions_and_ordering() {
+    let temp = make_temp_dir("stacks-list-plain");
+    let runtime = temp.join("runtime");
+    fs::create_dir_all(&runtime).expect("create runtime");
+
+    let mut state = SessionStack::default();
+    state.cwd = Some(PathBuf::from("/x"));
+    state.undo = vec![PathBuf::from("/a"), PathBuf::from("/b")];
+    state.redo = vec![PathBuf::from("/c"), PathBuf::from("/d")];
+    let sessions_dir = runtime.join("dx-sessions");
+    fs::create_dir_all(&sessions_dir).expect("create sessions dir");
+    let session_file = sessions_dir.join("list1.json");
+    fs::write(
+        &session_file,
+        serde_json::to_string(&state).expect("serialize session"),
+    )
+    .expect("write session file");
+
+    let both = Command::new(dx_bin())
+        .args([
+            "stack",
+            "--list",
+            "--direction",
+            "both",
+            "--session",
+            "list1",
+        ])
+        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
+        .env_remove("DX_SESSION")
+        .output()
+        .expect("list both");
+    assert!(both.status.success());
+    assert_eq!(String::from_utf8_lossy(&both.stdout), "/b\n/a\n/d\n/c\n");
+
+    let undo = Command::new(dx_bin())
+        .args([
+            "stack",
+            "--list",
+            "--direction",
+            "undo",
+            "--session",
+            "list1",
+        ])
+        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
+        .env_remove("DX_SESSION")
+        .output()
+        .expect("list undo");
+    assert!(undo.status.success());
+    assert_eq!(String::from_utf8_lossy(&undo.stdout), "/b\n/a\n");
+
+    let redo = Command::new(dx_bin())
+        .args([
+            "stack",
+            "--list",
+            "--direction",
+            "redo",
+            "--session",
+            "list1",
+        ])
+        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
+        .env_remove("DX_SESSION")
+        .output()
+        .expect("list redo");
+    assert!(redo.status.success());
+    assert_eq!(String::from_utf8_lossy(&redo.stdout), "/d\n/c\n");
+
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
+fn stack_list_json_and_read_only_contract() {
+    let temp = make_temp_dir("stacks-list-json");
+    let runtime = temp.join("runtime");
+    fs::create_dir_all(&runtime).expect("create runtime");
+
+    let mut state = SessionStack::default();
+    state.cwd = Some(PathBuf::from("/x"));
+    state.undo = vec![PathBuf::from("/a"), PathBuf::from("/b")];
+    let sessions_dir = runtime.join("dx-sessions");
+    fs::create_dir_all(&sessions_dir).expect("create sessions dir");
+    let session_file = sessions_dir.join("list2.json");
+    fs::write(
+        &session_file,
+        serde_json::to_string(&state).expect("serialize session"),
+    )
+    .expect("write session file");
+
+    let before = fs::read(&session_file).expect("read before bytes");
+
+    let out = Command::new(dx_bin())
+        .args([
+            "stack",
+            "--list",
+            "--direction",
+            "undo",
+            "--json",
+            "--session",
+            "list2",
+        ])
+        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
+        .env_remove("DX_SESSION")
+        .output()
+        .expect("list json");
+    assert!(out.status.success());
+
+    let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("parse json output");
+    let items = parsed.as_array().expect("json array");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["path"], "/b");
+    assert_eq!(items[0]["label"], "b");
+    assert_eq!(items[0]["rank"], 1);
+
+    let after = fs::read(&session_file).expect("read after bytes");
+    assert_eq!(before, after, "stack --list must not mutate session file");
+
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
+fn stack_clear_scope_idempotent_and_preserves_cwd() {
+    let temp = make_temp_dir("stacks-clear");
+    let runtime = temp.join("runtime");
+    fs::create_dir_all(&runtime).expect("create runtime");
+
+    let mut state = SessionStack::default();
+    state.cwd = Some(PathBuf::from("/x"));
+    state.undo = vec![PathBuf::from("/a"), PathBuf::from("/b")];
+    state.redo = vec![PathBuf::from("/c")];
+    let sessions_dir = runtime.join("dx-sessions");
+    fs::create_dir_all(&sessions_dir).expect("create sessions dir");
+    let session_file = sessions_dir.join("clear1.json");
+    fs::write(
+        &session_file,
+        serde_json::to_string(&state).expect("serialize session"),
+    )
+    .expect("write session file");
+
+    let clear_undo = Command::new(dx_bin())
+        .args([
+            "stack",
+            "--clear",
+            "--direction",
+            "undo",
+            "--session",
+            "clear1",
+        ])
+        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
+        .env_remove("DX_SESSION")
+        .output()
+        .expect("clear undo");
+    assert!(clear_undo.status.success());
+    assert!(String::from_utf8_lossy(&clear_undo.stdout).is_empty());
+
+    let mid = read_session(&session_file);
+    assert_eq!(mid.cwd, Some(PathBuf::from("/x")));
+    assert!(mid.undo.is_empty());
+    assert_eq!(mid.redo, vec![PathBuf::from("/c")]);
+
+    let clear_undo_again = Command::new(dx_bin())
+        .args([
+            "stack",
+            "--clear",
+            "--direction",
+            "undo",
+            "--session",
+            "clear1",
+        ])
+        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
+        .env_remove("DX_SESSION")
+        .output()
+        .expect("clear undo again");
+    assert!(clear_undo_again.status.success());
+
+    let clear_both = Command::new(dx_bin())
+        .args(["stack", "--clear", "--session", "clear1"])
+        .env("XDG_RUNTIME_DIR", runtime.display().to_string())
+        .env_remove("DX_SESSION")
+        .output()
+        .expect("clear both");
+    assert!(clear_both.status.success());
+
+    let end = read_session(&session_file);
+    assert_eq!(end.cwd, Some(PathBuf::from("/x")));
+    assert!(end.undo.is_empty());
+    assert!(end.redo.is_empty());
 
     let _ = fs::remove_dir_all(temp);
 }

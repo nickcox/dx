@@ -49,24 +49,8 @@ enum Commands {
         #[command(subcommand)]
         command: Option<bookmarks::BookmarksCommand>,
     },
-    Push {
-        path: String,
-        #[arg(long)]
-        session: Option<String>,
-    },
+    Stack(stacks::StackCommandArgs),
     Menu(menu::MenuCommand),
-    Undo {
-        #[arg(long)]
-        session: Option<String>,
-        #[arg(long)]
-        target: Option<String>,
-    },
-    Redo {
-        #[arg(long)]
-        session: Option<String>,
-        #[arg(long)]
-        target: Option<String>,
-    },
 }
 
 pub fn run() -> i32 {
@@ -89,13 +73,7 @@ pub fn run() -> i32 {
             session,
         } => complete::run_navigate(mode, selector.as_deref(), session.as_deref()),
         Commands::Bookmarks { json, command } => bookmarks::run_bookmarks(command, json),
-        Commands::Push { path, session } => stacks::run_push(&path, session.as_deref()),
+        Commands::Stack(args) => stacks::run_stack(args),
         Commands::Menu(cmd) => menu::run_menu(&resolver, cmd),
-        Commands::Undo { session, target } => {
-            stacks::run_undo(session.as_deref(), target.as_deref())
-        }
-        Commands::Redo { session, target } => {
-            stacks::run_redo(session.as_deref(), target.as_deref())
-        }
     }
 }

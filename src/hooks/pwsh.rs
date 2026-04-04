@@ -17,7 +17,7 @@ function __dx_is_path_like {
 
 function __dx_push_pwd {
     if (Get-Command dx -ErrorAction SilentlyContinue) {
-        dx push $PWD.Path *> $null
+        dx stack push $PWD.Path *> $null
     }
 }
 
@@ -109,9 +109,9 @@ function __dx_stack_wrapper {
             return
         }
 
-        $dest = (dx $undoOrRedo --target $target)
+        $dest = (dx stack $undoOrRedo --target $target)
     } else {
-        $dest = (dx $undoOrRedo)
+        $dest = (dx stack $undoOrRedo)
     }
 
     if ($LASTEXITCODE -ne 0 -or -not $dest) {
@@ -228,7 +228,7 @@ Register-ArgumentCompleter -CommandName dx -ScriptBlock {
 
     $elements = @($commandAst.CommandElements | ForEach-Object { $_.Extent.Text })
     if ($elements.Count -le 1) {
-        __dx_emit_completion @('resolve', 'complete', 'init', 'mark', 'unmark', 'bookmarks', 'push', 'pop', 'undo', 'redo', 'navigate')
+        __dx_emit_completion @('resolve', 'complete', 'init', 'bookmarks', 'stack', 'navigate', 'menu')
         return
     }
 

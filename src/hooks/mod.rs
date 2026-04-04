@@ -96,11 +96,11 @@ mod tests {
     #[test]
     fn bash_back_forward_use_stack_wrapper_not_nav_wrapper() {
         let output = generate(Shell::Bash, false, false);
-        // back/forward should use __dx_stack_wrapper (dx undo/redo), not __dx_nav_wrapper (dx push)
+        // back/forward should use __dx_stack_wrapper (dx stack undo/redo), not __dx_nav_wrapper (dx stack push)
         assert!(output.contains("back() {\n  __dx_stack_wrapper back"));
         assert!(output.contains("forward() {\n  __dx_stack_wrapper forward"));
         assert!(output.contains("__dx_stack_wrapper()"));
-        assert!(output.contains("dx \"$__dx_undo_or_redo\""));
+        assert!(output.contains("dx stack \"$__dx_undo_or_redo\""));
     }
 
     #[test]

@@ -11,7 +11,7 @@ __dx_is_path_like() {
 
 __dx_push_pwd() {
   command -v dx >/dev/null 2>&1 || return 0
-  dx push "$PWD" >/dev/null 2>&1 || true
+  dx stack push "$PWD" >/dev/null 2>&1 || true
 }
 
 __dx_cd_native() {
@@ -70,9 +70,9 @@ __dx_stack_wrapper() {
     local __dx_target
     __dx_target="$(dx navigate "$__dx_op" "$__dx_selector")" || return 1
     [[ -n "$__dx_target" ]] || return 1
-    __dx_dest="$(dx "$__dx_undo_or_redo" --target "$__dx_target")" || return 1
+    __dx_dest="$(dx stack "$__dx_undo_or_redo" --target "$__dx_target")" || return 1
   else
-    __dx_dest="$(dx "$__dx_undo_or_redo")" || return 1
+    __dx_dest="$(dx stack "$__dx_undo_or_redo")" || return 1
   fi
 
   [[ -n "$__dx_dest" ]] || return 1
@@ -260,7 +260,7 @@ _dx_complete_dx() {
   COMPREPLY=()
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "resolve complete init mark unmark bookmarks push pop undo redo navigate" -- "$cur") )
+    COMPREPLY=( $(compgen -W "resolve complete init bookmarks stack navigate menu" -- "$cur") )
     return 0
   fi
 
@@ -273,7 +273,7 @@ _dx_complete_dx() {
         COMPREPLY=( $(compgen -W "paths ancestors frecents recents stack" -- "$cur") )
       fi
       ;;
-    push)
+    stack)
       return 1
       ;;
     *)
