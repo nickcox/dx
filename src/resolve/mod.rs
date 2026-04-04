@@ -214,11 +214,9 @@ impl Resolver {
             for path in candidates {
                 push_unique(&mut output, &mut seen, path);
             }
-            // If we got filesystem hits, return them directly — no need to
-            // run the search-root / abbreviation pipeline for rooted queries.
-            if !output.is_empty() {
-                return output;
-            }
+            // For explicit filesystem-prefix queries, mirror native completion:
+            // return only filesystem-derived results, including empty sets.
+            return output;
         }
 
         if let Some(path) = precedence::resolve_direct(&cwd, trimmed) {
@@ -718,6 +716,39 @@ mod tests {
         assert!(matches!(err, ResolveError::NotFound));
 
         set_bookmark_env(None);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn completion_dot_slash_lists_children_when_present() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("complete-dot-slash-children");
+        let child = temp.join("alpha");
+        fs::create_dir_all(&child).expect("create child");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let prev = std::env::current_dir().expect("read cwd");
+        std::env::set_current_dir(&temp).expect("set cwd");
+
+        let out = resolver.collect_completion_candidates("./");
+
+        std::env::set_current_dir(prev).expect("restore cwd");
+        assert!(out.iter().any(|p| p.ends_with("alpha")));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn completion_dot_slash_empty_dir_returns_empty() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("complete-dot-slash-empty");
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+
+        let prev = std::env::current_dir().expect("read cwd");
+        std::env::set_current_dir(&temp).expect("set cwd");
+        let out = resolver.collect_completion_candidates("./");
+        std::env::set_current_dir(prev).expect("restore cwd");
+
+        assert!(out.is_empty());
         let _ = fs::remove_dir_all(temp);
     }
 
