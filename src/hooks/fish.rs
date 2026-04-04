@@ -105,6 +105,7 @@ end
 
 function cd
   if test (count $argv) -eq 0
+    __dx_push_pwd
     __dx_cd_native
     set -l __dx_status $status
     if test $__dx_status -eq 0
@@ -114,6 +115,7 @@ function cd
   end
 
   if test (count $argv) -eq 1; and test "$argv[1]" = "-"
+    __dx_push_pwd
     __dx_cd_native -
     set -l __dx_status $status
     if test $__dx_status -eq 0
@@ -140,6 +142,7 @@ function cd
     return $status
   end
 
+  __dx_push_pwd
   set -l __dx_status 0
   if type -q dx
     set -l __dx_resolved (dx resolve "$__dx_path_arg" 2>/dev/null)

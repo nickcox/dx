@@ -132,12 +132,14 @@ function cd {
     $Global:__dx_oldpwd = $PWD.Path
 
     if (-not $Args -or $Args.Count -eq 0) {
+        __dx_push_pwd
         __dx_set_location_native @("~")
         if ($?) { __dx_push_pwd }
         return
     }
 
     if ($Args.Count -eq 1 -and $Args[0] -eq '-') {
+        __dx_push_pwd
         __dx_set_location_native @($Global:__dx_oldpwd)
         if ($?) { __dx_push_pwd }
         return
@@ -158,6 +160,7 @@ function cd {
         return
     }
 
+    __dx_push_pwd
     $resolved = $null
     $resolveStatus = 1
     if (Get-Command dx -ErrorAction SilentlyContinue) {

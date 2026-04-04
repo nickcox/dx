@@ -104,6 +104,7 @@ cd() {
   local __dx_status=0
 
   if [[ $# -eq 0 ]]; then
+    __dx_push_pwd
     __dx_cd_native
     __dx_status=$?
     if [[ $__dx_status -eq 0 ]]; then
@@ -113,6 +114,7 @@ cd() {
   fi
 
   if [[ "$1" == "-" && $# -eq 1 ]]; then
+    __dx_push_pwd
     __dx_cd_native -
     __dx_status=$?
     if [[ $__dx_status -eq 0 ]]; then
@@ -140,6 +142,7 @@ cd() {
     return $?
   fi
 
+  __dx_push_pwd
   local __dx_resolved=""
   if (( $+commands[dx] )); then
     __dx_resolved="$(dx resolve "$__dx_path_arg" 2>/dev/null)"
