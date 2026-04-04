@@ -8,7 +8,8 @@
 
 #[cfg(unix)]
 mod imp {
-    use std::io::{stderr, Read, Write};
+    use std::io::{stderr, BufWriter, Read, Write};
+    use std::fs::OpenOptions;
     use std::path::{Path, PathBuf};
 
     use crossterm::{
@@ -72,22 +73,42 @@ mod imp {
         Some(row.saturating_sub(1))
     }
 
+    fn use_dev_tty_backend() -> bool {
+        std::env::var_os("DX_MENU_USE_DEV_TTY_BACKEND").is_some()
+    }
+
     struct CleanupGuard {
         prompt_row: u16,
         area: Rect,
+        use_tty_backend: bool,
     }
 
     impl Drop for CleanupGuard {
         fn drop(&mut self) {
-            let _ = execute!(stderr(), cursor::MoveTo(0, self.prompt_row));
-            for row in self.area.top()..self.area.bottom() {
-                let _ = execute!(
-                    stderr(),
-                    cursor::MoveTo(0, row),
-                    terminal::Clear(terminal::ClearType::CurrentLine)
-                );
+            if self.use_tty_backend {
+                if let Ok(tty_file) = OpenOptions::new().write(true).open("/dev/tty") {
+                    let mut tty = BufWriter::new(tty_file);
+                    let _ = execute!(tty, cursor::MoveTo(0, self.prompt_row));
+                    for row in self.area.top()..self.area.bottom() {
+                        let _ = execute!(
+                            tty,
+                            cursor::MoveTo(0, row),
+                            terminal::Clear(terminal::ClearType::CurrentLine)
+                        );
+                    }
+                    let _ = execute!(tty, cursor::MoveTo(0, self.prompt_row), cursor::Show);
+                }
+            } else {
+                let _ = execute!(stderr(), cursor::MoveTo(0, self.prompt_row));
+                for row in self.area.top()..self.area.bottom() {
+                    let _ = execute!(
+                        stderr(),
+                        cursor::MoveTo(0, row),
+                        terminal::Clear(terminal::ClearType::CurrentLine)
+                    );
+                }
+                let _ = execute!(stderr(), cursor::MoveTo(0, self.prompt_row), cursor::Show);
             }
-            let _ = execute!(stderr(), cursor::MoveTo(0, self.prompt_row), cursor::Show);
             let _ = terminal::disable_raw_mode();
         }
     }
@@ -113,7 +134,13 @@ mod imp {
         }
     }
 
-    pub fn select(initial_candidates: Vec<PathBuf>, initial_query: &str, cwd: &Path, query_fn: QueryFn<'_>) -> Option<MenuResult> {
+    pub fn select(
+        initial_candidates: Vec<PathBuf>,
+        initial_query: &str,
+        cwd: &Path,
+        prompt_row_override: Option<u16>,
+        query_fn: QueryFn<'_>,
+    ) -> Option<MenuResult> {
         if initial_candidates.is_empty() {
             return Some(MenuResult::Cancelled {
                 filter_query: initial_query.to_string(),
@@ -134,7 +161,13 @@ mod imp {
         let list_rows = 10u16.min(initial_candidates.len() as u16);
         let height = list_rows + 3;
 
-        let prompt_row = cursor_row_via_tty().unwrap_or(rows.saturating_sub(1));
+        let prompt_row = if let Some(row) = prompt_row_override {
+            row.min(rows.saturating_sub(1))
+        } else if std::env::var_os("DX_MENU_NO_CURSOR_QUERY").is_some() {
+            rows.saturating_sub(height + 1)
+        } else {
+            cursor_row_via_tty().unwrap_or(rows.saturating_sub(1))
+        };
         let rows_below = rows.saturating_sub(prompt_row + 1);
 
         let prompt_row = if rows_below < height {
@@ -152,12 +185,24 @@ mod imp {
         let menu_top = (prompt_row + 1).min(rows.saturating_sub(height));
         let area = Rect::new(0, menu_top, cols, height);
 
+        let use_tty_backend = use_dev_tty_backend();
+
         terminal::enable_raw_mode().ok()?;
-        execute!(stderr(), cursor::Hide).ok()?;
+        if use_tty_backend {
+            let tty_file = OpenOptions::new().write(true).open("/dev/tty").ok()?;
+            let mut tty = BufWriter::new(tty_file);
+            execute!(tty, cursor::Hide).ok()?;
+        } else {
+            execute!(stderr(), cursor::Hide).ok()?;
+        }
 
-        let _guard = CleanupGuard { prompt_row, area };
+        let _guard = CleanupGuard {
+            prompt_row,
+            area,
+            use_tty_backend,
+        };
 
-        run_loop(initial_candidates, initial_query, cwd, area, &query_fn)
+        run_loop(initial_candidates, initial_query, cwd, area, use_tty_backend, &query_fn)
     }
 
     fn run_loop(
@@ -165,9 +210,16 @@ mod imp {
         initial_query: &str,
         cwd: &Path,
         area: Rect,
+        use_tty_backend: bool,
         query_fn: &QueryFn<'_>,
     ) -> Option<MenuResult> {
-        let backend = CrosstermBackend::new(stderr());
+        let writer: Box<dyn Write> = if use_tty_backend {
+            Box::new(OpenOptions::new().write(true).open("/dev/tty").ok()?)
+        } else {
+            Box::new(stderr())
+        };
+
+        let backend = CrosstermBackend::new(writer);
         let mut terminal = Terminal::with_options(
             backend,
             TerminalOptions {

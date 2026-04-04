@@ -23,6 +23,10 @@ pub struct MenuCommand {
     /// Session identifier (defaults to DX_SESSION env var)
     #[arg(long)]
     pub session: Option<String>,
+
+    /// Prompt row override for shells that can provide buffer cursor row
+    #[arg(long)]
+    pub prompt_row: Option<u16>,
 }
 
 /// Format a resolved path for insertion into the shell buffer.
@@ -179,7 +183,13 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         )
     });
 
-    match menu::tui::select(initial_candidates, &initial_query, &cwd, query_fn) {
+    match menu::tui::select(
+        initial_candidates,
+        &initial_query,
+        &cwd,
+        cmd.prompt_row,
+        query_fn,
+    ) {
         Some(MenuResult::Selected { value, .. }) => {
             let formatted = format_selected_path(&value.display().to_string(), &parsed.mode);
             let replacement = if parsed.needs_space_prefix {

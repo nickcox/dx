@@ -122,8 +122,8 @@ function __dx_stack_wrapper {
 }
 
 function __dx_set_location_native {
-    param([string[]]$Args)
-    Set-Location @Args
+    param([string[]]$PathArgs)
+    Set-Location @PathArgs
 }
 
 function cd {
@@ -293,6 +293,15 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         $cursor = $null
         [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
 
+        $promptRow = $null
+        try {
+            $rawUi = $Host.UI.RawUI
+            $cursorY = [int]$rawUi.CursorPosition.Y
+            $windowY = [int]$rawUi.WindowPosition.Y
+            $relativeY = $cursorY - $windowY
+            if ($relativeY -ge 0) { $promptRow = $relativeY }
+        } catch {}
+
         $dxCmds = @('cd', 'up', 'cdf', 'z', 'cdr', 'back', 'forward', 'cd-', 'cd+')
         $first = ($line -split '\s+', 2)[0]
 
@@ -303,8 +312,18 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
 
         $json = $null
         try {
-            $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION 2>$null)
+            $env:DX_MENU_NO_CURSOR_QUERY = '1'
+            $env:DX_MENU_USE_DEV_TTY_BACKEND = '1'
+            if ($null -ne $promptRow) {
+                $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow)
+            } else {
+                $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION)
+            }
         } catch { }
+        finally {
+            Remove-Item Env:DX_MENU_NO_CURSOR_QUERY -ErrorAction SilentlyContinue
+            Remove-Item Env:DX_MENU_USE_DEV_TTY_BACKEND -ErrorAction SilentlyContinue
+        }
 
         if ($LASTEXITCODE -ne 0 -or -not $json) {
             [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)
