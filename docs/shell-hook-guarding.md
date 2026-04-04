@@ -109,3 +109,14 @@ If the menu doesn't appear when pressing Tab:
 4. By default, path completion includes the current directory as an implicit root; set `DX_SEARCH_ROOTS` to add or override broader roots
 5. Check runtime disable: `echo $DX_MENU` (should not be `0`)
 6. Enable debug diagnostics: `export DX_MENU_DEBUG=1` — this emits per-invocation trace on stderr showing buffer, cursor, parsed mode, candidate count, and action taken
+
+
+### Multicolumn Menu (Optional)
+
+`DX_MENU_ITEM_MAX_LEN` controls optional multicolumn rendering for `dx menu`:
+
+- unset / empty / non-numeric / `< 1`: single-column default behavior
+- `>= 1`: multicolumn enabled with dynamic columns computed from terminal width
+
+The selected full path remains visible in the status line even when grid cells are truncated.
+

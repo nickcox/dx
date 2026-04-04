@@ -91,6 +91,16 @@ fn needs_shell_quoting(s: &str) -> bool {
     })
 }
 
+fn parse_menu_item_max_len() -> Option<usize> {
+    let raw = std::env::var("DX_MENU_ITEM_MAX_LEN").ok()?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let value = trimmed.parse::<usize>().ok()?;
+    (value >= 1).then_some(value)
+}
+
 pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     let debug = std::env::var("DX_MENU_DEBUG").is_ok_and(|v| v == "1");
     let session = super::complete::resolve_session(cmd.session.as_deref());
@@ -183,11 +193,14 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         )
     });
 
+    let item_max_len = parse_menu_item_max_len();
+
     match menu::tui::select(
         initial_candidates,
         &initial_query,
         &cwd,
         cmd.prompt_row,
+        item_max_len,
         query_fn,
     ) {
         Some(MenuResult::Selected { value, .. }) => {
@@ -249,6 +262,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
 #[cfg(test)]
 mod tests {
     use crate::complete::StackDirection;
+    use crate::test_support::env_lock;
 
     use super::*;
 
@@ -317,5 +331,30 @@ mod tests {
     fn recents_mode_returns_raw_path_no_slash() {
         let result = format_selected_path("/tmp/work", &CompletionMode::Recents);
         assert_eq!(result, "/tmp/work");
+    }
+
+    #[test]
+    fn parse_item_max_len_unset_is_none() {
+        let _guard = env_lock();
+        unsafe { std::env::remove_var("DX_MENU_ITEM_MAX_LEN") };
+        assert_eq!(parse_menu_item_max_len(), None);
+    }
+
+    #[test]
+    fn parse_item_max_len_invalid_is_none() {
+        let _guard = env_lock();
+        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "abc") };
+        assert_eq!(parse_menu_item_max_len(), None);
+        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "0") };
+        assert_eq!(parse_menu_item_max_len(), None);
+        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "") };
+        assert_eq!(parse_menu_item_max_len(), None);
+    }
+
+    #[test]
+    fn parse_item_max_len_positive_value() {
+        let _guard = env_lock();
+        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "24") };
+        assert_eq!(parse_menu_item_max_len(), Some(24));
     }
 }
