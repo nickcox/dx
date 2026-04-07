@@ -46,17 +46,17 @@ pub struct MenuCommand {
 ///   /Users/nick/Downloads          → Downloads/
 ///   /Users/nick/Dropbox (Maestral) → 'Dropbox (Maestral)'/
 fn format_selected_path(path: &str, mode: &CompletionMode) -> String {
+    let formatted = if needs_shell_quoting(path) {
+        let escaped = path.replace('\'', "'\\''");
+        format!("'{escaped}'")
+    } else {
+        path.to_string()
+    };
+
     match mode {
-        CompletionMode::Paths => {
-            if needs_shell_quoting(path) {
-                let escaped = path.replace('\'', "'\\''");
-                format!("'{escaped}'/")
-            } else {
-                format!("{path}/")
-            }
-        }
-        // Stack, ancestors, frecents, recents — absolute paths, no slash needed.
-        _ => path.to_string(),
+        CompletionMode::Paths => format!("{formatted}/"),
+        // Stack, ancestors, frecents, recents — no trailing slash needed.
+        _ => formatted,
     }
 }
 
@@ -329,12 +329,12 @@ mod tests {
     }
 
     #[test]
-    fn stack_mode_path_with_spaces_not_quoted() {
+    fn stack_mode_path_with_spaces_is_quoted() {
         let result = format_selected_path(
             "/Users/nick/My Project",
             &CompletionMode::Stack(StackDirection::Back),
         );
-        assert_eq!(result, "/Users/nick/My Project");
+        assert_eq!(result, "'/Users/nick/My Project'");
     }
 
     #[test]
@@ -347,6 +347,15 @@ mod tests {
     fn frecents_mode_returns_raw_path_no_slash() {
         let result = format_selected_path("/Users/nick/projects", &CompletionMode::Frecents);
         assert_eq!(result, "/Users/nick/projects");
+    }
+
+    #[test]
+    fn frecents_mode_path_with_spaces_is_quoted_no_slash() {
+        let result = format_selected_path(
+            "/Users/nick/Dropbox (Maestral)/Obsidian/Notes",
+            &CompletionMode::Frecents,
+        );
+        assert_eq!(result, "'/Users/nick/Dropbox (Maestral)/Obsidian/Notes'");
     }
 
     #[test]
