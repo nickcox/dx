@@ -90,6 +90,35 @@ fn complete_ancestors_at_root_returns_empty() {
 }
 
 #[test]
+fn complete_limit_and_list_alias_cap_results() {
+    let temp = make_temp_dir("ancestors-limit");
+    let cwd = temp.join("a/b/c/d");
+    fs::create_dir_all(&cwd).expect("create nested");
+
+    let limited = Command::new(dx_bin())
+        .args(["complete", "ancestors", "--limit", "1"])
+        .current_dir(&cwd)
+        .output()
+        .expect("run complete ancestors --limit");
+    assert!(limited.status.success());
+    let limited_stdout = String::from_utf8_lossy(&limited.stdout);
+    let limited_lines = limited_stdout.lines().collect::<Vec<_>>();
+    assert_eq!(limited_lines.len(), 1);
+
+    let alias = Command::new(dx_bin())
+        .args(["complete", "ancestors", "--list", "1"])
+        .current_dir(&cwd)
+        .output()
+        .expect("run complete ancestors --list");
+    assert!(alias.status.success());
+    let alias_stdout = String::from_utf8_lossy(&alias.stdout);
+    let alias_lines = alias_stdout.lines().collect::<Vec<_>>();
+    assert_eq!(alias_lines.len(), 1);
+
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
 fn complete_paths_returns_abbreviation_matches() {
     let temp = make_temp_dir("paths");
     let root = temp.join("root");
@@ -277,7 +306,6 @@ fn complete_error_cases_return_non_zero() {
         .expect("run complete stack missing direction");
     assert!(!stack_missing_direction.status.success());
 }
-
 
 #[test]
 fn complete_paths_uses_cwd_as_implicit_root_when_unset() {

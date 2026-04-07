@@ -8,14 +8,12 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolveOptions {
     pub case_sensitive: bool,
-    pub max_list_results: Option<usize>,
 }
 
 impl Default for ResolveOptions {
     fn default() -> Self {
         Self {
             case_sensitive: true,
-            max_list_results: Some(50),
         }
     }
 }
@@ -51,7 +49,6 @@ struct TomlConfig {
 #[derive(Debug, Deserialize, Default)]
 struct ResolveConfig {
     case_sensitive: Option<bool>,
-    max_list_results: Option<usize>,
 }
 
 impl AppConfig {
@@ -102,10 +99,6 @@ fn merge_toml(mut base: AppConfig, parsed: TomlConfig) -> AppConfig {
         base.resolve.case_sensitive = case_sensitive;
     }
 
-    if parsed.resolve.max_list_results.is_some() {
-        base.resolve.max_list_results = parsed.resolve.max_list_results;
-    }
-
     base
 }
 
@@ -123,12 +116,6 @@ fn merge_environment(mut base: AppConfig) -> AppConfig {
 
     if let Ok(raw) = env::var("DX_CASE_SENSITIVE") {
         base.resolve.case_sensitive = parse_bool(&raw, base.resolve.case_sensitive);
-    }
-
-    if let Ok(raw) = env::var("DX_MAX_LIST_RESULTS") {
-        if let Ok(value) = raw.parse::<usize>() {
-            base.resolve.max_list_results = Some(value);
-        }
     }
 
     base
@@ -177,14 +164,12 @@ search_roots = ["/tmp/work", "/tmp/play"]
 
 [resolve]
 case_sensitive = false
-max_list_results = 25
 "#;
         let parsed = parse_toml(raw, Path::new("/tmp/test.toml")).expect("parse should succeed");
         let config = merge_toml(AppConfig::default(), parsed);
 
         assert_eq!(config.search_roots.len(), 2);
         assert!(!config.resolve.case_sensitive);
-        assert_eq!(config.resolve.max_list_results, Some(25));
     }
 
     #[test]
@@ -195,7 +180,6 @@ max_list_results = 25
 
         assert!(config.search_roots.is_empty());
         assert!(config.resolve.case_sensitive);
-        assert_eq!(config.resolve.max_list_results, Some(50));
     }
 
     #[test]
@@ -220,19 +204,17 @@ max_list_results = 25
         let file = temp.join("dx.toml");
         fs::write(
             &file,
-            "search_roots=[\"/tmp/r1\"]\n[resolve]\ncase_sensitive=false\nmax_list_results=12\n",
+            "search_roots=[\"/tmp/r1\"]\n[resolve]\ncase_sensitive=false\n",
         )
         .expect("write config file");
 
         unsafe { env::set_var("DX_CONFIG", file.display().to_string()) };
         unsafe { env::remove_var("DX_SEARCH_ROOTS") };
         unsafe { env::remove_var("DX_CASE_SENSITIVE") };
-        unsafe { env::remove_var("DX_MAX_LIST_RESULTS") };
 
         let loaded = AppConfig::load().expect("load config");
         assert_eq!(loaded.search_roots, vec![PathBuf::from("/tmp/r1")]);
         assert!(!loaded.resolve.case_sensitive);
-        assert_eq!(loaded.resolve.max_list_results, Some(12));
 
         unsafe { env::remove_var("DX_CONFIG") };
         let _ = fs::remove_dir_all(temp);
@@ -245,14 +227,13 @@ max_list_results = 25
         let file = temp.join("dx.toml");
         fs::write(
             &file,
-            "search_roots=[\"/tmp/r1\"]\n[resolve]\ncase_sensitive=true\nmax_list_results=99\n",
+            "search_roots=[\"/tmp/r1\"]\n[resolve]\ncase_sensitive=true\n",
         )
         .expect("write config file");
 
         unsafe { env::set_var("DX_CONFIG", file.display().to_string()) };
         unsafe { env::set_var("DX_SEARCH_ROOTS", "/tmp/r2:/tmp/r3") };
         unsafe { env::set_var("DX_CASE_SENSITIVE", "false") };
-        unsafe { env::set_var("DX_MAX_LIST_RESULTS", "7") };
 
         let loaded = AppConfig::load().expect("load config");
         assert_eq!(
@@ -260,12 +241,10 @@ max_list_results = 25
             vec![PathBuf::from("/tmp/r2"), PathBuf::from("/tmp/r3")]
         );
         assert!(!loaded.resolve.case_sensitive);
-        assert_eq!(loaded.resolve.max_list_results, Some(7));
 
         unsafe { env::remove_var("DX_CONFIG") };
         unsafe { env::remove_var("DX_SEARCH_ROOTS") };
         unsafe { env::remove_var("DX_CASE_SENSITIVE") };
-        unsafe { env::remove_var("DX_MAX_LIST_RESULTS") };
         let _ = fs::remove_dir_all(temp);
     }
 }

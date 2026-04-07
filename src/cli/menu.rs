@@ -101,6 +101,21 @@ fn parse_menu_item_max_len() -> Option<usize> {
     (value >= 1).then_some(value)
 }
 
+fn parse_menu_max_results() -> usize {
+    let default = 1000usize;
+    let Ok(raw) = std::env::var("DX_MAX_MENU_RESULTS") else {
+        return default;
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return default;
+    }
+    match trimmed.parse::<usize>() {
+        Ok(value) if value >= 1 => value,
+        _ => default,
+    }
+}
+
 pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     let debug = std::env::var("DX_MENU_DEBUG").is_ok_and(|v| v == "1");
     let session = super::complete::resolve_session(cmd.session.as_deref());
@@ -149,8 +164,9 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     } else {
         parsed.query.as_deref().unwrap_or("")
     };
+    let menu_limit = parse_menu_max_results();
 
-    let initial_candidates = menu::source_candidates(
+    let initial_candidates = menu::source_candidates_with_meta(
         resolver,
         parsed.mode.clone(),
         if initial_query_str.is_empty() {
@@ -160,13 +176,18 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         },
         session.as_deref(),
         Some(&cwd),
+        Some(menu_limit),
     );
 
     if debug {
-        eprintln!("[dx-menu-debug] candidates={}", initial_candidates.len());
+        eprintln!(
+            "[dx-menu-debug] candidates={} has_more={}",
+            initial_candidates.paths.len(),
+            initial_candidates.has_more
+        );
     }
 
-    if initial_candidates.is_empty() {
+    if initial_candidates.paths.is_empty() {
         if debug {
             eprintln!("[dx-menu-debug] no candidates -> noop");
         }
@@ -184,12 +205,13 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         } else {
             Some(q)
         };
-        menu::source_candidates(
+        menu::source_candidates_with_meta(
             resolver,
             parsed.mode.clone(),
             resolved_q,
             session.as_deref(),
             Some(&cwd),
+            Some(menu_limit),
         )
     });
 
@@ -356,5 +378,28 @@ mod tests {
         let _guard = env_lock();
         unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "24") };
         assert_eq!(parse_menu_item_max_len(), Some(24));
+    }
+
+    #[test]
+    fn parse_menu_max_results_defaults_to_1000() {
+        let _guard = env_lock();
+        unsafe { std::env::remove_var("DX_MAX_MENU_RESULTS") };
+        assert_eq!(parse_menu_max_results(), 1000);
+    }
+
+    #[test]
+    fn parse_menu_max_results_uses_valid_positive_value() {
+        let _guard = env_lock();
+        unsafe { std::env::set_var("DX_MAX_MENU_RESULTS", "250") };
+        assert_eq!(parse_menu_max_results(), 250);
+    }
+
+    #[test]
+    fn parse_menu_max_results_invalid_falls_back() {
+        let _guard = env_lock();
+        unsafe { std::env::set_var("DX_MAX_MENU_RESULTS", "0") };
+        assert_eq!(parse_menu_max_results(), 1000);
+        unsafe { std::env::set_var("DX_MAX_MENU_RESULTS", "abc") };
+        assert_eq!(parse_menu_max_results(), 1000);
     }
 }

@@ -58,6 +58,12 @@ pub struct Resolver {
     bookmark_lookup: fn(&str) -> Option<PathBuf>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CompletionCandidates {
+    pub paths: Vec<PathBuf>,
+    pub has_more: bool,
+}
+
 impl Resolver {
     pub fn from_environment() -> Self {
         let config = AppConfig::load().unwrap_or_default();
@@ -174,7 +180,7 @@ impl Resolver {
             });
         }
 
-        prepare_candidates(&mut candidates, self.config.resolve.max_list_results);
+        prepare_candidates(&mut candidates, None);
 
         match mode {
             ResolveMode::List => Err(ResolveError::Ambiguous {
@@ -193,14 +199,45 @@ impl Resolver {
     }
 
     pub fn collect_completion_candidates(&self, raw_query: &str) -> Vec<PathBuf> {
+        self.collect_completion_candidates_with_meta(raw_query).paths
+    }
+
+    pub fn collect_completion_candidates_with_limit(
+        &self,
+        raw_query: &str,
+        limit: Option<usize>,
+    ) -> CompletionCandidates {
+        self.collect_completion_candidates_impl(raw_query, limit)
+    }
+
+    pub fn collect_completion_candidates_with_meta(
+        &self,
+        raw_query: &str,
+    ) -> CompletionCandidates {
+        self.collect_completion_candidates_impl(raw_query, None)
+    }
+
+    fn collect_completion_candidates_impl(
+        &self,
+        raw_query: &str,
+        limit: Option<usize>,
+    ) -> CompletionCandidates {
         let trimmed = raw_query.trim();
         if trimmed.is_empty() {
-            return Vec::new();
+            return CompletionCandidates {
+                paths: Vec::new(),
+                has_more: false,
+            };
         }
 
         let cwd = match std::env::current_dir() {
             Ok(value) => value,
-            Err(_) => return Vec::new(),
+            Err(_) => {
+                return CompletionCandidates {
+                    paths: Vec::new(),
+                    has_more: false,
+                }
+            }
         };
 
         let mut output = Vec::new();
@@ -216,8 +253,10 @@ impl Resolver {
             }
             // For explicit filesystem-prefix queries, mirror native completion:
             // return only filesystem-derived results, including empty sets.
-            return output;
+            return apply_completion_limit(output, limit);
         }
+
+        let probe_limit = limit.map(|value| value.saturating_add(1));
 
         if let Some(path) = precedence::resolve_direct(&cwd, trimmed) {
             if path.is_dir() {
@@ -240,7 +279,7 @@ impl Resolver {
         );
         prepare_candidates(
             &mut abbreviation_candidates,
-            self.config.resolve.max_list_results,
+            probe_limit,
         );
         for candidate in abbreviation_candidates {
             push_unique(&mut output, &mut seen, candidate);
@@ -253,7 +292,7 @@ impl Resolver {
         );
         prepare_candidates(
             &mut fallback_candidates,
-            self.config.resolve.max_list_results,
+            probe_limit,
         );
         for candidate in fallback_candidates {
             push_unique(&mut output, &mut seen, candidate);
@@ -263,11 +302,7 @@ impl Resolver {
             push_unique(&mut output, &mut seen, path);
         }
 
-        if let Some(max) = self.config.resolve.max_list_results {
-            output.truncate(max);
-        }
-
-        output
+        apply_completion_limit(output, limit)
     }
 
     fn emit_error(&self, err: ResolveError, mode: ResolveMode) -> i32 {
@@ -379,6 +414,18 @@ fn prepare_candidates(candidates: &mut Vec<PathBuf>, max: Option<usize>) {
     if let Some(max) = max {
         candidates.truncate(max);
     }
+}
+
+fn apply_completion_limit(mut paths: Vec<PathBuf>, limit: Option<usize>) -> CompletionCandidates {
+    let mut has_more = false;
+    if let Some(max) = limit
+        && paths.len() > max
+    {
+        paths.truncate(max);
+        has_more = true;
+    }
+
+    CompletionCandidates { paths, has_more }
 }
 
 /// Returns true when the query is a filesystem path prefix that should be

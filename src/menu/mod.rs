@@ -6,11 +6,11 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::complete::{
-    self, ancestors, paths as paths_mode, recents as recents_mode, stack as stack_mode,
+    self, ancestors, recents as recents_mode, stack as stack_mode,
     CompletionMode,
 };
 use crate::frecency::ZoxideProvider;
-use crate::resolve::Resolver;
+use crate::resolve::{CompletionCandidates, Resolver};
 
 pub use action::MenuAction;
 pub use buffer::{parse_buffer, ParsedBuffer};
@@ -26,38 +26,81 @@ pub fn source_candidates(
     session: Option<&str>,
     cwd: Option<&std::path::Path>,
 ) -> Vec<PathBuf> {
-    let raw = match mode {
-        CompletionMode::Paths => paths_mode::complete(resolver, query.unwrap_or("")),
-        CompletionMode::Ancestors => ancestors::complete(query),
+    source_candidates_with_meta(
+        resolver,
+        mode,
+        query,
+        session,
+        cwd,
+        None,
+    )
+    .paths
+}
+
+pub fn source_candidates_with_meta(
+    resolver: &Resolver,
+    mode: CompletionMode,
+    query: Option<&str>,
+    session: Option<&str>,
+    cwd: Option<&std::path::Path>,
+    limit: Option<usize>,
+) -> CompletionCandidates {
+    let raw_meta = match mode {
+        CompletionMode::Paths => {
+            resolver.collect_completion_candidates_with_limit(query.unwrap_or(""), limit)
+        }
+        CompletionMode::Ancestors => {
+            apply_limit_with_has_more(ancestors::complete(query), limit)
+        }
         CompletionMode::Frecents => {
             let provider = ZoxideProvider::default();
-            complete::complete_frecents(&provider, query)
+            apply_limit_with_has_more(complete::complete_frecents(&provider, query), limit)
         }
-        CompletionMode::Recents => recents_mode::complete(session, query),
-        CompletionMode::Stack(direction) => stack_mode::complete(session, direction, query),
+        CompletionMode::Recents => {
+            apply_limit_with_has_more(recents_mode::complete(session, query), limit)
+        }
+        CompletionMode::Stack(direction) => {
+            apply_limit_with_has_more(stack_mode::complete(session, direction, query), limit)
+        }
     };
 
-    // Canonicalize cwd once for comparison (handles macOS /private/var symlinks).
-    // For Paths mode we do NOT filter out cwd — the user may be navigating into
-    // its children via an explicit absolute/relative prefix, and removing cwd from
-    // the candidate list would block that. For all other modes (stack, recents, etc.)
-    // cwd appearing as a navigation target is noise and should be suppressed.
     let canonical_cwd = match mode {
         CompletionMode::Paths => None,
         _ => cwd.and_then(|p| std::fs::canonicalize(p).ok()),
     };
 
-    // Deduplicate (first occurrence wins) and strip the cwd itself.
     let mut seen = HashSet::new();
-    raw.into_iter()
-        .filter(|p| {
-            let canonical = std::fs::canonicalize(p).unwrap_or_else(|_| p.clone());
-            if let Some(ref ccwd) = canonical_cwd {
-                if &canonical == ccwd {
-                    return false;
-                }
-            }
-            seen.insert(canonical)
-        })
-        .collect()
+    let mut filtered = Vec::new();
+
+    for p in raw_meta.paths {
+        let canonical = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
+        if let Some(ref ccwd) = canonical_cwd
+            && &canonical == ccwd
+        {
+            continue;
+        }
+        if seen.insert(canonical) {
+            filtered.push(p);
+        }
+    }
+
+    CompletionCandidates {
+        paths: filtered,
+        has_more: raw_meta.has_more,
+    }
+}
+
+fn apply_limit_with_has_more(
+    mut paths: Vec<PathBuf>,
+    limit: Option<usize>,
+) -> CompletionCandidates {
+    let mut has_more = false;
+    if let Some(max) = limit
+        && paths.len() > max
+    {
+        paths.truncate(max);
+        has_more = true;
+    }
+
+    CompletionCandidates { paths, has_more }
 }

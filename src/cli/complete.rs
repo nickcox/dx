@@ -15,16 +15,22 @@ pub enum CompleteCommand {
         query: Option<String>,
         #[arg(long)]
         json: bool,
+        #[arg(long = "limit", alias = "list")]
+        limit: Option<usize>,
     },
     Ancestors {
         query: Option<String>,
         #[arg(long)]
         json: bool,
+        #[arg(long = "limit", alias = "list")]
+        limit: Option<usize>,
     },
     Frecents {
         query: Option<String>,
         #[arg(long)]
         json: bool,
+        #[arg(long = "limit", alias = "list")]
+        limit: Option<usize>,
     },
     Recents {
         query: Option<String>,
@@ -32,6 +38,8 @@ pub enum CompleteCommand {
         session: Option<String>,
         #[arg(long)]
         json: bool,
+        #[arg(long = "limit", alias = "list")]
+        limit: Option<usize>,
     },
     Stack {
         #[arg(long, value_enum)]
@@ -41,6 +49,8 @@ pub enum CompleteCommand {
         session: Option<String>,
         #[arg(long)]
         json: bool,
+        #[arg(long = "limit", alias = "list")]
+        limit: Option<usize>,
     },
 }
 
@@ -67,28 +77,33 @@ pub enum NavigateMode {
 }
 
 pub fn run_complete(resolver: &Resolver, command: CompleteCommand) -> i32 {
-    let (candidates, json) = match command {
-        CompleteCommand::Paths { query, json } => {
+    let (mut candidates, json, limit) = match command {
+        CompleteCommand::Paths { query, json, limit } => {
             let value = query.unwrap_or_default();
-            (paths_mode::complete(resolver, &value), json)
+            (paths_mode::complete(resolver, &value), json, limit)
         }
-        CompleteCommand::Ancestors { query, json } => (ancestors::complete(query.as_deref()), json),
-        CompleteCommand::Frecents { query, json } => {
+        CompleteCommand::Ancestors { query, json, limit } => {
+            (ancestors::complete(query.as_deref()), json, limit)
+        }
+        CompleteCommand::Frecents { query, json, limit } => {
             let provider = ZoxideProvider::default();
             (
                 complete::complete_frecents(&provider, query.as_deref()),
                 json,
+                limit,
             )
         }
         CompleteCommand::Recents {
             query,
             session,
             json,
+            limit,
         } => {
             let session = resolve_session(session.as_deref());
             (
                 recents_mode::complete(session.as_deref(), query.as_deref()),
                 json,
+                limit,
             )
         }
         CompleteCommand::Stack {
@@ -96,14 +111,20 @@ pub fn run_complete(resolver: &Resolver, command: CompleteCommand) -> i32 {
             query,
             session,
             json,
+            limit,
         } => {
             let session = resolve_session(session.as_deref());
             (
                 stack_mode::complete(session.as_deref(), direction.into(), query.as_deref()),
                 json,
+                limit,
             )
         }
     };
+
+    if let Some(limit) = limit {
+        candidates.truncate(limit);
+    }
 
     if json {
         match complete::format_json(&candidates) {

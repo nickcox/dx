@@ -29,6 +29,8 @@ mod imp {
         Terminal, TerminalOptions, Viewport,
     };
 
+    use crate::resolve::CompletionCandidates;
+
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum MenuResult {
         Selected {
@@ -114,7 +116,7 @@ mod imp {
     }
 
     /// Re-query callback type: given a query string, returns fresh candidates.
-    pub type QueryFn<'a> = Box<dyn Fn(&str) -> Vec<PathBuf> + 'a>;
+    pub type QueryFn<'a> = Box<dyn Fn(&str) -> CompletionCandidates + 'a>;
 
     /// Compute a compact display label for a path:
     /// - relative to `cwd` if the path is under it (e.g. `Desktop`)
@@ -135,23 +137,23 @@ mod imp {
     }
 
     pub fn select(
-        initial_candidates: Vec<PathBuf>,
+        initial_candidates: CompletionCandidates,
         initial_query: &str,
         cwd: &Path,
         prompt_row_override: Option<u16>,
         item_max_len: Option<usize>,
         query_fn: QueryFn<'_>,
     ) -> Option<MenuResult> {
-        if initial_candidates.is_empty() {
+        if initial_candidates.paths.is_empty() {
             return Some(MenuResult::Cancelled {
                 filter_query: initial_query.to_string(),
                 changed_query: false,
             });
         }
 
-        if initial_candidates.len() == 1 {
+        if initial_candidates.paths.len() == 1 && !initial_candidates.has_more {
             return Some(MenuResult::Selected {
-                value: initial_candidates.into_iter().next().unwrap(),
+                value: initial_candidates.paths.into_iter().next().unwrap(),
                 filter_query: initial_query.to_string(),
                 changed_query: false,
             });
@@ -160,12 +162,13 @@ mod imp {
         let (cols, rows) = terminal::size().ok()?;
         let home = dirs::home_dir();
         let initial_labels: Vec<String> = initial_candidates
+            .paths
             .iter()
             .map(|p| display_label(p, cwd, home.as_deref()))
             .collect();
         let metrics = compute_layout_metrics(
             cols.saturating_sub(2) as usize,
-            initial_candidates.len(),
+            initial_candidates.paths.len(),
             &initial_labels,
             item_max_len,
         );
@@ -217,7 +220,7 @@ mod imp {
     }
 
     fn run_loop(
-        initial_candidates: Vec<PathBuf>,
+        initial_candidates: CompletionCandidates,
         initial_query: &str,
         cwd: &Path,
         area: Rect,
@@ -241,9 +244,9 @@ mod imp {
         .ok()?;
 
         let mut filter_query = initial_query.to_string();
-        let mut candidates = initial_candidates;
+        let mut completion = initial_candidates;
         let mut list_state = ListState::default();
-        if candidates.is_empty() {
+        if completion.paths.is_empty() {
             list_state.select(None);
         } else {
             list_state.select(Some(0));
@@ -254,9 +257,11 @@ mod imp {
         loop {
             let selected_path = list_state
                 .selected()
-                .and_then(|i| candidates.get(i))
+                .and_then(|i| completion.paths.get(i))
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "(no matches)".to_string());
+
+            let overflow = overflow_note(completion.paths.len(), completion.has_more);
 
             let filter_label = if filter_query.is_empty() {
                 "(empty)".to_string()
@@ -272,11 +277,12 @@ mod imp {
                         .split(frame.area());
 
                     let list_area = chunks[0];
-                    let n = candidates.len();
+                    let n = completion.paths.len();
                     let selected = list_state.selected().unwrap_or(0);
                     let inner_width = list_area.width.saturating_sub(2) as usize;
                     let visible_rows = list_area.height.saturating_sub(2) as usize;
-                    let labels: Vec<String> = candidates
+                    let labels: Vec<String> = completion
+                        .paths
                         .iter()
                         .map(|p| display_label(p, cwd, home.as_deref()))
                         .collect();
@@ -309,7 +315,7 @@ mod imp {
                                 if idx >= n {
                                     break;
                                 }
-                                let label = display_label(&candidates[idx], cwd, home.as_deref());
+                                let label = display_label(&completion.paths[idx], cwd, home.as_deref());
                                 let content_width = metrics.column_widths[col].saturating_sub(2).max(1);
                                 let trunc = truncate_for_cell(&label, content_width);
                                 let text = pad_to_width(&trunc, metrics.column_widths[col]);
@@ -347,7 +353,8 @@ mod imp {
                             frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
                         }
                     } else {
-                        let items: Vec<ListItem> = candidates
+                        let items: Vec<ListItem> = completion
+                            .paths
                             .iter()
                             .map(|p| ListItem::new(display_label(p, cwd, home.as_deref())))
                             .collect();
@@ -381,7 +388,7 @@ mod imp {
                     }
 
                     let status = Paragraph::new(Span::styled(
-                        format!(" filter: {filter_label} | {selected_path}"),
+                        format!(" filter: {filter_label} | {selected_path}{overflow}"),
                         Style::default()
                             .fg(Color::White)
                             .add_modifier(Modifier::DIM),
@@ -392,8 +399,9 @@ mod imp {
 
             match event::read().ok()? {
                 Event::Key(key) => {
-                    let len = candidates.len();
-                    let labels: Vec<String> = candidates
+                    let len = completion.paths.len();
+                    let labels: Vec<String> = completion
+                        .paths
                         .iter()
                         .map(|p| display_label(p, cwd, home.as_deref()))
                         .collect();
@@ -409,7 +417,7 @@ mod imp {
                     match (key.code, key.modifiers) {
                         (KeyCode::Enter, _) => {
                             if let Some(idx) = list_state.selected()
-                                && let Some(value) = candidates.get(idx).cloned()
+                                && let Some(value) = completion.paths.get(idx).cloned()
                             {
                                 return Some(MenuResult::Selected {
                                     value,
@@ -454,15 +462,15 @@ mod imp {
                         }
                         (KeyCode::Backspace, _) => {
                             filter_query.pop();
-                            candidates = query_fn(&filter_query);
-                            reset_selection(&mut list_state, candidates.len());
+                            completion = query_fn(&filter_query);
+                            reset_selection(&mut list_state, completion.paths.len());
                         }
                         (KeyCode::Char(ch), KeyModifiers::NONE)
                         | (KeyCode::Char(ch), KeyModifiers::SHIFT) => {
                             if !ch.is_control() {
                                 filter_query.push(ch);
-                                candidates = query_fn(&filter_query);
-                                reset_selection(&mut list_state, candidates.len());
+                                completion = query_fn(&filter_query);
+                                reset_selection(&mut list_state, completion.paths.len());
                             }
                         }
                         _ => {}
@@ -570,6 +578,14 @@ mod imp {
             out.push_str(&" ".repeat(width - len));
         }
         out
+    }
+
+    fn overflow_note(displayed: usize, has_more: bool) -> String {
+        if has_more {
+            format!(" | showing first {displayed}")
+        } else {
+            String::new()
+        }
     }
 
     fn move_selection_grid_vertical(
@@ -721,6 +737,13 @@ mod imp {
             move_selection_grid_vertical(&mut state, 7, 3, -1);
             assert_eq!(state.selected(), Some(5));
         }
+
+        #[test]
+        fn overflow_note_reports_hidden_results() {
+            assert_eq!(overflow_note(1000, true), " | showing first 1000");
+            assert_eq!(overflow_note(10, false), "");
+            assert_eq!(overflow_note(0, false), "");
+        }
     }
 }
 
@@ -741,10 +764,12 @@ mod imp {
         },
     }
 
-    pub type QueryFn<'a> = Box<dyn Fn(&str) -> Vec<PathBuf> + 'a>;
+    use crate::resolve::CompletionCandidates;
+
+    pub type QueryFn<'a> = Box<dyn Fn(&str) -> CompletionCandidates + 'a>;
 
     pub fn select(
-        _candidates: Vec<PathBuf>,
+        _candidates: CompletionCandidates,
         initial_query: &str,
         _cwd: &Path,
         _prompt_row_override: Option<u16>,

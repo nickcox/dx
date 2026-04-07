@@ -2,6 +2,8 @@
 
 This document describes the guard and fallback behavior implemented by generated hooks from `dx init`.
 
+For a full list of user configuration options (config file keys, env vars, and per-command overrides), see `docs/configuration.md`.
+
 ## Goals
 
 - Preserve native shell behavior for non-path-like command typos.
@@ -119,4 +121,3 @@ If the menu doesn't appear when pressing Tab:
 - `>= 1`: multicolumn enabled with dynamic columns computed from terminal width
 
 The selected full path remains visible in the status line even when grid cells are truncated.
-
