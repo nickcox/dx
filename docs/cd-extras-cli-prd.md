@@ -35,10 +35,14 @@ This PRD describes the current, implemented command and shell-integration contra
 ## 3.1 Path resolution
 
 - `dx resolve <query>`
+- For queries starting with `/`, `./`, `../`, `~`, or `~/`, resolution first uses filesystem/direct-path semantics; if that pass has a match, it is used. If not, the prefix is stripped and resolution continues through root-based abbreviation/fallback and bookmark lookup.
+- If prefix stripping leaves an empty query (for example `~/` when HOME target is missing), resolution remains unresolved.
 
 ## 3.2 Completions
 
 - `dx complete paths [query]`
+- For `paths` queries starting with `/`, `./`, `../`, `~`, or `~/`, completion first uses filesystem/direct-path semantics; if that pass has matches, they are returned. If not, the prefix is stripped and completion continues through root-based abbreviation/fallback.
+- If prefix stripping leaves an empty query (for example `~/` when HOME target is missing), `paths` completion returns no candidates.
 - `dx complete ancestors [query]`
 - `dx complete frecents [query]`
 - `dx complete recents [query]`

@@ -140,14 +140,25 @@ impl Resolver {
             return Err(ResolveError::EmptyQuery);
         }
 
+        let mut resolution_query = trimmed;
+
         if let Some(path) = precedence::resolve_direct(query.cwd, trimmed) {
             if path.is_dir() {
                 return Ok(ResolveResult { path });
             }
-            return Err(ResolveError::PathNotFound(path.display().to_string()));
+
+            if is_filesystem_prefix(trimmed) {
+                let stripped = strip_filesystem_prefix_for_fallback(trimmed);
+                if stripped.is_empty() {
+                    return Err(ResolveError::PathNotFound(path.display().to_string()));
+                }
+                resolution_query = stripped;
+            } else {
+                return Err(ResolveError::PathNotFound(path.display().to_string()));
+            }
         }
 
-        if let Some(path) = traversal::resolve_step_up(query.cwd, trimmed) {
+        if let Some(path) = traversal::resolve_step_up(query.cwd, resolution_query) {
             return Ok(ResolveResult { path });
         }
 
@@ -155,20 +166,20 @@ impl Resolver {
 
         let mut candidates = abbreviation::resolve_abbreviation(
             &effective_roots,
-            trimmed,
+            resolution_query,
             self.config.resolve.case_sensitive,
         );
 
         if candidates.is_empty() {
             candidates = roots::resolve_fallbacks(
                 &effective_roots,
-                trimmed,
+                resolution_query,
                 self.config.resolve.case_sensitive,
             );
         }
 
         if candidates.is_empty() {
-            if let Some(path) = (self.bookmark_lookup)(trimmed) {
+            if let Some(path) = (self.bookmark_lookup)(resolution_query) {
                 return Ok(ResolveResult { path });
             }
             return Err(ResolveError::NotFound);
@@ -243,28 +254,40 @@ impl Resolver {
         let mut output = Vec::new();
         let mut seen = HashSet::new();
 
+        let mut completion_query = trimmed;
+
         // Filesystem prefix expansion: when the query looks like a rooted or
         // relative filesystem path prefix, readdir the parent and return
-        // matching children.  Covers: /abs/pre, ~/pre, ./pre, ../pre.
+        // matching children. Covers: /abs/pre, ~/pre, ./pre, ../pre.
         if is_filesystem_prefix(trimmed) {
             let candidates = expand_filesystem_prefix(&cwd, trimmed);
             for path in candidates {
                 push_unique(&mut output, &mut seen, path);
             }
-            // For explicit filesystem-prefix queries, mirror native completion:
-            // return only filesystem-derived results, including empty sets.
-            return apply_completion_limit(output, limit);
+
+            // For explicit filesystem-prefix queries, prefer filesystem-derived
+            // results when present.
+            if !output.is_empty() {
+                return apply_completion_limit(output, limit);
+            }
+
+            // When expansion yields no filesystem matches, continue into
+            // abbreviation/fallback completion using a prefix-stripped query.
+            completion_query = strip_filesystem_prefix_for_fallback(trimmed);
+            if completion_query.is_empty() {
+                return apply_completion_limit(output, limit);
+            }
         }
 
         let probe_limit = limit.map(|value| value.saturating_add(1));
 
-        if let Some(path) = precedence::resolve_direct(&cwd, trimmed) {
+        if let Some(path) = precedence::resolve_direct(&cwd, completion_query) {
             if path.is_dir() {
                 push_unique(&mut output, &mut seen, path);
             }
         }
 
-        if let Some(path) = traversal::resolve_step_up(&cwd, trimmed) {
+        if let Some(path) = traversal::resolve_step_up(&cwd, completion_query) {
             if path.is_dir() {
                 push_unique(&mut output, &mut seen, path);
             }
@@ -274,7 +297,7 @@ impl Resolver {
 
         let mut abbreviation_candidates = abbreviation::resolve_abbreviation(
             &effective_roots,
-            trimmed,
+            completion_query,
             self.config.resolve.case_sensitive,
         );
         prepare_candidates(
@@ -287,7 +310,7 @@ impl Resolver {
 
         let mut fallback_candidates = roots::resolve_fallbacks(
             &effective_roots,
-            trimmed,
+            completion_query,
             self.config.resolve.case_sensitive,
         );
         prepare_candidates(
@@ -298,7 +321,7 @@ impl Resolver {
             push_unique(&mut output, &mut seen, candidate);
         }
 
-        if let Some(path) = (self.bookmark_lookup)(trimmed) {
+        if let Some(path) = (self.bookmark_lookup)(completion_query) {
             push_unique(&mut output, &mut seen, path);
         }
 
@@ -438,6 +461,22 @@ fn is_filesystem_prefix(query: &str) -> bool {
         || query == "~"
         || query.starts_with("./")
         || query.starts_with("../")
+}
+
+fn strip_filesystem_prefix_for_fallback(query: &str) -> &str {
+    if let Some(stripped) = query.strip_prefix("~/") {
+        stripped
+    } else if query == "~" {
+        ""
+    } else if let Some(stripped) = query.strip_prefix("./") {
+        stripped
+    } else if let Some(stripped) = query.strip_prefix("../") {
+        stripped
+    } else if let Some(stripped) = query.strip_prefix('/') {
+        stripped
+    } else {
+        query
+    }
 }
 
 /// Expand a filesystem path prefix by reading the parent directory and
@@ -616,7 +655,113 @@ mod tests {
         let err = resolver
             .resolve(query, ResolveMode::Default)
             .expect_err("should error");
+        assert!(matches!(err, ResolveError::NotFound));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolve_leading_slash_direct_miss_falls_back_to_abbreviation() {
+        let temp = make_temp_dir("resolve-leading-slash-fallback");
+        let root = temp.join("root");
+        let missing_prefix = format!("dx-miss-{}", std::process::id());
+        let target = root.join(&missing_prefix).join("project");
+        fs::create_dir_all(&target).expect("create fallback target");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
+        let query = ResolveQuery {
+            raw: &format!("/{missing_prefix}/pro"),
+            cwd: &temp,
+        };
+
+        let result = resolver
+            .resolve(query, ResolveMode::Default)
+            .expect("fallback should resolve");
+        assert_eq!(result.path, target);
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolve_dot_slash_direct_miss_falls_back_to_abbreviation() {
+        let temp = make_temp_dir("resolve-dot-slash-fallback");
+        let root = temp.join("root");
+        let target = root.join("no-local-hit").join("project");
+        fs::create_dir_all(&target).expect("create fallback target");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
+        let query = ResolveQuery {
+            raw: "./no-local-hit/pro",
+            cwd: &temp,
+        };
+
+        let result = resolver
+            .resolve(query, ResolveMode::Default)
+            .expect("fallback should resolve");
+        assert_eq!(result.path, target);
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolve_tilde_slash_direct_miss_falls_back_to_abbreviation() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("resolve-tilde-slash-fallback");
+        let home = temp.join("home");
+        fs::create_dir_all(&home).expect("create home");
+
+        let root = temp.join("root");
+        let target = root.join("no-home-hit").join("project");
+        fs::create_dir_all(&target).expect("create fallback target");
+
+        let prev_home = std::env::var("HOME").ok();
+        unsafe { std::env::set_var("HOME", &home) };
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
+        let query = ResolveQuery {
+            raw: "~/no-home-hit/pro",
+            cwd: &temp,
+        };
+
+        let result = resolver
+            .resolve(query, ResolveMode::Default)
+            .expect("fallback should resolve");
+        assert_eq!(result.path, target);
+
+        if let Some(value) = prev_home {
+            unsafe { std::env::set_var("HOME", value) };
+        } else {
+            unsafe { std::env::remove_var("HOME") };
+        }
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolve_prefixed_empty_fallback_query_preserves_path_not_found() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("resolve-empty-prefixed-fallback");
+        let missing_home = temp.join("missing-home");
+
+        let prev_home = std::env::var("HOME").ok();
+        unsafe { std::env::set_var("HOME", &missing_home) };
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let query = ResolveQuery {
+            raw: "~/",
+            cwd: &temp,
+        };
+
+        let err = resolver
+            .resolve(query, ResolveMode::Default)
+            .expect_err("missing home directory should keep path-not-found");
         assert!(matches!(err, ResolveError::PathNotFound(_)));
+
+        if let Some(value) = prev_home {
+            unsafe { std::env::set_var("HOME", value) };
+        } else {
+            unsafe { std::env::remove_var("HOME") };
+        }
+
         let _ = fs::remove_dir_all(temp);
     }
 
@@ -796,6 +941,71 @@ mod tests {
         std::env::set_current_dir(prev).expect("restore cwd");
 
         assert!(out.is_empty());
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn completion_leading_slash_empty_filesystem_falls_back_to_abbreviation() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("complete-leading-slash-fallback");
+        let root = temp.join("root");
+        let missing_prefix = format!("dx-miss-{}", std::process::id());
+        let target = root.join(&missing_prefix).join("project");
+        fs::create_dir_all(&target).expect("create fallback target");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
+        let query = format!("/{missing_prefix}/pro");
+        let out = resolver.collect_completion_candidates(&query);
+
+        assert!(out.contains(&target));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn completion_dot_slash_empty_filesystem_falls_back_to_abbreviation() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("complete-dot-slash-fallback");
+        let root = temp.join("root");
+        let missing_prefix = "no-local-hit";
+        let target = root.join(missing_prefix).join("project");
+        fs::create_dir_all(&target).expect("create fallback target");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
+        let prev = std::env::current_dir().expect("read cwd");
+        std::env::set_current_dir(&temp).expect("set cwd");
+
+        let out = resolver.collect_completion_candidates("./no-local-hit/pro");
+
+        std::env::set_current_dir(prev).expect("restore cwd");
+        assert!(out.contains(&target));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn completion_tilde_slash_empty_filesystem_falls_back_to_abbreviation() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("complete-tilde-slash-fallback");
+        let home = temp.join("home");
+        fs::create_dir_all(&home).expect("create home");
+
+        let root = temp.join("root");
+        let missing_prefix = "no-home-hit";
+        let target = root.join(missing_prefix).join("project");
+        fs::create_dir_all(&target).expect("create fallback target");
+
+        let prev_home = std::env::var("HOME").ok();
+        unsafe { std::env::set_var("HOME", &home) };
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
+        let out = resolver.collect_completion_candidates("~/no-home-hit/pro");
+
+        if let Some(value) = prev_home {
+            unsafe { std::env::set_var("HOME", value) };
+        } else {
+            unsafe { std::env::remove_var("HOME") };
+        }
+
+        assert!(out.contains(&target));
         let _ = fs::remove_dir_all(temp);
     }
 

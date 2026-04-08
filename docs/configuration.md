@@ -72,6 +72,12 @@ Notes:
 - `dx complete <mode> --limit <n>`: cap output rows for the current invocation.
 - `dx complete <mode> --list <n>`: alias for `--limit`.
 
+### Filesystem-prefixed query behavior
+
+For `dx resolve` and `dx complete paths`, queries starting with `/`, `./`, `../`, `~`, or `~/` first use filesystem/direct-path semantics. If that first pass returns matches, those matches are used. If it returns no match, the filesystem prefix is stripped and processing continues through root-based abbreviation/fallback (and bookmark lookup for `dx resolve`).
+
+If stripping leaves an empty query (for example `~/` when the HOME target is missing), behavior remains unresolved / no candidates.
+
 Supported modes: `paths`, `ancestors`, `frecents`, `recents`, `stack`.
 
 ## Internal Variables (normally do not set manually)

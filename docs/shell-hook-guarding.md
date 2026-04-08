@@ -32,6 +32,7 @@ For non-path-like tokens, handlers immediately return native command-not-found b
 
 - Wrappers call native shell directory-change primitives (`builtin cd` / `Set-Location`) and record stack state via `dx stack push`.
 - `dx` never changes the shell process directory itself; it only returns paths/state transitions.
+- For `/`, `./`, `../`, `~`, and `~/` prefixes, `dx resolve` tries direct filesystem resolution first and, on miss, strips the prefix before continuing root-based abbreviation/fallback lookup.
 - If `dx resolve` fails, wrappers fall back to native `cd` behavior with original arguments.
 
 ## Navigation Wrapper Contract
