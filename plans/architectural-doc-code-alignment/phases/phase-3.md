@@ -3,7 +3,7 @@ type: planning
 entity: phase
 plan: "architectural-doc-code-alignment"
 phase: 3
-status: pending
+status: completed
 created: "2026-04-08"
 updated: "2026-04-08"
 ---
@@ -33,24 +33,24 @@ Verify the refreshed architecture end to end across the supported shells, make a
 
 ## Prerequisites
 
-- [ ] Phase 2 code changes are complete and stable.
-- [ ] A reviewed implementation plan exists for this phase if verification steps require additional orchestration.
+- [x] Phase 2 code changes are complete and stable.
+- [x] A reviewed implementation plan exists for this phase if verification steps require additional orchestration.
 
 ## Deliverables
 
-- [ ] Recorded automated test results.
-- [ ] `plans/architectural-doc-code-alignment/verification/shell-smoke-matrix.md` completed with per-shell status and evidence notes.
-- [ ] Final documentation cleanup based on verified behavior.
-- [ ] Updated plan/todo state showing completed work and any explicit residual follow-ups.
+- [x] Recorded automated test results.
+- [x] `plans/architectural-doc-code-alignment/verification/shell-smoke-matrix.md` completed with per-shell status and evidence notes.
+- [x] Final documentation cleanup based on verified behavior.
+- [x] Updated plan/todo state showing completed work and any explicit residual follow-ups.
 
 ## Acceptance Criteria
 
-- [ ] `cargo test` passes.
-- [ ] `plans/architectural-doc-code-alignment/verification/shell-smoke-matrix.md` captures Bash, Zsh, Fish, and PowerShell scenarios with expected outcomes and status.
-- [ ] The smoke matrix covers init usage, menu-disabled behavior, successful replacement, cancel-with-query-change, noop/error fallback, and no-TTY or degraded behavior for each shell where feasible.
-- [ ] The PowerShell smoke matrix includes single-script-block init (`Out-String`) and PSReadLine-driven menu behavior, with any untestable degraded path explicitly noted.
-- [ ] Final docs describe verified behavior rather than inferred behavior.
-- [ ] The plan artifacts reflect the completed or intentionally deferred outcomes.
+- [x] `cargo test` passes.
+- [x] `plans/architectural-doc-code-alignment/verification/shell-smoke-matrix.md` captures Bash, Zsh, Fish, and PowerShell scenarios with expected outcomes and status.
+- [x] The smoke matrix covers init usage, menu-disabled behavior, successful replacement, cancel-with-query-change, noop/error fallback, and no-TTY or degraded behavior for each shell where feasible.
+- [x] The PowerShell smoke matrix includes single-script-block init (`Out-String`) and PSReadLine-driven menu behavior, with any untestable degraded path explicitly noted.
+- [x] Final docs describe verified behavior rather than inferred behavior.
+- [x] The plan artifacts reflect the completed or intentionally deferred outcomes.
 
 ## Dependencies on Other Phases
 
@@ -61,3 +61,18 @@ Verify the refreshed architecture end to end across the supported shells, make a
 ## Notes
 
 This phase should record command snippets or concise evidence notes for each matrix row so the verification work is reproducible rather than implied.
+
+Recorded automated verification evidence:
+
+- `cargo test --test menu_cli` => 20 passed (1 suite)
+- `cargo test` => 263 passed (13 suites)
+- `cargo test --test init_cli` => 7 passed
+- `cargo test key_event_mapping_` => 4 passed
+- `cargo test --test menu_cli hook_scripts_contain_fallback_on_noop -- --exact` => 1 passed
+- `cargo test --test menu_cli hook_scripts_apply_replace_action_contract -- --exact` => 1 passed
+
+Not Feasible allowances captured in the smoke matrix:
+
+- Fish scenarios: shell binary unavailable (`command -v fish` => missing).
+- Zsh interactive widget scenarios requiring active ZLE: non-interactive invocation emits `widgets can only be called when ZLE is active`.
+- PowerShell interactive PSReadLine replace/cancel/noop-fallback scenarios: not reproducible in this non-interactive harness.

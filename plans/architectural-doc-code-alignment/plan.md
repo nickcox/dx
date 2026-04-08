@@ -2,7 +2,7 @@
 type: planning
 entity: plan
 plan: "architectural-doc-code-alignment"
-status: active
+status: completed
 created: "2026-04-08"
 updated: "2026-04-08"
 ---
@@ -92,8 +92,8 @@ The repository currently has drift between legacy planning docs, current archite
 | Phase | Title | Scope | Status |
 |-------|-------|-------|--------|
 | 1 | Refresh Architecture Docs and Contracts | [Detail](phases/phase-1.md) | completed |
-| 2 | Harden Cross-Shell Menu and Hook Boundaries | [Detail](phases/phase-2.md) | in_progress |
-| 3 | Verify Across Shells and Finalize Documentation | [Detail](phases/phase-3.md) | pending |
+| 2 | Harden Cross-Shell Menu and Hook Boundaries | [Detail](phases/phase-2.md) | completed |
+| 3 | Verify Across Shells and Finalize Documentation | [Detail](phases/phase-3.md) | completed |
 
 ## Risks & Open Questions
 
@@ -113,3 +113,5 @@ The repository currently has drift between legacy planning docs, current archite
 - Revised after parallel review: added explicit conflict inventory, boundary-contract constraints, and shell smoke matrix requirements.
 - Completed Phase 1 docs/contracts refresh, including conflict adjudications and refreshed shell/PRD docs; Phase 1 verify command passed.
 - Authored the Phase 2 implementation plan and moved active work into Phase 2 review/execution preparation.
+- Reconciled stale Phase 2 artifacts to completed state (phase + implementation + todo preflight gate) before Phase 3 closeout.
+- Completed Phase 3 verification/finalization: recorded automated test outcomes (`cargo test --test menu_cli` 20 pass, full `cargo test` 263 pass, targeted `init_cli`/`key_event_mapping_`/exact menu_cli checks pass) and finalized shell smoke matrix with explicit Pass/Not Feasible evidence.

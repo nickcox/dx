@@ -3,7 +3,7 @@ type: planning
 entity: phase
 plan: "architectural-doc-code-alignment"
 phase: 2
-status: in_progress
+status: completed
 created: "2026-04-08"
 updated: "2026-04-08"
 ---
@@ -35,22 +35,22 @@ Bring the generated shell hooks and `dx menu` boundary into line with the approv
 
 ## Prerequisites
 
-- [ ] Phase 1 is completed and its refreshed docs are accepted as the implementation baseline.
-- [ ] A reviewed implementation plan exists for this phase.
+- [x] Phase 1 is completed and its refreshed docs are accepted as the implementation baseline.
+- [x] A reviewed implementation plan exists for this phase.
 
 ## Deliverables
 
-- [ ] Code changes in the relevant hook/menu modules implementing the approved contract.
-- [ ] Automated tests covering the changed fallback and parsing behavior.
-- [ ] Any supporting documentation updates required by the final implementation choices.
+- [x] Code changes in the relevant hook/menu modules implementing the approved contract.
+- [x] Automated tests covering the changed fallback and parsing behavior.
+- [x] Any supporting documentation updates required by the final implementation choices.
 
 ## Acceptance Criteria
 
-- [ ] Generated hooks for Bash, Zsh, Fish, and PowerShell apply the approved noop/error/replace contract consistently.
-- [ ] Any payload or parsing change is implemented atomically across `dx menu`, affected hook generators, tests, and docs.
-- [ ] Automated tests cover quoting-sensitive replacement, cancel-with-query-change, noop/error handling, and each affected shell parsing path.
-- [ ] The shell boundary handles supported quoting/escaping safely under the approved contract.
-- [ ] `cargo test` passes after the phase is complete.
+- [x] Generated hooks for Bash, Zsh, Fish, and PowerShell apply the approved noop/error/replace contract consistently.
+- [x] Any payload or parsing change is implemented atomically across `dx menu`, affected hook generators, tests, and docs.
+- [x] Automated tests cover quoting-sensitive replacement, cancel-with-query-change, noop/error handling, and each affected shell parsing path.
+- [x] The shell boundary handles supported quoting/escaping safely under the approved contract.
+- [x] `cargo test` passes after the phase is complete.
 
 ## Dependencies on Other Phases
 
@@ -61,3 +61,11 @@ Bring the generated shell hooks and `dx menu` boundary into line with the approv
 ## Notes
 
 Likely touch points include `src/hooks/bash.rs`, `src/hooks/zsh.rs`, `src/hooks/fish.rs`, `src/hooks/pwsh.rs`, `src/hooks/mod.rs`, `src/menu/action.rs`, and `src/cli/menu.rs`. The per-phase implementation plan may split this phase into smaller work packages, but all work packages must implement the same Phase 1 contract baseline.
+
+Phase 2 closure evidence carried into Phase 3 preflight/verification:
+
+- `cargo test --test menu_cli` => 20 passed (1 suite)
+- `cargo test --test init_cli` => 7 passed
+- `cargo test key_event_mapping_` => 4 passed
+- `cargo test --test menu_cli hook_scripts_contain_fallback_on_noop -- --exact` => 1 passed
+- `cargo test --test menu_cli hook_scripts_apply_replace_action_contract -- --exact` => 1 passed
