@@ -304,10 +304,10 @@ __dx_menu_widget() {
   __dx_json="$(dx menu --buffer "$BUFFER" --cursor $CURSOR --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
   local __dx_exit=$?
 
-  # On cancel (noop) or error, just redraw the prompt at its current position
-  # and leave the buffer unchanged — do NOT fall through to native completion.
+  # On cancel (noop) or error, leave the buffer unchanged and fall back
+  # to native completion-equivalent behavior.
   if [[ $__dx_exit -ne 0 ]] || [[ "$__dx_json" != *'"action":"replace"'* ]]; then
-    zle reset-prompt
+    zle expand-or-complete
     return
   fi
 

@@ -314,10 +314,12 @@ fn hook_scripts_contain_fallback_on_noop() {
 
     let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
     let zsh_out = String::from_utf8_lossy(&zsh.stdout);
-    // Zsh: __dx_menu_widget calls expand-or-complete on every failure path
+    // Zsh: specifically in __dx_menu_widget noop/error branch, fallback should be expand-or-complete.
     assert!(
-        zsh_out.contains("zle expand-or-complete"),
-        "zsh menu widget should fall back to expand-or-complete"
+        zsh_out.contains(
+            "if [[ $__dx_exit -ne 0 ]] || [[ \"$__dx_json\" != *'\"action\":\"replace\"'* ]]; then\n    zle expand-or-complete\n    return"
+        ),
+        "zsh menu widget noop/error branch should fall back to expand-or-complete"
     );
 
     let fish = dx().args(["init", "fish", "--menu"]).output().unwrap();
@@ -409,7 +411,6 @@ fn menu_debug_mode_off_by_default() {
         "debug output should not appear without DX_MENU_DEBUG=1"
     );
 }
-
 
 #[test]
 fn hook_scripts_apply_replace_action_contract() {
