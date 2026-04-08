@@ -246,9 +246,51 @@ function __dx_menu_complete
     return
   end
 
-  set -l value (string replace -r '.*"value":"([^"]*)".*' '$1' -- "$json")
-  set -l rs (string replace -r '.*"replaceStart":([0-9]+).*' '$1' -- "$json")
-  set -l re (string replace -r '.*"replaceEnd":([0-9]+).*' '$1' -- "$json")
+  set -l action (string replace -r '.*"action":"([^"]+)".*' '$1' -- "$json")
+  if test "$action" != "replace"
+    commandline -f complete
+    return
+  end
+
+  set -l value_match (string match -r '.*"value":"((\\.|[^"])*)".*' -- "$json")
+  if test (count $value_match) -lt 2
+    commandline -f complete
+    return
+  end
+  set -l value_escaped "$value_match[2]"
+  set -l value "$value_escaped"
+  set value (string replace -a '\\"' '"' -- "$value")
+  set value (string replace -a '\\\\' '\\' -- "$value")
+  set value (string replace -a '\\/' '/' -- "$value")
+  if test -z "$value"
+    commandline -f complete
+    return
+  end
+
+  set -l rs_match (string match -r '.*"replaceStart":([0-9]+).*' -- "$json")
+  if test (count $rs_match) -lt 2
+    commandline -f complete
+    return
+  end
+  set -l rs "$rs_match[2]"
+
+  set -l re_match (string match -r '.*"replaceEnd":([0-9]+).*' -- "$json")
+  if test (count $re_match) -lt 2
+    commandline -f complete
+    return
+  end
+  set -l re "$re_match[2]"
+
+  if test $re -lt $rs
+    commandline -f complete
+    return
+  end
+
+  set -l buflen (string length -- "$buf")
+  if test $rs -gt $buflen; or test $re -gt $buflen
+    commandline -f complete
+    return
+  end
 
   set -l prefix (string sub -l $rs -- "$buf")
   set -l suffix (string sub -s (math $re + 1) -- "$buf")

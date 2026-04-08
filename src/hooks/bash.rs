@@ -304,12 +304,78 @@ complete -F _dx_complete_stack_forward cd+
 __dx_try_menu() {
   [[ "${DX_MENU:-}" == "0" ]] && return 1
   command -v dx >/dev/null 2>&1 || return 1
+
+  __dx_json_extract_string() {
+    local __dx_key="$1"
+    local __dx_json_input="$2"
+    local __dx_marker="\"$__dx_key\":\""
+    [[ "$__dx_json_input" == *"$__dx_marker"* ]] || return 1
+
+    local __dx_rest="${__dx_json_input#*"$__dx_marker"}"
+    local __dx_i=0
+    local __dx_len=${#__dx_rest}
+    local __dx_escape=0
+    local __dx_ch
+    local __dx_out=""
+
+    while (( __dx_i < __dx_len )); do
+      __dx_ch="${__dx_rest:__dx_i:1}"
+      if (( __dx_escape )); then
+        case "$__dx_ch" in
+          '"'|'\\'|'/') __dx_out+="$__dx_ch" ;;
+          *) return 1 ;;
+        esac
+        __dx_escape=0
+        ((__dx_i++))
+        continue
+      fi
+
+      if [[ "$__dx_ch" == "\\" ]]; then
+        __dx_escape=1
+        ((__dx_i++))
+        continue
+      fi
+
+      if [[ "$__dx_ch" == '"' ]]; then
+        printf '%s' "$__dx_out"
+        return 0
+      fi
+
+      __dx_out+="$__dx_ch"
+      ((__dx_i++))
+    done
+
+    return 1
+  }
+
+  __dx_json_extract_uint() {
+    local __dx_key="$1"
+    local __dx_json_input="$2"
+    local __dx_marker="\"$__dx_key\":"
+    [[ "$__dx_json_input" == *"$__dx_marker"* ]] || return 1
+
+    local __dx_rest="${__dx_json_input#*"$__dx_marker"}"
+    local __dx_num="${__dx_rest%%[^0-9]*}"
+    [[ -n "$__dx_num" ]] || return 1
+    printf '%s' "$__dx_num"
+  }
+
   local __dx_json
   __dx_json="$(dx menu --buffer "$COMP_LINE" --cursor "$COMP_POINT" --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)" || return 1
-  [[ "$__dx_json" == *'"action":"replace"'* ]] || return 1
-  local __dx_value="${__dx_json##*\"value\":\"}"
-  __dx_value="${__dx_value%%\"*}"
+
+  local __dx_action
+  __dx_action="$(__dx_json_extract_string action "$__dx_json")" || return 1
+  [[ "$__dx_action" == "replace" ]] || return 1
+
+  local __dx_rs __dx_re
+  __dx_rs="$(__dx_json_extract_uint replaceStart "$__dx_json")" || return 1
+  __dx_re="$(__dx_json_extract_uint replaceEnd "$__dx_json")" || return 1
+  (( __dx_re >= __dx_rs )) || return 1
+
+  local __dx_value
+  __dx_value="$(__dx_json_extract_string value "$__dx_json")" || return 1
   [[ -n "$__dx_value" ]] || return 1
+
   COMPREPLY=("$__dx_value")
   return 0
 }

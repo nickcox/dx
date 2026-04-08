@@ -314,12 +314,16 @@ fn hook_scripts_contain_fallback_on_noop() {
 
     let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
     let zsh_out = String::from_utf8_lossy(&zsh.stdout);
-    // Zsh: specifically in __dx_menu_widget noop/error branch, fallback should be expand-or-complete.
+    // Zsh: noop/error and invalid-action paths should fall back to expand-or-complete.
+    assert!(
+        zsh_out.contains("if [[ $__dx_exit -ne 0 ]]; then\n    zle expand-or-complete\n    return"),
+        "zsh menu widget non-zero exit branch should fall back to expand-or-complete"
+    );
     assert!(
         zsh_out.contains(
-            "if [[ $__dx_exit -ne 0 ]] || [[ \"$__dx_json\" != *'\"action\":\"replace\"'* ]]; then\n    zle expand-or-complete\n    return"
+            "[[ \"$__dx_action\" == \"replace\" ]] || { zle expand-or-complete; return }"
         ),
-        "zsh menu widget noop/error branch should fall back to expand-or-complete"
+        "zsh menu widget should fall back when action is not replace"
     );
 
     let fish = dx().args(["init", "fish", "--menu"]).output().unwrap();
@@ -414,17 +418,29 @@ fn menu_debug_mode_off_by_default() {
 
 #[test]
 fn hook_scripts_apply_replace_action_contract() {
+    let bash = dx().args(["init", "bash", "--menu"]).output().unwrap();
+    let bash_out = String::from_utf8_lossy(&bash.stdout);
+    assert!(bash_out.contains("__dx_json_extract_string()"));
+    assert!(bash_out.contains("__dx_json_extract_uint()"));
+    assert!(bash_out.contains("__dx_action=\"$(__dx_json_extract_string action \"$__dx_json\")\""));
+    assert!(bash_out.contains("(( __dx_re >= __dx_rs )) || return 1"));
+
     let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
     let zsh_out = String::from_utf8_lossy(&zsh.stdout);
     assert!(zsh_out.contains("replaceStart"));
     assert!(zsh_out.contains("replaceEnd"));
     assert!(zsh_out.contains("__dx_value"));
+    assert!(zsh_out
+        .contains("[[ \"$__dx_action\" == \"replace\" ]] || { zle expand-or-complete; return }"));
+    assert!(zsh_out.contains("(( __dx_re >= __dx_rs )) || { zle expand-or-complete; return }"));
 
     let fish = dx().args(["init", "fish", "--menu"]).output().unwrap();
     let fish_out = String::from_utf8_lossy(&fish.stdout);
     assert!(fish_out.contains("replaceStart"));
     assert!(fish_out.contains("replaceEnd"));
     assert!(fish_out.contains(r#"commandline -r -- "$prefix$value$suffix""#));
+    assert!(fish_out.contains("string match -r '.*\"value\":\"((\\\\.|[^\"])*)\".*'"));
+    assert!(fish_out.contains("if test $re -lt $rs"));
 
     let pwsh = dx().args(["init", "pwsh", "--menu"]).output().unwrap();
     let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);

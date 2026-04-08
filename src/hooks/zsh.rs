@@ -306,17 +306,70 @@ __dx_menu_widget() {
 
   # On cancel (noop) or error, leave the buffer unchanged and fall back
   # to native completion-equivalent behavior.
-  if [[ $__dx_exit -ne 0 ]] || [[ "$__dx_json" != *'"action":"replace"'* ]]; then
+  if [[ $__dx_exit -ne 0 ]]; then
     zle expand-or-complete
     return
   fi
 
-  local __dx_value="${__dx_json##*\"value\":\"}"
-  __dx_value="${__dx_value%%\"*}"
-  local __dx_rs="${__dx_json##*\"replaceStart\":}"
-  __dx_rs="${__dx_rs%%[,\}]*}"
-  local __dx_re="${__dx_json##*\"replaceEnd\":}"
-  __dx_re="${__dx_re%%[,\}]*}"
+  local __dx_action_marker='"action":"'
+  [[ "$__dx_json" == *$__dx_action_marker* ]] || { zle expand-or-complete; return }
+  local __dx_action_rest="${__dx_json#*$__dx_action_marker}"
+  local __dx_action="${__dx_action_rest%%\"*}"
+  [[ "$__dx_action" == "replace" ]] || { zle expand-or-complete; return }
+
+  local __dx_rs_marker='"replaceStart":'
+  [[ "$__dx_json" == *$__dx_rs_marker* ]] || { zle expand-or-complete; return }
+  local __dx_rs_rest="${__dx_json#*$__dx_rs_marker}"
+  local __dx_rs="${__dx_rs_rest%%[^0-9]*}"
+  [[ -n "$__dx_rs" ]] || { zle expand-or-complete; return }
+
+  local __dx_re_marker='"replaceEnd":'
+  [[ "$__dx_json" == *$__dx_re_marker* ]] || { zle expand-or-complete; return }
+  local __dx_re_rest="${__dx_json#*$__dx_re_marker}"
+  local __dx_re="${__dx_re_rest%%[^0-9]*}"
+  [[ -n "$__dx_re" ]] || { zle expand-or-complete; return }
+
+  (( __dx_re >= __dx_rs )) || { zle expand-or-complete; return }
+
+  local __dx_value_marker='"value":"'
+  [[ "$__dx_json" == *$__dx_value_marker* ]] || { zle expand-or-complete; return }
+  local __dx_rest="${__dx_json#*$__dx_value_marker}"
+  local __dx_value=""
+  local __dx_i=1
+  local __dx_len=${#__dx_rest}
+  local __dx_escape=0
+  local __dx_closed=0
+  local __dx_ch
+
+  while (( __dx_i <= __dx_len )); do
+    __dx_ch="${__dx_rest[__dx_i]}"
+    if (( __dx_escape )); then
+      case "$__dx_ch" in
+        '"'|'\\'|'/') __dx_value+="$__dx_ch" ;;
+        *) zle expand-or-complete; return ;;
+      esac
+      __dx_escape=0
+      (( __dx_i++ ))
+      continue
+    fi
+
+    if [[ "$__dx_ch" == "\\" ]]; then
+      __dx_escape=1
+      (( __dx_i++ ))
+      continue
+    fi
+
+    if [[ "$__dx_ch" == '"' ]]; then
+      __dx_closed=1
+      break
+    fi
+
+    __dx_value+="$__dx_ch"
+    (( __dx_i++ ))
+  done
+
+  (( __dx_closed )) || { zle expand-or-complete; return }
+  [[ -n "$__dx_value" ]] || { zle expand-or-complete; return }
 
   BUFFER="${BUFFER[1,$__dx_rs]}${__dx_value}${BUFFER[$((${__dx_re}+1)),-1]}"
   CURSOR=$(( __dx_rs + ${#__dx_value} ))
