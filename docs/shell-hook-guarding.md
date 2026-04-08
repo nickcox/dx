@@ -30,15 +30,15 @@ For non-path-like tokens, handlers immediately return native command-not-found b
 
 ## cd Wrapper Contract
 
-- Wrappers call native shell directory-change primitives (`builtin cd` / `Set-Location`) and record stack state via `dx push`.
+- Wrappers call native shell directory-change primitives (`builtin cd` / `Set-Location`) and record stack state via `dx stack push`.
 - `dx` never changes the shell process directory itself; it only returns paths/state transitions.
 - If `dx resolve` fails, wrappers fall back to native `cd` behavior with original arguments.
 
 ## Navigation Wrapper Contract
 
 - Selector resolution for `up|back|forward` is delegated to Rust via `dx navigate`.
-- Forward-navigation wrappers seed and record via `dx push` around successful navigation.
-- Stack-transition wrappers (`back`/`forward`/`cd-`/`cd+`) use `dx undo`/`dx redo` (and `--target` for selector-based jumps) and must not call `dx push`.
+- Forward-navigation wrappers seed and record via `dx stack push` around successful navigation.
+- Stack-transition wrappers (`back`/`forward`/`cd-`/`cd+`) use `dx stack undo`/`dx stack redo` (and `--target` for selector-based jumps) and must not call extra `dx stack push` operations as part of the transition itself.
 
 ## Source of Truth
 
@@ -93,13 +93,20 @@ export DX_MENU=0
 
 ### Fallback Behavior
 
-The menu gracefully degrades in these cases:
+The menu boundary contract uses split I/O:
 
-- **No TTY available**: outputs `{"action":"noop"}` and hooks fall back to native completion
-- **Typed filter cancel path**: may output `{"action":"replace", ...}` even without candidate selection so typed refinement is preserved
-- **No candidates**: outputs noop
-- **dx not found**: hooks fall back to native completion
-- **Command failure or invalid JSON**: hooks fall back to native completion
+- `dx menu` writes machine-readable JSON actions to stdout (`noop` or `replace` with `replaceStart`/`replaceEnd`/`value`).
+- Interactive UI and input handling run through tty/dev-tty/PSReadLine paths depending on shell.
+
+Current runtime behavior (with explicit target alignment for Phase 2):
+
+- **Menu disabled (`DX_MENU=0`)**: hooks use native completion paths.
+- **Successful replace/select**: hooks apply the returned replace action.
+- **Cancel with query change**: `dx menu` may return replace to preserve typed refinement.
+- **No candidates**: `dx menu` returns noop and hooks follow fallback behavior.
+- **No TTY / degraded path**: `dx menu` returns noop and hooks follow fallback behavior.
+- **Noop/error fallback**: Bash, Fish, and PowerShell currently fall back to native completion; Zsh parity is an explicit Phase 2 implementation target.
+- **dx not found or invalid JSON**: hooks follow fallback behavior.
 
 ### Troubleshooting
 
