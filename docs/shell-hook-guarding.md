@@ -75,7 +75,7 @@ Invoke-Expression ((& dx init pwsh --menu | Out-String))
 
 ### How It Works
 
-When menu mode is enabled, pressing Tab on a dx navigation command (`cd`, `up`, `cdf`, `z`, `cdr`, `back`, `forward`, `cd-`, `cd+`) opens an interactive TUI list of candidates. Use arrow keys or `j`/`k` to navigate, Enter to select, Esc or Ctrl+C to cancel.
+When menu mode is enabled, pressing Tab on a dx navigation command (`cd`, `up`, `cdf`, `z`, `cdr`, `back`, `forward`, `cd-`, `cd+`) opens an interactive TUI list of candidates. Use arrow keys, Tab, or Shift+Tab to move selection, type characters to filter candidates (including lowercase `j`/`k`), Enter to select, and Esc or Ctrl+C to cancel.
 
 - **Select**: replaces the query in the command buffer with the chosen path
 - **Cancel after typing**: preserves typed filter refinement by applying a final `replace` action
@@ -98,15 +98,18 @@ The menu boundary contract uses split I/O:
 - `dx menu` writes machine-readable JSON actions to stdout (`noop` or `replace` with `replaceStart`/`replaceEnd`/`value`).
 - Interactive UI and input handling run through tty/dev-tty/PSReadLine paths depending on shell.
 
-Current runtime behavior (with explicit target alignment for Phase 2):
+Current runtime behavior:
 
 - **Menu disabled (`DX_MENU=0`)**: hooks use native completion paths.
 - **Successful replace/select**: hooks apply the returned replace action.
 - **Cancel with query change**: `dx menu` may return replace to preserve typed refinement.
 - **No candidates**: `dx menu` returns noop and hooks follow fallback behavior.
 - **No TTY / degraded path**: `dx menu` returns noop and hooks follow fallback behavior.
-- **Noop/error fallback**: Bash, Fish, and PowerShell currently fall back to native completion; Zsh parity is an explicit Phase 2 implementation target.
+- **Noop/error/non-replace fallback**: Bash and Fish use their native completion fallback; Zsh uses `zle expand-or-complete` (native completion-equivalent); PowerShell falls back to `TabExpansion2` / default completion behavior.
 - **dx not found or invalid JSON**: hooks follow fallback behavior.
+- **POSIX payload parsing hardening**: Bash/Zsh/Fish wrappers deterministically extract and validate `action`, `replaceStart`, `replaceEnd`, and escaped `value`; invalid payloads (including non-replace actions when replace is required) take native completion fallback paths.
+- **PowerShell payload parsing**: remains structured JSON parsing via `ConvertFrom-Json`.
+- **Dependencies**: fallback and payload validation behavior is implemented in existing hook/template code paths with no new external runtime dependencies.
 
 ### Troubleshooting
 
