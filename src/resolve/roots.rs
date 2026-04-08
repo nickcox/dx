@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::abbreviation::matches_prefix;
 
@@ -36,7 +36,7 @@ pub fn resolve_fallbacks(roots: &[PathBuf], query: &str, case_sensitive: bool) -
     matches
 }
 
-fn resolve_single_segment(root: &PathBuf, segment: &str, case_sensitive: bool) -> Vec<PathBuf> {
+fn resolve_single_segment(root: &Path, segment: &str, case_sensitive: bool) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(root) else {
         return Vec::new();
     };
@@ -59,8 +59,8 @@ fn resolve_single_segment(root: &PathBuf, segment: &str, case_sensitive: bool) -
         .collect::<Vec<_>>()
 }
 
-fn resolve_segment_path(root: &PathBuf, segments: &[&str], case_sensitive: bool) -> Vec<PathBuf> {
-    let mut current = vec![root.clone()];
+fn resolve_segment_path(root: &Path, segments: &[&str], case_sensitive: bool) -> Vec<PathBuf> {
+    let mut current = vec![root.to_path_buf()];
 
     for segment in segments {
         let mut next = Vec::new();

@@ -170,10 +170,10 @@ pub(super) fn resolve_session(cli_session: Option<&str>) -> Option<String> {
         return Some(value.to_string());
     }
 
-    if let Ok(value) = env::var("DX_SESSION") {
-        if !value.trim().is_empty() {
-            return Some(value);
-        }
+    if let Ok(value) = env::var("DX_SESSION")
+        && !value.trim().is_empty()
+    {
+        return Some(value);
     }
 
     None

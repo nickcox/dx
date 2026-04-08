@@ -208,7 +208,7 @@ mod tests {
     fn tilde_matches_absolute_candidate() {
         if let Some(home) = dirs::home_dir() {
             let candidate = home.join("projects");
-            let filtered = filter_candidates(&[candidate.clone()], "~/projects");
+            let filtered = filter_candidates(std::slice::from_ref(&candidate), "~/projects");
             assert_eq!(filtered, vec![candidate]);
         }
     }

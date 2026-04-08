@@ -45,8 +45,7 @@ fn unquote_shell_quoted(s: &str) -> String {
             .split("'\\''")
             .map(|seg| {
                 let inner = seg.strip_prefix('\'').unwrap_or(seg);
-                let inner = inner.strip_suffix('\'').unwrap_or(inner);
-                inner
+                inner.strip_suffix('\'').unwrap_or(inner)
             })
             .collect::<Vec<_>>()
             .join("'");
@@ -65,14 +64,13 @@ fn unquote_shell_quoted(s: &str) -> String {
         let mut result = String::new();
         let mut chars = inner.chars().peekable();
         while let Some(ch) = chars.next() {
-            if ch == '\\' {
-                if let Some(&next) = chars.peek() {
-                    if matches!(next, '"' | '\\' | '$' | '`') {
-                        result.push(next);
-                        chars.next();
-                        continue;
-                    }
-                }
+            if ch == '\\'
+                && let Some(&next) = chars.peek()
+                && matches!(next, '"' | '\\' | '$' | '`')
+            {
+                result.push(next);
+                chars.next();
+                continue;
             }
             result.push(ch);
         }

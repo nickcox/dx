@@ -225,7 +225,7 @@ mod imp {
             let scroll_needed = height - rows_below;
             let mut err = stderr();
             for _ in 0..scroll_needed {
-                let _ = write!(err, "\n");
+                let _ = writeln!(err);
             }
             let _ = err.flush();
             prompt_row.saturating_sub(scroll_needed)
@@ -434,66 +434,58 @@ mod imp {
                 })
                 .ok()?;
 
-            match event::read().ok()? {
-                Event::Key(key) => {
-                    let len = completion.paths.len();
-                    let labels: Vec<String> = completion
-                        .paths
-                        .iter()
-                        .map(|p| display_label(p, cwd, home.as_deref()))
-                        .collect();
-                    let metrics = compute_layout_metrics(
-                        area.width.saturating_sub(2) as usize,
-                        len,
-                        &labels,
-                        item_max_len,
-                    );
-                    let columns = metrics.columns;
-                    let use_grid = metrics.use_grid;
+            if let Event::Key(key) = event::read().ok()? {
+                let len = completion.paths.len();
+                let labels: Vec<String> = completion
+                    .paths
+                    .iter()
+                    .map(|p| display_label(p, cwd, home.as_deref()))
+                    .collect();
+                let metrics = compute_layout_metrics(
+                    area.width.saturating_sub(2) as usize,
+                    len,
+                    &labels,
+                    item_max_len,
+                );
+                let columns = metrics.columns;
+                let use_grid = metrics.use_grid;
 
-                    match map_key_event(key, use_grid) {
-                        MenuKeyAction::Submit => {
-                            if let Some(idx) = list_state.selected()
-                                && let Some(value) = completion.paths.get(idx).cloned()
-                            {
-                                return Some(MenuResult::Selected {
-                                    value,
-                                    filter_query: filter_query.clone(),
-                                    changed_query: filter_query != initial_query,
-                                });
-                            }
-                        }
-                        MenuKeyAction::Cancel => {
-                            return Some(MenuResult::Cancelled {
+                match map_key_event(key, use_grid) {
+                    MenuKeyAction::Submit => {
+                        if let Some(idx) = list_state.selected()
+                            && let Some(value) = completion.paths.get(idx).cloned()
+                        {
+                            return Some(MenuResult::Selected {
+                                value,
                                 filter_query: filter_query.clone(),
                                 changed_query: filter_query != initial_query,
                             });
                         }
-                        MenuKeyAction::MoveLinear(delta) => {
-                            move_selection(&mut list_state, len, delta);
-                        }
-                        MenuKeyAction::MoveGridVertical(direction) => {
-                            move_selection_grid_vertical(
-                                &mut list_state,
-                                len,
-                                columns,
-                                direction,
-                            );
-                        }
-                        MenuKeyAction::Backspace => {
-                            filter_query.pop();
-                            completion = query_fn(&filter_query);
-                            reset_selection(&mut list_state, completion.paths.len());
-                        }
-                        MenuKeyAction::InputChar(ch) => {
-                            filter_query.push(ch);
-                            completion = query_fn(&filter_query);
-                            reset_selection(&mut list_state, completion.paths.len());
-                        }
-                        MenuKeyAction::Ignore => {}
                     }
+                    MenuKeyAction::Cancel => {
+                        return Some(MenuResult::Cancelled {
+                            filter_query: filter_query.clone(),
+                            changed_query: filter_query != initial_query,
+                        });
+                    }
+                    MenuKeyAction::MoveLinear(delta) => {
+                        move_selection(&mut list_state, len, delta);
+                    }
+                    MenuKeyAction::MoveGridVertical(direction) => {
+                        move_selection_grid_vertical(&mut list_state, len, columns, direction);
+                    }
+                    MenuKeyAction::Backspace => {
+                        filter_query.pop();
+                        completion = query_fn(&filter_query);
+                        reset_selection(&mut list_state, completion.paths.len());
+                    }
+                    MenuKeyAction::InputChar(ch) => {
+                        filter_query.push(ch);
+                        completion = query_fn(&filter_query);
+                        reset_selection(&mut list_state, completion.paths.len());
+                    }
+                    MenuKeyAction::Ignore => {}
                 }
-                _ => {}
             }
         }
     }
@@ -626,8 +618,7 @@ mod imp {
             if row + 1 < rows && direct < len {
                 direct
             } else {
-                let next_col = (col + 1) % columns;
-                next_col
+                (col + 1) % columns
             }
         } else if row > 0 {
             (row - 1) * columns + col

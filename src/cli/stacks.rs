@@ -317,10 +317,10 @@ fn resolve_session_id(cli_session: Option<&str>) -> Result<String, i32> {
         return Ok(value.to_string());
     }
 
-    if let Ok(value) = env::var("DX_SESSION") {
-        if !value.trim().is_empty() {
-            return Ok(value);
-        }
+    if let Ok(value) = env::var("DX_SESSION")
+        && !value.trim().is_empty()
+    {
+        return Ok(value);
     }
 
     eprintln!("dx stack: missing session id (use --session or DX_SESSION)");

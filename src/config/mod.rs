@@ -56,15 +56,15 @@ impl AppConfig {
         let mut config = Self::default();
         let path = config_path();
 
-        if let Some(path) = path {
-            if path.exists() {
-                let raw = fs::read_to_string(&path).map_err(|source| ConfigError::Read {
-                    path: path.display().to_string(),
-                    source,
-                })?;
-                let parsed = parse_toml(&raw, &path)?;
-                config = merge_toml(config, parsed);
-            }
+        if let Some(path) = path
+            && path.exists()
+        {
+            let raw = fs::read_to_string(&path).map_err(|source| ConfigError::Read {
+                path: path.display().to_string(),
+                source,
+            })?;
+            let parsed = parse_toml(&raw, &path)?;
+            config = merge_toml(config, parsed);
         }
 
         Ok(merge_environment(config))

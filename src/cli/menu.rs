@@ -168,7 +168,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
 
     let initial_candidates = menu::source_candidates_with_meta(
         resolver,
-        parsed.mode.clone(),
+        parsed.mode,
         if initial_query_str.is_empty() {
             None
         } else {
@@ -207,7 +207,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         };
         menu::source_candidates_with_meta(
             resolver,
-            parsed.mode.clone(),
+            parsed.mode,
             resolved_q,
             session.as_deref(),
             Some(&cwd),

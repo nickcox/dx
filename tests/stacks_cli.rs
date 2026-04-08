@@ -447,10 +447,11 @@ fn stack_list_plain_supports_directions_and_ordering() {
     let runtime = temp.join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
-    let mut state = SessionStack::default();
-    state.cwd = Some(PathBuf::from("/x"));
-    state.undo = vec![PathBuf::from("/a"), PathBuf::from("/b")];
-    state.redo = vec![PathBuf::from("/c"), PathBuf::from("/d")];
+    let state = SessionStack {
+        cwd: Some(PathBuf::from("/x")),
+        undo: vec![PathBuf::from("/a"), PathBuf::from("/b")],
+        redo: vec![PathBuf::from("/c"), PathBuf::from("/d")],
+    };
     let sessions_dir = runtime.join("dx-sessions");
     fs::create_dir_all(&sessions_dir).expect("create sessions dir");
     let session_file = sessions_dir.join("list1.json");
@@ -517,9 +518,11 @@ fn stack_list_json_and_read_only_contract() {
     let runtime = temp.join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
-    let mut state = SessionStack::default();
-    state.cwd = Some(PathBuf::from("/x"));
-    state.undo = vec![PathBuf::from("/a"), PathBuf::from("/b")];
+    let state = SessionStack {
+        cwd: Some(PathBuf::from("/x")),
+        undo: vec![PathBuf::from("/a"), PathBuf::from("/b")],
+        redo: Vec::new(),
+    };
     let sessions_dir = runtime.join("dx-sessions");
     fs::create_dir_all(&sessions_dir).expect("create sessions dir");
     let session_file = sessions_dir.join("list2.json");
@@ -566,10 +569,11 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
     let runtime = temp.join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
-    let mut state = SessionStack::default();
-    state.cwd = Some(PathBuf::from("/x"));
-    state.undo = vec![PathBuf::from("/a"), PathBuf::from("/b")];
-    state.redo = vec![PathBuf::from("/c")];
+    let state = SessionStack {
+        cwd: Some(PathBuf::from("/x")),
+        undo: vec![PathBuf::from("/a"), PathBuf::from("/b")],
+        redo: vec![PathBuf::from("/c")],
+    };
     let sessions_dir = runtime.join("dx-sessions");
     fs::create_dir_all(&sessions_dir).expect("create sessions dir");
     let session_file = sessions_dir.join("clear1.json");

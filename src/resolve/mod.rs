@@ -133,7 +133,7 @@ impl Resolver {
     pub fn resolve(
         &self,
         query: ResolveQuery<'_>,
-        mode: ResolveMode,
+        _mode: ResolveMode,
     ) -> Result<ResolveResult, ResolveError> {
         let trimmed = query.raw.trim();
         if trimmed.is_empty() {
@@ -193,20 +193,10 @@ impl Resolver {
 
         prepare_candidates(&mut candidates, None);
 
-        match mode {
-            ResolveMode::List => Err(ResolveError::Ambiguous {
-                count: candidates.len(),
-                candidates,
-            }),
-            ResolveMode::Json => Err(ResolveError::Ambiguous {
-                count: candidates.len(),
-                candidates,
-            }),
-            ResolveMode::Default => Err(ResolveError::Ambiguous {
-                count: candidates.len(),
-                candidates,
-            }),
-        }
+        Err(ResolveError::Ambiguous {
+            count: candidates.len(),
+            candidates,
+        })
     }
 
     pub fn collect_completion_candidates(&self, raw_query: &str) -> Vec<PathBuf> {
@@ -281,16 +271,16 @@ impl Resolver {
 
         let probe_limit = limit.map(|value| value.saturating_add(1));
 
-        if let Some(path) = precedence::resolve_direct(&cwd, completion_query) {
-            if path.is_dir() {
-                push_unique(&mut output, &mut seen, path);
-            }
+        if let Some(path) = precedence::resolve_direct(&cwd, completion_query)
+            && path.is_dir()
+        {
+            push_unique(&mut output, &mut seen, path);
         }
 
-        if let Some(path) = traversal::resolve_step_up(&cwd, completion_query) {
-            if path.is_dir() {
-                push_unique(&mut output, &mut seen, path);
-            }
+        if let Some(path) = traversal::resolve_step_up(&cwd, completion_query)
+            && path.is_dir()
+        {
+            push_unique(&mut output, &mut seen, path);
         }
 
         let effective_roots = build_effective_roots(&cwd, &self.config.search_roots);

@@ -1,6 +1,6 @@
 pub mod storage;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -75,17 +75,17 @@ impl SessionStack {
     }
 
     pub fn sanitize(&mut self) {
-        if let Some(path) = self.cwd.as_ref() {
-            if !path.is_absolute() {
-                self.cwd = None;
-            }
+        if let Some(path) = self.cwd.as_ref()
+            && !path.is_absolute()
+        {
+            self.cwd = None;
         }
         self.undo.retain(|path| path.is_absolute());
         self.redo.retain(|path| path.is_absolute());
     }
 }
 
-fn ensure_absolute(path: &PathBuf) -> Result<(), StackError> {
+fn ensure_absolute(path: &Path) -> Result<(), StackError> {
     if path.is_absolute() {
         return Ok(());
     }
