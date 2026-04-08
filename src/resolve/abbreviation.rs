@@ -1,5 +1,6 @@
-use std::fs;
 use std::path::PathBuf;
+
+use super::traversal;
 
 pub fn resolve_abbreviation(roots: &[PathBuf], query: &str, case_sensitive: bool) -> Vec<PathBuf> {
     if !query.contains('/') {
@@ -22,35 +23,10 @@ pub fn resolve_abbreviation(roots: &[PathBuf], query: &str, case_sensitive: bool
             continue;
         }
 
-        let mut current = vec![root.clone()];
-        for segment in &segments {
-            let mut next = Vec::new();
-
-            for base in &current {
-                let Ok(entries) = fs::read_dir(base) else {
-                    continue;
-                };
-
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if !path.is_dir() {
-                        continue;
-                    }
-                    let name = entry.file_name();
-                    let Some(name) = name.to_str() else {
-                        continue;
-                    };
-                    if matches_prefix(name, segment, case_sensitive) {
-                        next.push(path);
-                    }
-                }
-            }
-
-            current = next;
-            if current.is_empty() {
-                break;
-            }
-        }
+        let current =
+            traversal::traverse_segment_paths(vec![root.clone()], &segments, |name, segment| {
+                matches_prefix(name, segment, case_sensitive)
+            });
 
         matches.extend(current);
     }

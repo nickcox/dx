@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::abbreviation::matches_prefix;
+use super::traversal;
 
 pub fn resolve_fallbacks(roots: &[PathBuf], query: &str, case_sensitive: bool) -> Vec<PathBuf> {
     let has_slash = query.contains('/');
@@ -25,7 +26,11 @@ pub fn resolve_fallbacks(roots: &[PathBuf], query: &str, case_sensitive: bool) -
         }
 
         if has_slash {
-            matches.extend(resolve_segment_path(root, &segments, case_sensitive));
+            matches.extend(traversal::traverse_segment_paths(
+                vec![root.to_path_buf()],
+                &segments,
+                |name, segment| matches_prefix(name, segment, case_sensitive),
+            ));
         } else {
             matches.extend(resolve_single_segment(root, query, case_sensitive));
         }
@@ -57,38 +62,6 @@ fn resolve_single_segment(root: &Path, segment: &str, case_sensitive: bool) -> V
             }
         })
         .collect::<Vec<_>>()
-}
-
-fn resolve_segment_path(root: &Path, segments: &[&str], case_sensitive: bool) -> Vec<PathBuf> {
-    let mut current = vec![root.to_path_buf()];
-
-    for segment in segments {
-        let mut next = Vec::new();
-        for base in &current {
-            let Ok(entries) = fs::read_dir(base) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if !path.is_dir() {
-                    continue;
-                }
-                let name = entry.file_name();
-                let Some(name) = name.to_str() else {
-                    continue;
-                };
-                if matches_prefix(name, segment, case_sensitive) {
-                    next.push(path);
-                }
-            }
-        }
-        current = next;
-        if current.is_empty() {
-            break;
-        }
-    }
-
-    current
 }
 
 #[cfg(test)]
