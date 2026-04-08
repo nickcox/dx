@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::common;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BookmarkStore {
     bookmarks: BTreeMap<String, PathBuf>,
@@ -103,11 +105,7 @@ pub fn lookup(name: &str) -> Option<PathBuf> {
 }
 
 fn is_valid_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .as_bytes()
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-' || *byte == b'_')
+    common::is_valid_identifier(name)
 }
 
 #[cfg(test)]

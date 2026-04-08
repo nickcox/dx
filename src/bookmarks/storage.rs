@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::BookmarkStore;
+use crate::common::{self, AtomicWriteError};
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -111,29 +112,17 @@ pub fn write_store(store: &BookmarkStore) -> Result<(), StorageError> {
     let raw = toml::to_string(&payload).map_err(StorageError::SerializeStore)?;
 
     let temp = temp_store_path(&target);
-    fs::write(&temp, raw).map_err(|source| StorageError::WriteStore {
-        path: temp.display().to_string(),
-        source,
-    })?;
-
-    match fs::rename(&temp, &target) {
-        Ok(()) => Ok(()),
-        Err(source) => {
-            if target.exists() {
-                let _ = fs::remove_file(&target);
-                if fs::rename(&temp, &target).is_ok() {
-                    return Ok(());
-                }
-            }
-
-            let _ = fs::remove_file(&temp);
-            Err(StorageError::ReplaceStore {
-                from: temp.display().to_string(),
-                to: target.display().to_string(),
-                source,
-            })
-        }
-    }
+    common::write_atomic_replace(&temp, &target, raw.as_bytes()).map_err(|err| match err {
+        AtomicWriteError::Write(source) => StorageError::WriteStore {
+            path: temp.display().to_string(),
+            source,
+        },
+        AtomicWriteError::Replace(source) => StorageError::ReplaceStore {
+            from: temp.display().to_string(),
+            to: target.display().to_string(),
+            source,
+        },
+    })
 }
 
 fn temp_store_path(target: &Path) -> PathBuf {

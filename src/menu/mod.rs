@@ -9,6 +9,7 @@ use crate::complete::{
     self, ancestors, recents as recents_mode, stack as stack_mode,
     CompletionMode,
 };
+use crate::common;
 use crate::frecency::ZoxideProvider;
 use crate::resolve::{CompletionCandidates, Resolver};
 
@@ -91,16 +92,10 @@ pub fn source_candidates_with_meta(
 }
 
 fn apply_limit_with_has_more(
-    mut paths: Vec<PathBuf>,
+    paths: Vec<PathBuf>,
     limit: Option<usize>,
 ) -> CompletionCandidates {
-    let mut has_more = false;
-    if let Some(max) = limit
-        && paths.len() > max
-    {
-        paths.truncate(max);
-        has_more = true;
-    }
+    let (paths, has_more) = common::truncate_with_has_more(paths, limit);
 
     CompletionCandidates { paths, has_more }
 }

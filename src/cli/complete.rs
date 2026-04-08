@@ -1,7 +1,6 @@
-use std::env;
-
 use clap::{Subcommand, ValueEnum};
 
+use crate::common;
 use crate::complete::{
     self, ancestors, paths as paths_mode, recents as recents_mode, stack as stack_mode,
     StackDirection,
@@ -166,17 +165,7 @@ pub fn run_navigate(mode: NavigateMode, selector: Option<&str>, session: Option<
 }
 
 pub(super) fn resolve_session(cli_session: Option<&str>) -> Option<String> {
-    if let Some(value) = cli_session.filter(|value| !value.trim().is_empty()) {
-        return Some(value.to_string());
-    }
-
-    if let Ok(value) = env::var("DX_SESSION")
-        && !value.trim().is_empty()
-    {
-        return Some(value);
-    }
-
-    None
+    common::resolve_session(cli_session)
 }
 
 #[cfg(test)]

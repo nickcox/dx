@@ -1,5 +1,6 @@
 pub mod bookmarks;
 pub mod cli;
+pub mod common;
 pub mod complete;
 pub mod config;
 pub mod frecency;

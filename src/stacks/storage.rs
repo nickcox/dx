@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 use super::SessionStack;
+use crate::common::{self, AtomicWriteError};
 
 pub const DEFAULT_STALE_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
@@ -84,28 +85,17 @@ pub fn write_session(
     let temp = temp_session_path(dir, session_id);
     let payload = serde_json::to_vec(stack).map_err(StorageError::SerializeSession)?;
 
-    fs::write(&temp, payload).map_err(|source| StorageError::WriteSession {
-        path: temp.display().to_string(),
-        source,
-    })?;
-
-    match fs::rename(&temp, &target) {
-        Ok(()) => Ok(()),
-        Err(source) => {
-            if target.exists() {
-                let _ = fs::remove_file(&target);
-                if fs::rename(&temp, &target).is_ok() {
-                    return Ok(());
-                }
-            }
-            let _ = fs::remove_file(&temp);
-            Err(StorageError::ReplaceSession {
-                from: temp.display().to_string(),
-                to: target.display().to_string(),
-                source,
-            })
-        }
-    }
+    common::write_atomic_replace(&temp, &target, &payload).map_err(|err| match err {
+        AtomicWriteError::Write(source) => StorageError::WriteSession {
+            path: temp.display().to_string(),
+            source,
+        },
+        AtomicWriteError::Replace(source) => StorageError::ReplaceSession {
+            from: temp.display().to_string(),
+            to: target.display().to_string(),
+            source,
+        },
+    })
 }
 
 pub fn cleanup_stale(dir: &Path, ttl: Duration) {
@@ -177,11 +167,7 @@ fn is_session_file(path: &Path) -> bool {
 }
 
 fn is_valid_session_id(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .as_bytes()
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-' || *byte == b'_')
+    common::is_valid_identifier(value)
 }
 
 #[cfg(test)]

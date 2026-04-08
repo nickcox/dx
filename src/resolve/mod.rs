@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::{bookmarks, config::AppConfig};
+use crate::{bookmarks, common, config::AppConfig};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolveMode {
@@ -429,15 +429,8 @@ fn prepare_candidates(candidates: &mut Vec<PathBuf>, max: Option<usize>) {
     }
 }
 
-fn apply_completion_limit(mut paths: Vec<PathBuf>, limit: Option<usize>) -> CompletionCandidates {
-    let mut has_more = false;
-    if let Some(max) = limit
-        && paths.len() > max
-    {
-        paths.truncate(max);
-        has_more = true;
-    }
-
+fn apply_completion_limit(paths: Vec<PathBuf>, limit: Option<usize>) -> CompletionCandidates {
+    let (paths, has_more) = common::truncate_with_has_more(paths, limit);
     CompletionCandidates { paths, has_more }
 }
 

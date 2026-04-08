@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
+use crate::common;
 use crate::complete;
 use crate::stacks::{
     storage::{self, StorageError},
@@ -313,13 +314,7 @@ fn run_stack_operation(
 }
 
 fn resolve_session_id(cli_session: Option<&str>) -> Result<String, i32> {
-    if let Some(value) = cli_session.filter(|value| !value.trim().is_empty()) {
-        return Ok(value.to_string());
-    }
-
-    if let Ok(value) = env::var("DX_SESSION")
-        && !value.trim().is_empty()
-    {
+    if let Some(value) = common::resolve_session(cli_session) {
         return Ok(value);
     }
 
