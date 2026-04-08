@@ -14,7 +14,7 @@ mod imp {
 
     use crossterm::{
         cursor,
-        event::{self, Event, KeyCode, KeyModifiers},
+        event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
         execute, terminal,
     };
     use ratatui::{
@@ -117,6 +117,43 @@ mod imp {
 
     /// Re-query callback type: given a query string, returns fresh candidates.
     pub type QueryFn<'a> = Box<dyn Fn(&str) -> CompletionCandidates + 'a>;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum MenuKeyAction {
+        Submit,
+        Cancel,
+        MoveLinear(isize),
+        MoveGridVertical(isize),
+        Backspace,
+        InputChar(char),
+        Ignore,
+    }
+
+    fn map_key_event(key: KeyEvent, use_grid: bool) -> MenuKeyAction {
+        match (key.code, key.modifiers) {
+            (KeyCode::Enter, _) => MenuKeyAction::Submit,
+            (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                MenuKeyAction::Cancel
+            }
+            (KeyCode::Right, _) if use_grid => MenuKeyAction::MoveLinear(1),
+            (KeyCode::Left, _) if use_grid => MenuKeyAction::MoveLinear(-1),
+            (KeyCode::Down, _) if use_grid => MenuKeyAction::MoveGridVertical(1),
+            (KeyCode::Up, _) if use_grid => MenuKeyAction::MoveGridVertical(-1),
+            (KeyCode::Tab, KeyModifiers::NONE) if use_grid => MenuKeyAction::MoveLinear(1),
+            (KeyCode::BackTab, _) if use_grid => MenuKeyAction::MoveLinear(-1),
+            (KeyCode::Down, _) | (KeyCode::Tab, KeyModifiers::NONE) => MenuKeyAction::MoveLinear(1),
+            (KeyCode::Up, _) | (KeyCode::BackTab, _) => MenuKeyAction::MoveLinear(-1),
+            (KeyCode::Backspace, _) => MenuKeyAction::Backspace,
+            (KeyCode::Char(ch), KeyModifiers::NONE) | (KeyCode::Char(ch), KeyModifiers::SHIFT) => {
+                if ch.is_control() {
+                    MenuKeyAction::Ignore
+                } else {
+                    MenuKeyAction::InputChar(ch)
+                }
+            }
+            _ => MenuKeyAction::Ignore,
+        }
+    }
 
     /// Compute a compact display label for a path:
     /// - relative to `cwd` if the path is under it (e.g. `Desktop`)
@@ -414,8 +451,8 @@ mod imp {
                     let columns = metrics.columns;
                     let use_grid = metrics.use_grid;
 
-                    match (key.code, key.modifiers) {
-                        (KeyCode::Enter, _) => {
+                    match map_key_event(key, use_grid) {
+                        MenuKeyAction::Submit => {
                             if let Some(idx) = list_state.selected()
                                 && let Some(value) = completion.paths.get(idx).cloned()
                             {
@@ -426,54 +463,34 @@ mod imp {
                                 });
                             }
                         }
-                        (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                        MenuKeyAction::Cancel => {
                             return Some(MenuResult::Cancelled {
                                 filter_query: filter_query.clone(),
                                 changed_query: filter_query != initial_query,
                             });
                         }
-                        (KeyCode::Right, _) if use_grid => {
-                            move_selection(&mut list_state, len, 1);
+                        MenuKeyAction::MoveLinear(delta) => {
+                            move_selection(&mut list_state, len, delta);
                         }
-                        (KeyCode::Left, _) if use_grid => {
-                            move_selection(&mut list_state, len, -1);
+                        MenuKeyAction::MoveGridVertical(direction) => {
+                            move_selection_grid_vertical(
+                                &mut list_state,
+                                len,
+                                columns,
+                                direction,
+                            );
                         }
-                        (KeyCode::Down, _) if use_grid => {
-                            move_selection_grid_vertical(&mut list_state, len, columns, 1);
-                        }
-                        (KeyCode::Up, _) if use_grid => {
-                            move_selection_grid_vertical(&mut list_state, len, columns, -1);
-                        }
-                        (KeyCode::Tab, KeyModifiers::NONE) if use_grid => {
-                            move_selection(&mut list_state, len, 1);
-                        }
-                        (KeyCode::BackTab, _) if use_grid => {
-                            move_selection(&mut list_state, len, -1);
-                        }
-                        (KeyCode::Down, _)
-                        | (KeyCode::Tab, KeyModifiers::NONE)
-                        | (KeyCode::Char('j'), KeyModifiers::NONE) => {
-                            move_selection(&mut list_state, len, 1);
-                        }
-                        (KeyCode::Up, _)
-                        | (KeyCode::BackTab, _)
-                        | (KeyCode::Char('k'), KeyModifiers::NONE) => {
-                            move_selection(&mut list_state, len, -1);
-                        }
-                        (KeyCode::Backspace, _) => {
+                        MenuKeyAction::Backspace => {
                             filter_query.pop();
                             completion = query_fn(&filter_query);
                             reset_selection(&mut list_state, completion.paths.len());
                         }
-                        (KeyCode::Char(ch), KeyModifiers::NONE)
-                        | (KeyCode::Char(ch), KeyModifiers::SHIFT) => {
-                            if !ch.is_control() {
-                                filter_query.push(ch);
-                                completion = query_fn(&filter_query);
-                                reset_selection(&mut list_state, completion.paths.len());
-                            }
+                        MenuKeyAction::InputChar(ch) => {
+                            filter_query.push(ch);
+                            completion = query_fn(&filter_query);
+                            reset_selection(&mut list_state, completion.paths.len());
                         }
-                        _ => {}
+                        MenuKeyAction::Ignore => {}
                     }
                 }
                 _ => {}
@@ -743,6 +760,34 @@ mod imp {
             assert_eq!(overflow_note(1000, true), " | showing first 1000");
             assert_eq!(overflow_note(10, false), "");
             assert_eq!(overflow_note(0, false), "");
+        }
+
+        #[test]
+        fn key_event_mapping_j_is_filter_input_not_navigation() {
+            let key = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
+            assert_eq!(map_key_event(key, false), MenuKeyAction::InputChar('j'));
+        }
+
+        #[test]
+        fn key_event_mapping_k_is_filter_input_not_navigation() {
+            let key = KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE);
+            assert_eq!(map_key_event(key, false), MenuKeyAction::InputChar('k'));
+        }
+
+        #[test]
+        fn key_event_mapping_arrows_remain_navigation() {
+            let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+            let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+            assert_eq!(map_key_event(down, false), MenuKeyAction::MoveLinear(1));
+            assert_eq!(map_key_event(up, false), MenuKeyAction::MoveLinear(-1));
+        }
+
+        #[test]
+        fn key_event_mapping_tab_and_backtab_remain_navigation() {
+            let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+            let backtab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
+            assert_eq!(map_key_event(tab, false), MenuKeyAction::MoveLinear(1));
+            assert_eq!(map_key_event(backtab, false), MenuKeyAction::MoveLinear(-1));
         }
     }
 }
