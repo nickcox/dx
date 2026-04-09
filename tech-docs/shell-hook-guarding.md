@@ -2,7 +2,7 @@
 
 This document describes the guard and fallback behavior implemented by generated hooks from `dx init`.
 
-For a full list of user configuration options (config file keys, env vars, and per-command overrides), see `docs/configuration.md`.
+For a full list of user configuration options (config file keys, env vars, and per-command overrides), see `./configuration.md`.
 
 ## Goals
 
