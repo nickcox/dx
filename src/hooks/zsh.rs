@@ -1,3 +1,9 @@
+use super::common::{
+    apply_template_replacements, render_posix_menu_eligible_case_pattern,
+    render_posix_wrapper_declarations, render_zsh_completion_bindings,
+    render_zsh_completion_functions, shell_words, DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS,
+};
+
 pub fn generate(command_not_found: bool, menu: bool) -> String {
     let mut script = String::from(
         r#"if [[ -z "${DX_SESSION:-}" ]]; then
@@ -165,92 +171,16 @@ cd() {
   return $__dx_status
 }
 
-up() {
-  __dx_nav_wrapper up "${1:-}"
-}
+__DX_POSIX_WRAPPER_DECLARATIONS__
 
-back() {
-  __dx_stack_wrapper back "${1:-}"
-}
-
-forward() {
-  __dx_stack_wrapper forward "${1:-}"
-}
-
-cd-() {
-  back "$@"
-}
-
-cd+() {
-  forward "$@"
-}
-
-cdf() {
-  __dx_jump_mode frecents "${1:-}"
-}
-
-z() {
-  cdf "$@"
-}
-
-cdr() {
-  __dx_jump_mode recents "${1:-}"
-}
-
-_dx_complete_paths() {
-  (( $+commands[dx] )) || return 1
-  local cur="$words[CURRENT]"
-  local -a candidates
-  candidates=("${(@f)$(dx complete paths "$cur" 2>/dev/null)}")
-  (( ${#candidates} )) && compadd -a candidates
-}
-
-_dx_complete_ancestors() {
-  (( $+commands[dx] )) || return 1
-  local cur="$words[CURRENT]"
-  local -a candidates
-  candidates=("${(@f)$(dx complete ancestors "$cur" 2>/dev/null)}")
-  (( ${#candidates} )) && compadd -a candidates
-}
-
-_dx_complete_frecents() {
-  (( $+commands[dx] )) || return 1
-  local cur="$words[CURRENT]"
-  local -a candidates
-  candidates=("${(@f)$(dx complete frecents "$cur" 2>/dev/null)}")
-  (( ${#candidates} )) && compadd -a candidates
-}
-
-_dx_complete_recents() {
-  (( $+commands[dx] )) || return 1
-  local cur="$words[CURRENT]"
-  local -a candidates
-  candidates=("${(@f)$(dx complete recents "$cur" 2>/dev/null)}")
-  (( ${#candidates} )) && compadd -a candidates
-}
-
-_dx_complete_stack_back() {
-  (( $+commands[dx] )) || return 1
-  local cur="$words[CURRENT]"
-  local -a candidates
-  candidates=("${(@f)$(dx complete stack --direction back "$cur" 2>/dev/null)}")
-  (( ${#candidates} )) && compadd -a candidates
-}
-
-_dx_complete_stack_forward() {
-  (( $+commands[dx] )) || return 1
-  local cur="$words[CURRENT]"
-  local -a candidates
-  candidates=("${(@f)$(dx complete stack --direction forward "$cur" 2>/dev/null)}")
-  (( ${#candidates} )) && compadd -a candidates
-}
+__DX_ZSH_COMPLETION_FUNCTIONS__
 
 _dx_complete_dx() {
   local cur="$words[CURRENT]"
   local sub="$words[2]"
 
   if (( CURRENT == 2 )); then
-    compadd -- resolve complete init bookmarks stack navigate menu
+    compadd -- __DX_TOP_LEVEL_SUBCOMMANDS__
     return 0
   fi
 
@@ -260,7 +190,7 @@ _dx_complete_dx() {
       ;;
     complete)
       if (( CURRENT == 3 )); then
-        compadd -- paths ancestors frecents recents stack
+        compadd -- __DX_COMPLETE_MODES__
       fi
       ;;
     stack)
@@ -272,13 +202,7 @@ _dx_complete_dx() {
   return 0
 }
 
-compdef _dx_complete_dx dx
-compdef _dx_complete_paths cd
-compdef _dx_complete_ancestors up
-compdef _dx_complete_frecents cdf z
-compdef _dx_complete_recents cdr
-compdef _dx_complete_stack_back back 'cd-'
-compdef _dx_complete_stack_forward forward 'cd+'
+__DX_ZSH_COMPLETION_BINDINGS__
 "#,
     );
 
@@ -293,7 +217,7 @@ __dx_menu_widget() {
 
   local __dx_first="${BUFFER%% *}"
   case "$__dx_first" in
-    cd|up|cdf|z|cdr|back|forward|cd-|cd+) ;;
+    __DX_ZSH_MENU_CASE__ ) ;;
     *)
       zle expand-or-complete
       return
@@ -418,5 +342,30 @@ command_not_found_handler() {
         );
     }
 
-    script
+    apply_template_replacements(
+        script,
+        [
+            (
+                "__DX_TOP_LEVEL_SUBCOMMANDS__",
+                shell_words(DX_TOP_LEVEL_SUBCOMMANDS),
+            ),
+            ("__DX_COMPLETE_MODES__", shell_words(DX_COMPLETE_MODES)),
+            (
+                "__DX_ZSH_COMPLETION_BINDINGS__",
+                render_zsh_completion_bindings(),
+            ),
+            (
+                "__DX_ZSH_COMPLETION_FUNCTIONS__",
+                render_zsh_completion_functions(),
+            ),
+            (
+                "__DX_POSIX_WRAPPER_DECLARATIONS__",
+                render_posix_wrapper_declarations(),
+            ),
+            (
+                "__DX_ZSH_MENU_CASE__",
+                render_posix_menu_eligible_case_pattern(),
+            ),
+        ],
+    )
 }

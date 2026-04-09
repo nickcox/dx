@@ -1,3 +1,9 @@
+use super::common::{
+    apply_template_replacements, render_bash_completion_bindings, render_bash_completion_functions,
+    render_bash_menu_fallback_case, render_posix_wrapper_declarations, shell_words,
+    DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS,
+};
+
 pub fn generate(command_not_found: bool, menu: bool) -> String {
     let mut script = String::from(
         r#"if [[ -z "${DX_SESSION:-}" ]]; then
@@ -165,97 +171,9 @@ cd() {
   return $__dx_status
 }
 
-up() {
-  __dx_nav_wrapper up "${1:-}"
-}
+__DX_POSIX_WRAPPER_DECLARATIONS__
 
-back() {
-  __dx_stack_wrapper back "${1:-}"
-}
-
-forward() {
-  __dx_stack_wrapper forward "${1:-}"
-}
-
-cd-() {
-  back "$@"
-}
-
-cd+() {
-  forward "$@"
-}
-
-cdf() {
-  __dx_jump_mode frecents "${1:-}"
-}
-
-z() {
-  cdf "$@"
-}
-
-cdr() {
-  __dx_jump_mode recents "${1:-}"
-}
-
-_dx_complete_paths() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=()
-  command -v dx >/dev/null 2>&1 || return 1
-  local line
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && COMPREPLY+=("$line")
-  done < <(dx complete paths "$cur" 2>/dev/null)
-}
-
-_dx_complete_ancestors() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=()
-  command -v dx >/dev/null 2>&1 || return 1
-  local line
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && COMPREPLY+=("$line")
-  done < <(dx complete ancestors "$cur" 2>/dev/null)
-}
-
-_dx_complete_frecents() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=()
-  command -v dx >/dev/null 2>&1 || return 1
-  local line
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && COMPREPLY+=("$line")
-  done < <(dx complete frecents "$cur" 2>/dev/null)
-}
-
-_dx_complete_recents() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=()
-  command -v dx >/dev/null 2>&1 || return 1
-  local line
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && COMPREPLY+=("$line")
-  done < <(dx complete recents "$cur" 2>/dev/null)
-}
-
-_dx_complete_stack_back() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=()
-  command -v dx >/dev/null 2>&1 || return 1
-  local line
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && COMPREPLY+=("$line")
-  done < <(dx complete stack --direction back "$cur" 2>/dev/null)
-}
-
-_dx_complete_stack_forward() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=()
-  command -v dx >/dev/null 2>&1 || return 1
-  local line
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && COMPREPLY+=("$line")
-  done < <(dx complete stack --direction forward "$cur" 2>/dev/null)
-}
+__DX_BASH_COMPLETION_FUNCTIONS__
 
 _dx_complete_dx() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
@@ -263,7 +181,7 @@ _dx_complete_dx() {
   COMPREPLY=()
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "resolve complete init bookmarks stack navigate menu" -- "$cur") )
+    COMPREPLY=( $(compgen -W "__DX_TOP_LEVEL_SUBCOMMANDS__" -- "$cur") )
     return 0
   fi
 
@@ -273,7 +191,7 @@ _dx_complete_dx() {
       ;;
     complete)
       if [[ ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=( $(compgen -W "paths ancestors frecents recents stack" -- "$cur") )
+        COMPREPLY=( $(compgen -W "__DX_COMPLETE_MODES__" -- "$cur") )
       fi
       ;;
     stack)
@@ -285,16 +203,7 @@ _dx_complete_dx() {
   return 0
 }
 
-complete -o default -F _dx_complete_dx dx
-complete -o default -F _dx_complete_paths cd
-complete -F _dx_complete_ancestors up
-complete -F _dx_complete_frecents cdf
-complete -F _dx_complete_frecents z
-complete -F _dx_complete_recents cdr
-complete -F _dx_complete_stack_back back
-complete -F _dx_complete_stack_back cd-
-complete -F _dx_complete_stack_forward forward
-complete -F _dx_complete_stack_forward cd+
+__DX_BASH_COMPLETION_BINDINGS__
 "#,
     );
 
@@ -386,12 +295,7 @@ _dx_menu_wrapper() {
   fi
   local __dx_cmd="${COMP_LINE%% *}"
   case "$__dx_cmd" in
-    cd) _dx_complete_paths ;;
-    up) _dx_complete_ancestors ;;
-    cdf|z) _dx_complete_frecents ;;
-    cdr) _dx_complete_recents ;;
-    back|cd-) _dx_complete_stack_back ;;
-    forward|cd+) _dx_complete_stack_forward ;;
+__DX_BASH_MENU_FALLBACK_CASE__
   esac
 }
 
@@ -444,5 +348,30 @@ command_not_found_handle() {
         );
     }
 
-    script
+    apply_template_replacements(
+        script,
+        [
+            (
+                "__DX_TOP_LEVEL_SUBCOMMANDS__",
+                shell_words(DX_TOP_LEVEL_SUBCOMMANDS),
+            ),
+            ("__DX_COMPLETE_MODES__", shell_words(DX_COMPLETE_MODES)),
+            (
+                "__DX_BASH_COMPLETION_BINDINGS__",
+                render_bash_completion_bindings(),
+            ),
+            (
+                "__DX_BASH_COMPLETION_FUNCTIONS__",
+                render_bash_completion_functions(),
+            ),
+            (
+                "__DX_POSIX_WRAPPER_DECLARATIONS__",
+                render_posix_wrapper_declarations(),
+            ),
+            (
+                "__DX_BASH_MENU_FALLBACK_CASE__",
+                render_bash_menu_fallback_case(),
+            ),
+        ],
+    )
 }

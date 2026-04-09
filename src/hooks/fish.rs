@@ -1,3 +1,8 @@
+use super::common::{
+    apply_template_replacements, fish_case_words, render_fish_completion_bindings,
+    render_fish_dx_root_completion_bindings, MENU_ELIGIBLE_COMMANDS,
+};
+
 pub fn generate(command_not_found: bool, menu: bool) -> String {
     let mut script = String::from(
         r#"if not set -q DX_SESSION
@@ -198,19 +203,9 @@ function cdr
   __dx_jump_mode recents "$argv[1]"
 end
 
-complete -c dx -n '__fish_use_subcommand' -a 'resolve complete init bookmarks stack navigate menu'
-complete -c dx -n '__fish_seen_subcommand_from complete; and not __fish_seen_subcommand_from paths ancestors frecents recents stack' -a 'paths ancestors frecents recents stack'
-complete -c dx -n '__fish_seen_subcommand_from resolve' -a '(dx complete paths (commandline -ct) 2>/dev/null)'
+__DX_FISH_DX_ROOT_COMPLETION_BINDINGS__
 
-complete -c cd -a '(dx complete paths (commandline -ct) 2>/dev/null)'
-complete -c up -a '(dx complete ancestors (commandline -ct) 2>/dev/null)'
-complete -c cdf -a '(dx complete frecents (commandline -ct) 2>/dev/null)'
-complete -c z -a '(dx complete frecents (commandline -ct) 2>/dev/null)'
-complete -c cdr -a '(dx complete recents (commandline -ct) 2>/dev/null)'
-complete -c back -a '(dx complete stack --direction back (commandline -ct) 2>/dev/null)'
-complete -c cd- -a '(dx complete stack --direction back (commandline -ct) 2>/dev/null)'
-complete -c forward -a '(dx complete stack --direction forward (commandline -ct) 2>/dev/null)'
-complete -c cd+ -a '(dx complete stack --direction forward (commandline -ct) 2>/dev/null)'
+__DX_FISH_COMPLETION_BINDINGS__
 "#,
     );
 
@@ -228,7 +223,7 @@ function __dx_menu_complete
   set -l first (string split ' ' -- "$buf")[1]
 
   switch "$first"
-    case cd up cdf z cdr back forward 'cd-' 'cd+'
+    case __DX_FISH_MENU_CASE_WORDS__
       # dx navigation command — try menu
     case '*'
       commandline -f complete
@@ -344,5 +339,21 @@ end
         );
     }
 
-    script
+    apply_template_replacements(
+        script,
+        [
+            (
+                "__DX_FISH_DX_ROOT_COMPLETION_BINDINGS__",
+                render_fish_dx_root_completion_bindings(),
+            ),
+            (
+                "__DX_FISH_COMPLETION_BINDINGS__",
+                render_fish_completion_bindings(),
+            ),
+            (
+                "__DX_FISH_MENU_CASE_WORDS__",
+                fish_case_words(MENU_ELIGIBLE_COMMANDS),
+            ),
+        ],
+    )
 }

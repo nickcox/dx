@@ -1,3 +1,8 @@
+use super::common::{
+    apply_template_replacements, pwsh_quoted_words, render_pwsh_completion_bindings,
+    MENU_ELIGIBLE_COMMANDS,
+};
+
 pub fn generate(command_not_found: bool, menu: bool) -> String {
     let mut script = String::from(
         r#"if (-not $env:DX_SESSION) {
@@ -226,62 +231,7 @@ function __dx_emit_completion {
     }
 }
 
-Register-ArgumentCompleter -CommandName dx -ScriptBlock {
-    param($wordToComplete, $commandAst, $cursorPosition)
-
-    $elements = @($commandAst.CommandElements | ForEach-Object { $_.Extent.Text })
-    if ($elements.Count -le 1) {
-        __dx_emit_completion @('resolve', 'complete', 'init', 'bookmarks', 'stack', 'navigate', 'menu')
-        return
-    }
-
-    $sub = $elements[1]
-    switch ($sub) {
-        'resolve' {
-            __dx_emit_completion (__dx_complete_mode -Mode paths -Word $wordToComplete)
-            break
-        }
-        'complete' {
-            if ($elements.Count -le 3) {
-                __dx_emit_completion @('paths', 'ancestors', 'frecents', 'recents', 'stack')
-            }
-            break
-        }
-        default {
-            break
-        }
-    }
-}
-
-Register-ArgumentCompleter -CommandName cd,Set-Location -ScriptBlock {
-    param($wordToComplete, $commandAst, $cursorPosition)
-    __dx_emit_completion (__dx_complete_mode -Mode paths -Word $wordToComplete)
-}
-
-Register-ArgumentCompleter -CommandName up -ScriptBlock {
-    param($wordToComplete, $commandAst, $cursorPosition)
-    __dx_emit_completion (__dx_complete_mode -Mode ancestors -Word $wordToComplete)
-}
-
-Register-ArgumentCompleter -CommandName cdf,z -ScriptBlock {
-    param($wordToComplete, $commandAst, $cursorPosition)
-    __dx_emit_completion (__dx_complete_mode -Mode frecents -Word $wordToComplete)
-}
-
-Register-ArgumentCompleter -CommandName cdr -ScriptBlock {
-    param($wordToComplete, $commandAst, $cursorPosition)
-    __dx_emit_completion (__dx_complete_mode -Mode recents -Word $wordToComplete)
-}
-
-Register-ArgumentCompleter -CommandName back,cd- -ScriptBlock {
-    param($wordToComplete, $commandAst, $cursorPosition)
-    __dx_emit_completion (__dx_complete_mode -Mode stack -Word $wordToComplete -ExtraArgs @('--direction', 'back'))
-}
-
-Register-ArgumentCompleter -CommandName forward,cd+ -ScriptBlock {
-    param($wordToComplete, $commandAst, $cursorPosition)
-    __dx_emit_completion (__dx_complete_mode -Mode stack -Word $wordToComplete -ExtraArgs @('--direction', 'forward'))
-}
+__DX_PWSH_COMPLETION_BINDINGS__
 "#,
     );
 
@@ -305,7 +255,7 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
             if ($relativeY -ge 0) { $promptRow = $relativeY }
         } catch {}
 
-        $dxCmds = @('cd', 'up', 'cdf', 'z', 'cdr', 'back', 'forward', 'cd-', 'cd+')
+        $dxCmds = @(__DX_MENU_ELIGIBLE_COMMANDS__)
         $first = ($line -split '\s+', 2)[0]
 
         if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or $first -notin $dxCmds) {
@@ -384,5 +334,17 @@ if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandN
         );
     }
 
-    script
+    apply_template_replacements(
+        script,
+        [
+            (
+                "__DX_MENU_ELIGIBLE_COMMANDS__",
+                pwsh_quoted_words(MENU_ELIGIBLE_COMMANDS),
+            ),
+            (
+                "__DX_PWSH_COMPLETION_BINDINGS__",
+                render_pwsh_completion_bindings(),
+            ),
+        ],
+    )
 }
