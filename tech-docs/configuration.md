@@ -85,5 +85,6 @@ Supported modes: `paths`, `ancestors`, `frecents`, `recents`, `stack`.
 These are set by hooks/runtime internals and are not intended as stable user config:
 
 - `DX_RESOLVE_GUARD`
-- `DX_MENU_NO_CURSOR_QUERY`
-- `DX_MENU_USE_DEV_TTY_BACKEND`
+
+Menu compatibility mode for PowerShell is enabled via a hidden
+`dx menu --psreadline-mode` flag used by generated hooks.

@@ -265,18 +265,12 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
 
         $json = $null
         try {
-            $env:DX_MENU_NO_CURSOR_QUERY = '1'
-            $env:DX_MENU_USE_DEV_TTY_BACKEND = '1'
             if ($null -ne $promptRow) {
-                $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow)
+                $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow --psreadline-mode)
             } else {
-                $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION)
+                $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --psreadline-mode)
             }
         } catch { }
-        finally {
-            Remove-Item Env:DX_MENU_NO_CURSOR_QUERY -ErrorAction SilentlyContinue
-            Remove-Item Env:DX_MENU_USE_DEV_TTY_BACKEND -ErrorAction SilentlyContinue
-        }
 
         if ($LASTEXITCODE -ne 0 -or -not $json) {
             [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)

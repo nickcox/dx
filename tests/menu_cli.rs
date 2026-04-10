@@ -169,6 +169,10 @@ fn init_pwsh_with_menu_flag_includes_psreadline_handler() {
         stdout.contains("TabCompleteNext"),
         "pwsh with --menu should fall back to TabCompleteNext"
     );
+    assert!(
+        stdout.contains("--psreadline-mode"),
+        "pwsh with --menu should invoke dx menu with --psreadline-mode"
+    );
 }
 
 // --- 4.3 Regression: menu disabled leaves existing behavior unchanged ---

@@ -75,10 +75,6 @@ mod imp {
         Some(row.saturating_sub(1))
     }
 
-    fn use_dev_tty_backend() -> bool {
-        std::env::var_os("DX_MENU_USE_DEV_TTY_BACKEND").is_some()
-    }
-
     struct CleanupGuard {
         prompt_row: u16,
         area: Rect,
@@ -179,6 +175,7 @@ mod imp {
         cwd: &Path,
         prompt_row_override: Option<u16>,
         item_max_len: Option<usize>,
+        psreadline_mode: bool,
         query_fn: QueryFn<'_>,
     ) -> Option<MenuResult> {
         if initial_candidates.paths.is_empty() {
@@ -212,9 +209,10 @@ mod imp {
         let list_rows = 10u16.min(metrics.rows_total.max(1) as u16);
         let height = list_rows + 3;
 
+        let skip_cursor_query = psreadline_mode;
         let prompt_row = if let Some(row) = prompt_row_override {
             row.min(rows.saturating_sub(1))
-        } else if std::env::var_os("DX_MENU_NO_CURSOR_QUERY").is_some() {
+        } else if skip_cursor_query {
             rows.saturating_sub(height + 1)
         } else {
             cursor_row_via_tty().unwrap_or(rows.saturating_sub(1))
@@ -236,7 +234,7 @@ mod imp {
         let menu_top = (prompt_row + 1).min(rows.saturating_sub(height));
         let area = Rect::new(0, menu_top, cols, height);
 
-        let use_tty_backend = use_dev_tty_backend();
+        let use_tty_backend = psreadline_mode;
 
         terminal::enable_raw_mode().ok()?;
         if use_tty_backend {
@@ -810,6 +808,7 @@ mod imp {
         _cwd: &Path,
         _prompt_row_override: Option<u16>,
         _item_max_len: Option<usize>,
+        _psreadline_mode: bool,
         _query_fn: QueryFn<'_>,
     ) -> Option<MenuResult> {
         Some(MenuResult::Cancelled {

@@ -27,6 +27,10 @@ pub struct MenuCommand {
     /// Prompt row override for shells that can provide buffer cursor row
     #[arg(long)]
     pub prompt_row: Option<u16>,
+
+    /// Internal compatibility mode for PowerShell PSReadLine menu integration
+    #[arg(long, hide = true)]
+    pub psreadline_mode: bool,
 }
 
 /// Format a resolved path for insertion into the shell buffer.
@@ -223,6 +227,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         &cwd,
         cmd.prompt_row,
         item_max_len,
+        cmd.psreadline_mode,
         query_fn,
     ) {
         Some(MenuResult::Selected { value, .. }) => {
