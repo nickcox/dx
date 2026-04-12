@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::common;
 
 use super::{
-    CompletionCandidates, Resolver, abbreviation, build_effective_roots, is_filesystem_prefix,
+    CompletionCandidates, FallbackPolicy, Resolver, abbreviation, is_filesystem_prefix,
     prepare_candidates, roots, strip_filesystem_prefix_for_fallback, traversal,
 };
 
@@ -55,6 +55,7 @@ impl Resolver {
         let mut seen = HashSet::new();
 
         let mut completion_query = trimmed;
+        let mut uses_prefix_fallback = false;
 
         // Filesystem prefix expansion: when the query looks like a rooted or
         // relative filesystem path prefix, readdir the parent and return
@@ -74,29 +75,37 @@ impl Resolver {
             // When expansion yields no filesystem matches, continue into
             // abbreviation/fallback completion using a prefix-stripped query.
             completion_query = strip_filesystem_prefix_for_fallback(trimmed);
+            uses_prefix_fallback = true;
             if completion_query.is_empty() {
                 return apply_completion_limit(output, limit);
             }
         }
 
+        let fallback_policy = FallbackPolicy::from_query_context(
+            &cwd,
+            &self.config.search_roots,
+            trimmed,
+            uses_prefix_fallback,
+        );
+
         let probe_limit = limit.map(|value| value.saturating_add(1));
 
-        if let Some(path) = super::precedence::resolve_direct(&cwd, completion_query)
+        if fallback_policy.allow_direct_injection()
+            && let Some(path) = super::precedence::resolve_direct(&cwd, completion_query)
             && path.is_dir()
         {
             push_unique(&mut output, &mut seen, path);
         }
 
-        if let Some(path) = traversal::resolve_step_up(&cwd, completion_query)
+        if fallback_policy.allow_step_up
+            && let Some(path) = traversal::resolve_step_up(&cwd, completion_query)
             && path.is_dir()
         {
             push_unique(&mut output, &mut seen, path);
         }
-
-        let effective_roots = build_effective_roots(&cwd, &self.config.search_roots);
 
         let mut abbreviation_candidates = abbreviation::resolve_abbreviation(
-            &effective_roots,
+            &fallback_policy.effective_roots,
             completion_query,
             self.config.resolve.case_sensitive,
         );
@@ -106,7 +115,7 @@ impl Resolver {
         }
 
         let mut fallback_candidates = roots::resolve_fallbacks(
-            &effective_roots,
+            &fallback_policy.effective_roots,
             completion_query,
             self.config.resolve.case_sensitive,
         );
@@ -115,7 +124,9 @@ impl Resolver {
             push_unique(&mut output, &mut seen, candidate);
         }
 
-        if let Some(path) = (self.bookmark_lookup)(completion_query) {
+        if fallback_policy.allow_bookmark_lookup
+            && let Some(path) = (self.bookmark_lookup)(completion_query)
+        {
             push_unique(&mut output, &mut seen, path);
         }
 
@@ -279,16 +290,16 @@ mod tests {
     }
 
     #[test]
-    fn completion_leading_slash_empty_filesystem_falls_back_to_abbreviation() {
+    fn completion_leading_slash_empty_filesystem_falls_back_from_filesystem_root() {
         let _guard = env_lock();
-        let temp = make_temp_dir("complete-leading-slash-fallback");
-        let root = temp.join("root");
+        let temp = make_temp_dir("complete-leading-slash-root");
+        let canonical_temp = fs::canonicalize(&temp).expect("canonical temp dir");
         let missing_prefix = format!("dx-miss-{}", std::process::id());
-        let target = root.join(&missing_prefix).join("project");
+        let target = canonical_temp.join(&missing_prefix).join("project");
         fs::create_dir_all(&target).expect("create fallback target");
 
-        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
-        let query = format!("/{missing_prefix}/pro");
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let query = format!("{}/{}/pro", canonical_temp.display(), missing_prefix);
         let out = resolver.collect_completion_candidates(&query);
 
         assert!(out.contains(&target));

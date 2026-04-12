@@ -74,7 +74,10 @@ Notes:
 
 ### Filesystem-prefixed query behavior
 
-For `dx resolve` and `dx complete paths`, queries starting with `/`, `./`, `../`, `~`, or `~/` first use filesystem/direct-path semantics. If that first pass returns matches, those matches are used. If it returns no match, the filesystem prefix is stripped and processing continues through root-based abbreviation/fallback (and bookmark lookup for `dx resolve`).
+For `dx resolve` and `dx complete paths`, queries starting with `/`, `./`, `../`, `~`, or `~/` first use filesystem/direct-path semantics.
+
+- For leading `/` queries: on direct miss, abbreviation/fallback remains anchored at filesystem root (`/`) rather than using generic search roots/cwd fallback.
+- For `./`, `../`, `~`, and `~/`: on direct miss, the prefix is stripped and processing continues through the existing root-based abbreviation/fallback behavior (and bookmark lookup for `dx resolve`).
 
 If stripping leaves an empty query (for example `~/` when the HOME target is missing), behavior remains unresolved / no candidates.
 

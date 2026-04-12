@@ -35,13 +35,17 @@ This PRD describes the current, implemented command and shell-integration contra
 ## 3.1 Path resolution
 
 - `dx resolve <query>`
-- For queries starting with `/`, `./`, `../`, `~`, or `~/`, resolution first uses filesystem/direct-path semantics; if that pass has a match, it is used. If not, the prefix is stripped and resolution continues through root-based abbreviation/fallback and bookmark lookup.
+- For queries starting with `/`, `./`, `../`, `~`, or `~/`, resolution first uses filesystem/direct-path semantics.
+- For leading `/` queries: if direct resolution misses, abbreviation/fallback remains rooted at `/` (filesystem root semantics), without generic search-root/cwd fallback.
+- For `./`, `../`, `~`, and `~/`: if direct resolution misses, the prefix is stripped and resolution continues through root-based abbreviation/fallback and bookmark lookup.
 - If prefix stripping leaves an empty query (for example `~/` when HOME target is missing), resolution remains unresolved.
 
 ## 3.2 Completions
 
 - `dx complete paths [query]`
-- For `paths` queries starting with `/`, `./`, `../`, `~`, or `~/`, completion first uses filesystem/direct-path semantics; if that pass has matches, they are returned. If not, the prefix is stripped and completion continues through root-based abbreviation/fallback.
+- For `paths` queries starting with `/`, `./`, `../`, `~`, or `~/`, completion first uses filesystem/direct-path semantics; if that pass has matches, they are returned.
+- For leading `/` queries with no expansion results, abbreviation/fallback completion remains rooted at `/` (filesystem root semantics) rather than using generic search roots/cwd injection.
+- For `./`, `../`, `~`, and `~/` with no expansion results, the prefix is stripped and completion continues through root-based abbreviation/fallback.
 - If prefix stripping leaves an empty query (for example `~/` when HOME target is missing), `paths` completion returns no candidates.
 - `dx complete ancestors [query]`
 - `dx complete frecents [query]`

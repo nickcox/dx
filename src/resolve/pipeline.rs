@@ -1,7 +1,7 @@
 use super::{
-    abbreviation, build_effective_roots, is_filesystem_prefix, prepare_candidates, roots,
-    strip_filesystem_prefix_for_fallback, traversal, ResolveError, ResolveMode, ResolveQuery,
-    ResolveResult, Resolver,
+    abbreviation, is_filesystem_prefix, prepare_candidates, roots,
+    strip_filesystem_prefix_for_fallback, traversal, FallbackPolicy, ResolveError, ResolveMode,
+    ResolveQuery, ResolveResult, Resolver,
 };
 
 impl Resolver {
@@ -16,6 +16,7 @@ impl Resolver {
         }
 
         let mut resolution_query = trimmed;
+        let mut uses_prefix_fallback = false;
 
         if let Some(path) = super::precedence::resolve_direct(query.cwd, trimmed) {
             if path.is_dir() {
@@ -28,33 +29,43 @@ impl Resolver {
                     return Err(ResolveError::PathNotFound(path.display().to_string()));
                 }
                 resolution_query = stripped;
+                uses_prefix_fallback = true;
             } else {
                 return Err(ResolveError::PathNotFound(path.display().to_string()));
             }
         }
 
-        if let Some(path) = traversal::resolve_step_up(query.cwd, resolution_query) {
+        let fallback_policy = FallbackPolicy::from_query_context(
+            query.cwd,
+            &self.config.search_roots,
+            trimmed,
+            uses_prefix_fallback,
+        );
+
+        if fallback_policy.allow_step_up
+            && let Some(path) = traversal::resolve_step_up(query.cwd, resolution_query)
+        {
             return Ok(ResolveResult { path });
         }
 
-        let effective_roots = build_effective_roots(query.cwd, &self.config.search_roots);
-
         let mut candidates = abbreviation::resolve_abbreviation(
-            &effective_roots,
+            &fallback_policy.effective_roots,
             resolution_query,
             self.config.resolve.case_sensitive,
         );
 
         if candidates.is_empty() {
             candidates = roots::resolve_fallbacks(
-                &effective_roots,
+                &fallback_policy.effective_roots,
                 resolution_query,
                 self.config.resolve.case_sensitive,
             );
         }
 
         if candidates.is_empty() {
-            if let Some(path) = (self.bookmark_lookup)(resolution_query) {
+            if fallback_policy.allow_bookmark_lookup
+                && let Some(path) = (self.bookmark_lookup)(resolution_query)
+            {
                 return Ok(ResolveResult { path });
             }
             return Err(ResolveError::NotFound);
@@ -180,15 +191,15 @@ mod tests {
     }
 
     #[test]
-    fn resolve_leading_slash_direct_miss_falls_back_to_abbreviation() {
-        let temp = make_temp_dir("resolve-leading-slash-fallback");
-        let root = temp.join("root");
-        let missing_prefix = format!("dx-miss-{}", std::process::id());
-        let target = root.join(&missing_prefix).join("project");
+    fn resolve_leading_slash_direct_miss_falls_back_from_filesystem_root() {
+        let temp = make_temp_dir("resolve-leading-slash-root");
+        let canonical_temp = fs::canonicalize(&temp).expect("canonical temp dir");
+        let missing_prefix = format!("dx-root-only-{}", std::process::id());
+        let target = canonical_temp.join(&missing_prefix).join("project");
         fs::create_dir_all(&target).expect("create fallback target");
 
-        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
-        let query_string = format!("/{missing_prefix}/pro");
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let query_string = format!("{}/{}{}", canonical_temp.display(), missing_prefix, "/pro");
         let query = ResolveQuery {
             raw: &query_string,
             cwd: &temp,
@@ -198,6 +209,26 @@ mod tests {
             .resolve(query, ResolveMode::Default)
             .expect("fallback should resolve");
         assert_eq!(result.path, target);
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolve_leading_slash_direct_miss_does_not_use_bookmark_lookup() {
+        let temp = make_temp_dir("resolve-leading-slash-no-bookmark");
+        let missing_prefix = format!("dx-bookmark-only-{}", std::process::id());
+        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| Some(PathBuf::from("/tmp")));
+
+        let query_string = format!("/{missing_prefix}/pro");
+        let query = ResolveQuery {
+            raw: &query_string,
+            cwd: &temp,
+        };
+
+        let err = resolver
+            .resolve(query, ResolveMode::Default)
+            .expect_err("leading slash fallback should skip bookmarks");
+        assert!(matches!(err, ResolveError::NotFound));
 
         let _ = fs::remove_dir_all(temp);
     }

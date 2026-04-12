@@ -143,3 +143,48 @@ pub(super) fn strip_filesystem_prefix_for_fallback(query: &str) -> &str {
         query
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FallbackScope {
+    Standard,
+    RootAnchored,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct FallbackPolicy {
+    pub effective_roots: Vec<PathBuf>,
+    pub allow_step_up: bool,
+    pub allow_bookmark_lookup: bool,
+}
+
+impl FallbackPolicy {
+    pub fn from_query_context(
+        cwd: &Path,
+        configured_roots: &[PathBuf],
+        raw_query: &str,
+        uses_prefix_fallback: bool,
+    ) -> Self {
+        let scope = if uses_prefix_fallback && raw_query.starts_with('/') {
+            FallbackScope::RootAnchored
+        } else {
+            FallbackScope::Standard
+        };
+
+        match scope {
+            FallbackScope::Standard => Self {
+                effective_roots: build_effective_roots(cwd, configured_roots),
+                allow_step_up: true,
+                allow_bookmark_lookup: true,
+            },
+            FallbackScope::RootAnchored => Self {
+                effective_roots: vec![PathBuf::from("/")],
+                allow_step_up: false,
+                allow_bookmark_lookup: false,
+            },
+        }
+    }
+
+    pub fn allow_direct_injection(&self) -> bool {
+        self.allow_step_up
+    }
+}
