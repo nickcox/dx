@@ -25,7 +25,7 @@ impl Resolver {
             cwd: &cwd,
         };
 
-        match self.resolve(query, mode) {
+        match self.resolve(query) {
             Ok(result) => match mode {
                 ResolveMode::Default => {
                     println!("{}", result.path.display());

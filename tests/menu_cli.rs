@@ -1,7 +1,24 @@
 use std::process::Command;
+use std::{
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 fn dx() -> Command {
     Command::new(env!("CARGO_BIN_EXE_dx"))
+}
+
+fn make_temp_dir(label: &str) -> std::path::PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "dx-menu-cli-{label}-{nonce}-{}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&path).expect("create temp dir");
+    path
 }
 
 // --- 4.2 Non-interactive / noop behavior ---
@@ -298,6 +315,153 @@ fn menu_stderr_is_silent_on_noop() {
     assert!(
         stderr.is_empty(),
         "stderr should be silent on noop, got: {stderr}"
+    );
+}
+
+#[test]
+fn menu_paths_mode_honors_explicit_cwd() {
+    let process_cwd = make_temp_dir("process-cwd-empty");
+    let explicit_cwd = make_temp_dir("explicit-cwd-with-child");
+    let child_a = explicit_cwd.join("alpha");
+    let child_b = explicit_cwd.join("beta");
+    fs::create_dir_all(&child_a).expect("create alpha child dir in explicit cwd");
+    fs::create_dir_all(&child_b).expect("create beta child dir in explicit cwd");
+
+    let output = dx()
+        .args([
+            "menu",
+            "--buffer",
+            "cd a",
+            "--cursor",
+            "4",
+            "--cwd",
+            explicit_cwd
+                .to_str()
+                .expect("explicit cwd path should be valid utf-8"),
+        ])
+        .current_dir(&process_cwd)
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["replaceStart"], 3);
+    assert_eq!(parsed["replaceEnd"], 4);
+
+    let value = parsed["value"]
+        .as_str()
+        .expect("replace action should include value");
+    assert!(
+        value.ends_with('/'),
+        "paths mode replacement should drill in"
+    );
+
+    let replaced_path = value
+        .strip_suffix('/')
+        .expect("replacement should end with slash");
+    let replaced_canon =
+        fs::canonicalize(replaced_path).expect("replacement value path should exist");
+    let expected_alpha =
+        fs::canonicalize(&child_a).expect("expected child path should canonicalize");
+    assert_eq!(
+        replaced_canon, expected_alpha,
+        "expected explicit cwd candidate identity to be selected"
+    );
+
+    let _ = fs::remove_dir_all(process_cwd);
+    let _ = fs::remove_dir_all(explicit_cwd);
+}
+
+#[test]
+fn menu_flagged_cd_replace_span_starts_at_path_token() {
+    let explicit_cwd = make_temp_dir("explicit-cwd-flagged-replace");
+    let child = explicit_cwd.join("foo");
+    fs::create_dir_all(&child).expect("create child dir in explicit cwd");
+
+    let buffer = "cd -P f";
+    let output = dx()
+        .args([
+            "menu",
+            "--buffer",
+            buffer,
+            "--cursor",
+            &buffer.len().to_string(),
+            "--cwd",
+            explicit_cwd
+                .to_str()
+                .expect("explicit cwd path should be valid utf-8"),
+        ])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["replaceStart"], 6);
+    assert_eq!(parsed["replaceEnd"], 7);
+
+    let value = parsed["value"]
+        .as_str()
+        .expect("replace action should include value");
+    let replace_start = parsed["replaceStart"]
+        .as_u64()
+        .expect("replaceStart should be u64") as usize;
+    let replace_end = parsed["replaceEnd"]
+        .as_u64()
+        .expect("replaceEnd should be u64") as usize;
+    let rebuilt = format!(
+        "{}{}{}",
+        &buffer[..replace_start],
+        value,
+        &buffer[replace_end..]
+    );
+    assert!(
+        rebuilt.starts_with("cd -P "),
+        "flag prefix should remain unchanged: {rebuilt}"
+    );
+
+    let replaced_path = value
+        .strip_suffix('/')
+        .expect("replacement should end with slash");
+    let replaced_canon =
+        fs::canonicalize(replaced_path).expect("replacement value path should exist");
+    let expected_child = fs::canonicalize(&child).expect("expected child path should canonicalize");
+    assert_eq!(replaced_canon, expected_child);
+
+    let _ = fs::remove_dir_all(explicit_cwd);
+}
+
+#[test]
+fn menu_psreadline_mode_keeps_posix_flagged_cd_as_fallback() {
+    let buffer = "cd -P foo";
+    let output = dx()
+        .args([
+            "menu",
+            "--buffer",
+            buffer,
+            "--cursor",
+            &buffer.len().to_string(),
+            "--psreadline-mode",
+        ])
+        .env("DX_MENU_DEBUG", "1")
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed["action"], "noop");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("parse_buffer returned None -> noop"),
+        "expected fallback parse path in psreadline mode; stderr: {stderr}"
     );
 }
 

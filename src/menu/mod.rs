@@ -14,12 +14,15 @@ use crate::frecency::ZoxideProvider;
 use crate::resolve::{CompletionCandidates, Resolver};
 
 pub use action::MenuAction;
-pub use buffer::{parse_buffer, ParsedBuffer};
+pub use buffer::{parse_buffer, parse_buffer_with_mode, ParsedBuffer};
 pub use tui::MenuResult;
 
 /// Source completion candidates for the given mode and query,
 /// reusing the same pipelines as `dx complete`.
-/// Duplicates and the cwd itself are removed before returning.
+/// Duplicates are removed for all modes.
+/// The cwd itself is filtered out for non-`Paths` modes only; `Paths` mode
+/// intentionally keeps cwd-targeted results because listing cwd children is a
+/// primary navigation use case.
 pub fn source_candidates(
     resolver: &Resolver,
     mode: CompletionMode,
@@ -47,9 +50,11 @@ pub fn source_candidates_with_meta(
     limit: Option<usize>,
 ) -> CompletionCandidates {
     let raw_meta = match mode {
-        CompletionMode::Paths => {
-            resolver.collect_completion_candidates_with_limit(query.unwrap_or(""), limit)
-        }
+        CompletionMode::Paths => resolver.collect_completion_candidates_with_limit_and_cwd(
+            query.unwrap_or(""),
+            limit,
+            cwd,
+        ),
         CompletionMode::Ancestors => {
             apply_limit_with_has_more(ancestors::complete(query), limit)
         }

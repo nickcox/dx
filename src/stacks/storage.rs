@@ -313,4 +313,27 @@ mod tests {
         assert!(file.exists());
         let _ = fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn write_session_replace_failure_preserves_last_known_good_target() {
+        let dir = make_temp_dir("replace-failure");
+        let session_id = "123";
+        let file = dir.join(format!("{session_id}.json"));
+        let original = "{\"cwd\":\"/persisted\",\"undo\":[],\"redo\":[]}";
+        fs::write(&file, original).expect("seed existing session file");
+
+        let mut next = SessionStack::default();
+        next.push(PathBuf::from("/next")).expect("push next cwd");
+
+        let err = crate::common::with_replace_failure_injection_for_tests(|| {
+            write_session(&dir, session_id, &next)
+        })
+        .expect_err("replace failure should surface");
+        assert!(matches!(err, StorageError::ReplaceSession { .. }));
+
+        let raw = fs::read_to_string(&file).expect("read persisted target after failure");
+        assert_eq!(raw, original);
+
+        let _ = fs::remove_dir_all(dir);
+    }
 }

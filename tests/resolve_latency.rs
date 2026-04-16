@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dx::config::AppConfig;
-use dx::resolve::{ResolveMode, ResolveQuery, Resolver};
+use dx::resolve::{ResolveQuery, Resolver};
 
 fn make_temp_dir(label: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -35,7 +35,7 @@ fn typical_queries_complete_under_50ms_per_query() {
     for raw in &queries {
         for _ in 0..iterations {
             let query = ResolveQuery { raw, cwd: &cwd };
-            let _ = resolver.resolve(query, ResolveMode::Default);
+            let _ = resolver.resolve(query);
         }
     }
     let elapsed = started.elapsed();

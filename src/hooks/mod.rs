@@ -119,10 +119,16 @@ mod tests {
     fn bash_up_seeds_origin_before_navigate() {
         let output = generate(Shell::Bash, false, false);
         // __dx_nav_wrapper should call __dx_push_pwd before dx navigate
-        let nav_wrapper_start = output.find("__dx_nav_wrapper()").unwrap();
+        let nav_wrapper_start = output
+            .find("__dx_nav_wrapper()")
+            .expect("expected bash nav wrapper marker to exist");
         let nav_section = &output[nav_wrapper_start..];
-        let push_pos = nav_section.find("__dx_push_pwd").unwrap();
-        let navigate_pos = nav_section.find("dx navigate").unwrap();
+        let push_pos = nav_section
+            .find("__dx_push_pwd")
+            .expect("expected __dx_push_pwd call in bash nav wrapper section");
+        let navigate_pos = nav_section
+            .find("dx navigate")
+            .expect("expected dx navigate call in bash nav wrapper section");
         assert!(
             push_pos < navigate_pos,
             "push_pwd should come before dx navigate in nav_wrapper"
@@ -383,6 +389,26 @@ mod tests {
     #[test]
     fn pwsh_script_has_balanced_braces_and_quotes() {
         assert_balanced_delimiters(&generate(Shell::Pwsh, true, false));
+    }
+
+    #[test]
+    fn bash_menu_script_has_balanced_braces_and_quotes() {
+        assert_balanced_delimiters(&generate(Shell::Bash, true, true));
+    }
+
+    #[test]
+    fn zsh_menu_script_has_balanced_braces_and_quotes() {
+        assert_balanced_delimiters(&generate(Shell::Zsh, true, true));
+    }
+
+    #[test]
+    fn fish_menu_script_has_balanced_braces_and_quotes() {
+        assert_balanced_delimiters(&generate(Shell::Fish, true, true));
+    }
+
+    #[test]
+    fn pwsh_menu_script_has_balanced_braces_and_quotes() {
+        assert_balanced_delimiters(&generate(Shell::Pwsh, true, true));
     }
 
     #[test]

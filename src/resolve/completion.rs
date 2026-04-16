@@ -13,25 +13,35 @@ impl Resolver {
         self.collect_completion_candidates_with_meta(raw_query).paths
     }
 
+    pub fn collect_completion_candidates_with_limit_and_cwd(
+        &self,
+        raw_query: &str,
+        limit: Option<usize>,
+        cwd: Option<&Path>,
+    ) -> CompletionCandidates {
+        self.collect_completion_candidates_impl(raw_query, limit, cwd)
+    }
+
     pub fn collect_completion_candidates_with_limit(
         &self,
         raw_query: &str,
         limit: Option<usize>,
     ) -> CompletionCandidates {
-        self.collect_completion_candidates_impl(raw_query, limit)
+        self.collect_completion_candidates_impl(raw_query, limit, None)
     }
 
     pub fn collect_completion_candidates_with_meta(
         &self,
         raw_query: &str,
     ) -> CompletionCandidates {
-        self.collect_completion_candidates_impl(raw_query, None)
+        self.collect_completion_candidates_impl(raw_query, None, None)
     }
 
     fn collect_completion_candidates_impl(
         &self,
         raw_query: &str,
         limit: Option<usize>,
+        cwd: Option<&Path>,
     ) -> CompletionCandidates {
         let trimmed = raw_query.trim();
         if trimmed.is_empty() {
@@ -41,14 +51,17 @@ impl Resolver {
             };
         }
 
-        let cwd = match std::env::current_dir() {
-            Ok(value) => value,
-            Err(_) => {
-                return CompletionCandidates {
-                    paths: Vec::new(),
-                    has_more: false,
+        let effective_cwd = match cwd {
+            Some(path) => path.to_path_buf(),
+            None => match std::env::current_dir() {
+                Ok(value) => value,
+                Err(_) => {
+                    return CompletionCandidates {
+                        paths: Vec::new(),
+                        has_more: false,
+                    }
                 }
-            }
+            },
         };
 
         let mut output = Vec::new();
@@ -61,7 +74,7 @@ impl Resolver {
         // relative filesystem path prefix, readdir the parent and return
         // matching children. Covers: /abs/pre, ~/pre, ./pre, ../pre.
         if is_filesystem_prefix(trimmed) {
-            let candidates = expand_filesystem_prefix(&cwd, trimmed);
+            let candidates = expand_filesystem_prefix(&effective_cwd, trimmed);
             for path in candidates {
                 push_unique(&mut output, &mut seen, path);
             }
@@ -82,7 +95,7 @@ impl Resolver {
         }
 
         let fallback_policy = FallbackPolicy::from_query_context(
-            &cwd,
+            &effective_cwd,
             &self.config.search_roots,
             trimmed,
             uses_prefix_fallback,
@@ -91,14 +104,14 @@ impl Resolver {
         let probe_limit = limit.map(|value| value.saturating_add(1));
 
         if fallback_policy.allow_direct_injection()
-            && let Some(path) = super::precedence::resolve_direct(&cwd, completion_query)
+            && let Some(path) = super::precedence::resolve_direct(&effective_cwd, completion_query)
             && path.is_dir()
         {
             push_unique(&mut output, &mut seen, path);
         }
 
         if fallback_policy.allow_step_up
-            && let Some(path) = traversal::resolve_step_up(&cwd, completion_query)
+            && let Some(path) = traversal::resolve_step_up(&effective_cwd, completion_query)
             && path.is_dir()
         {
             push_unique(&mut output, &mut seen, path);

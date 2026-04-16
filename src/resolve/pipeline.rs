@@ -1,15 +1,11 @@
 use super::{
     abbreviation, is_filesystem_prefix, prepare_candidates, roots,
-    strip_filesystem_prefix_for_fallback, traversal, FallbackPolicy, ResolveError, ResolveMode,
-    ResolveQuery, ResolveResult, Resolver,
+    strip_filesystem_prefix_for_fallback, traversal, FallbackPolicy, ResolveError, ResolveQuery,
+    ResolveResult, Resolver,
 };
 
 impl Resolver {
-    pub fn resolve(
-        &self,
-        query: ResolveQuery<'_>,
-        _mode: ResolveMode,
-    ) -> Result<ResolveResult, ResolveError> {
+    pub fn resolve(&self, query: ResolveQuery<'_>) -> Result<ResolveResult, ResolveError> {
         let trimmed = query.raw.trim();
         if trimmed.is_empty() {
             return Err(ResolveError::EmptyQuery);
@@ -149,7 +145,7 @@ mod tests {
         };
 
         let result = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect("resolve");
         assert_eq!(result.path, temp);
     }
@@ -167,7 +163,7 @@ mod tests {
         };
 
         let result = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect("resolve");
         assert_eq!(result.path, child);
         let _ = fs::remove_dir_all(temp);
@@ -184,7 +180,7 @@ mod tests {
         };
 
         let err = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect_err("should error");
         assert!(matches!(err, ResolveError::NotFound));
         let _ = fs::remove_dir_all(temp);
@@ -206,7 +202,7 @@ mod tests {
         };
 
         let result = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect("fallback should resolve");
         assert_eq!(result.path, target);
 
@@ -226,7 +222,7 @@ mod tests {
         };
 
         let err = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect_err("leading slash fallback should skip bookmarks");
         assert!(matches!(err, ResolveError::NotFound));
 
@@ -247,7 +243,7 @@ mod tests {
         };
 
         let result = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect("fallback should resolve");
         assert_eq!(result.path, target);
 
@@ -275,7 +271,7 @@ mod tests {
         };
 
         let result = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect("fallback should resolve");
         assert_eq!(result.path, target);
 
@@ -304,7 +300,7 @@ mod tests {
         };
 
         let err = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect_err("missing home directory should keep path-not-found");
         assert!(matches!(err, ResolveError::PathNotFound(_)));
 
@@ -331,7 +327,7 @@ mod tests {
         };
 
         let err = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect_err("should be ambiguous");
         assert!(matches!(
             err,
@@ -359,7 +355,7 @@ mod tests {
         };
 
         let result = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect("should resolve local");
         assert_eq!(result.path, local);
         let _ = fs::remove_dir_all(temp);
@@ -388,7 +384,7 @@ mod tests {
         };
 
         let result = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect("bookmark should resolve");
         assert_eq!(result.path, canonical_target);
 
@@ -426,7 +422,7 @@ mod tests {
         };
 
         let result = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect("fallback should resolve");
         assert_eq!(result.path, fallback_match);
 
@@ -455,7 +451,7 @@ mod tests {
         };
 
         let err = resolver
-            .resolve(query, ResolveMode::Default)
+            .resolve(query)
             .expect_err("stale bookmark should fail");
         assert!(matches!(err, ResolveError::NotFound));
 

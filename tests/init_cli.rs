@@ -106,3 +106,15 @@ fn init_bash_without_command_not_found_flag_excludes_handler() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.contains("command_not_found_handle"));
 }
+
+#[test]
+fn init_zsh_with_command_not_found_flag_includes_handler() {
+    let output = Command::new(dx_bin())
+        .args(["init", "zsh", "--command-not-found"])
+        .output()
+        .expect("run init zsh with command-not-found");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("command_not_found_handler"));
+}

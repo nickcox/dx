@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use dx::config::AppConfig;
-use dx::resolve::{ResolveMode, ResolveQuery, Resolver};
+use dx::resolve::{ResolveQuery, Resolver};
 
 fn main() {
     let cwd = std::env::current_dir().expect("cwd");
@@ -20,7 +20,7 @@ fn main() {
     for _ in 0..iterations {
         for raw in &sample_queries {
             let query = ResolveQuery { raw, cwd: &cwd };
-            let _ = resolver.resolve(query, ResolveMode::Default);
+            let _ = resolver.resolve(query);
         }
     }
     let elapsed = started.elapsed();

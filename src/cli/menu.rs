@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Args;
 
 use crate::complete::CompletionMode;
-use crate::menu::{self, parse_buffer, tui::QueryFn, MenuAction, MenuResult};
+use crate::menu::{self, parse_buffer_with_mode, tui::QueryFn, MenuAction, MenuResult};
 use crate::resolve::Resolver;
 
 #[derive(Debug, Args)]
@@ -131,7 +131,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         );
     }
 
-    let parsed = match parse_buffer(&cmd.buffer, cmd.cursor) {
+    let parsed = match parse_buffer_with_mode(&cmd.buffer, cmd.cursor, cmd.psreadline_mode) {
         Some(parsed) => parsed,
         None => {
             if debug {

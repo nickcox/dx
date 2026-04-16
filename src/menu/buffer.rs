@@ -98,6 +98,18 @@ fn command_to_mode(command: &str) -> Option<CompletionMode> {
 /// Returns `None` if the buffer is empty, the cursor precedes the end of the
 /// command token, or the command token is not a recognized navigation command.
 pub fn parse_buffer(buffer: &str, cursor: usize) -> Option<ParsedBuffer> {
+    parse_buffer_with_mode(buffer, cursor, false)
+}
+
+/// Parses a command-line buffer with optional shell-mode behavior toggles.
+///
+/// When `psreadline_mode` is true, POSIX flagged `cd` forms (`-L`, `-P`, `--`)
+/// are treated as non-intervention/fallback forms.
+pub fn parse_buffer_with_mode(
+    buffer: &str,
+    cursor: usize,
+    psreadline_mode: bool,
+) -> Option<ParsedBuffer> {
     let cursor = cursor.min(buffer.len());
 
     // Work only with the portion of the buffer up to the cursor.
@@ -138,10 +150,14 @@ pub fn parse_buffer(buffer: &str, cursor: usize) -> Option<ParsedBuffer> {
         });
     }
 
-    // Count whitespace between the command token and the query region.
-    let after_cmd = &buffer[cmd_end_byte..cursor];
-    let ws_len = after_cmd.len() - after_cmd.trim_start().len();
-    let query_start = cmd_end_byte + ws_len;
+    let query_start = if command == "cd" {
+        compute_cd_query_start(buffer, cmd_end_byte, cursor, psreadline_mode)?
+    } else {
+        // Count whitespace between the command token and the query region.
+        let after_cmd = &buffer[cmd_end_byte..cursor];
+        let ws_len = after_cmd.len() - after_cmd.trim_start().len();
+        cmd_end_byte + ws_len
+    };
 
     let query_text = &buffer[query_start..cursor];
     let query = if query_text.is_empty() {
@@ -170,10 +186,58 @@ pub fn parse_buffer(buffer: &str, cursor: usize) -> Option<ParsedBuffer> {
     })
 }
 
+fn compute_cd_query_start(
+    buffer: &str,
+    cmd_end_byte: usize,
+    cursor: usize,
+    psreadline_mode: bool,
+) -> Option<usize> {
+    let after_cmd = &buffer[cmd_end_byte..cursor];
+    let ws_len = after_cmd.len() - after_cmd.trim_start().len();
+    let first_start = cmd_end_byte + ws_len;
+    if first_start >= cursor {
+        return Some(first_start);
+    }
+
+    let first_slice = &buffer[first_start..cursor];
+    let first_rel_end = first_slice
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(first_slice.len());
+    let first_end = first_start + first_rel_end;
+    let first_token = &buffer[first_start..first_end];
+
+    match first_token {
+        "-" => None,
+        "-L" | "-P" | "--" => {
+            if psreadline_mode {
+                return None;
+            }
+
+            // Intentional fallback/non-intervention: when the cursor is still at the
+            // end of an approved flag token (`cd -P`, `cd -L`, `cd --`) and no
+            // separator/path token exists yet, return `None` so shell-native handling
+            // remains in control until the user moves into the path argument position.
+            if first_end >= cursor {
+                return None;
+            }
+
+            let post_flag = &buffer[first_end..cursor];
+            let post_flag_ws = post_flag.len() - post_flag.trim_start().len();
+            Some(first_end + post_flag_ws)
+        }
+        token if token.starts_with('-') => None,
+        _ => Some(first_start),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::complete::{CompletionMode, StackDirection};
+
+    fn parse_psreadline(buffer: &str) -> Option<ParsedBuffer> {
+        parse_buffer_with_mode(buffer, buffer.len(), true)
+    }
 
     #[test]
     fn cd_with_query() {
@@ -371,5 +435,67 @@ mod tests {
         let buf = "cd /";
         let p = parse_buffer(buf, buf.len()).expect("should parse");
         assert_eq!(p.query.as_deref(), Some("/"));
+    }
+
+    #[test]
+    fn cd_flagged_forms_isolate_path_token() {
+        let p = parse_buffer("cd -P foo", "cd -P foo".len()).expect("should parse");
+        assert_eq!(p.mode, CompletionMode::Paths);
+        assert_eq!(p.query.as_deref(), Some("foo"));
+        assert_eq!(p.replace_start, 6);
+        assert_eq!(p.replace_end, 9);
+
+        let p = parse_buffer("cd -L /tmp/work", "cd -L /tmp/work".len()).expect("should parse");
+        assert_eq!(p.query.as_deref(), Some("/tmp/work"));
+        assert_eq!(p.replace_start, 6);
+
+        let p = parse_buffer("cd -- bar", "cd -- bar".len()).expect("should parse");
+        assert_eq!(p.query.as_deref(), Some("bar"));
+        assert_eq!(p.replace_start, 6);
+
+        let p = parse_buffer("cd -P ", "cd -P ".len()).expect("should parse");
+        assert_eq!(p.query, None);
+        assert_eq!(p.replace_start, "cd -P ".len());
+        assert_eq!(p.replace_end, "cd -P ".len());
+        assert!(!p.needs_space_prefix);
+
+        let p = parse_buffer("cd -- ", "cd -- ".len()).expect("should parse");
+        assert_eq!(p.query, None);
+        assert_eq!(p.replace_start, "cd -- ".len());
+        assert_eq!(p.replace_end, "cd -- ".len());
+
+        let buf = "cd -P '/tmp/with space'/";
+        let p = parse_buffer(buf, buf.len()).expect("should parse");
+        assert_eq!(p.query.as_deref(), Some("/tmp/with space/"));
+        assert_eq!(p.replace_start, 6);
+
+        let buf = "cd -L '/tmp/with space'/";
+        let p = parse_buffer(buf, buf.len()).expect("should parse");
+        assert_eq!(p.query.as_deref(), Some("/tmp/with space/"));
+        assert_eq!(p.replace_start, 6);
+    }
+
+    #[test]
+    fn cd_approved_flags_without_trailing_space_fall_back() {
+        // Intentional non-intervention before the path token starts.
+        assert!(parse_buffer("cd -P", "cd -P".len()).is_none());
+        assert!(parse_buffer("cd -L", "cd -L".len()).is_none());
+        assert!(parse_buffer("cd --", "cd --".len()).is_none());
+    }
+
+    #[test]
+    fn cd_unsupported_and_lone_dash_forms_fall_back() {
+        assert!(parse_buffer("cd -", "cd -".len()).is_none());
+        assert!(parse_buffer("cd -Q foo", "cd -Q foo".len()).is_none());
+        assert!(parse_buffer("cd -LP foo", "cd -LP foo".len()).is_none());
+        assert!(parse_buffer("cd -abc foo", "cd -abc foo".len()).is_none());
+
+        assert!(parse_psreadline("cd -P foo").is_none());
+        assert!(parse_psreadline("cd -L foo").is_none());
+        assert!(parse_psreadline("cd -- foo").is_none());
+
+        // Unflagged `cd <path>` remains supported in psreadline mode.
+        let p = parse_psreadline("cd foo").expect("should parse");
+        assert_eq!(p.query.as_deref(), Some("foo"));
     }
 }

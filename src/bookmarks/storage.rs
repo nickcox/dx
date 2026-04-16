@@ -285,4 +285,35 @@ mod tests {
         reset_env(None, None);
         let _ = fs::remove_dir_all(temp);
     }
+
+    #[test]
+    fn write_store_replace_failure_preserves_last_known_good_target() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("replace-failure");
+        let file = temp.join("bookmarks.toml");
+        let original = "[bookmarks]\nalpha = \"/persisted\"\n";
+        fs::write(&file, original).expect("seed existing bookmark store");
+
+        let target = temp.join("next");
+        fs::create_dir_all(&target).expect("create bookmark target");
+
+        let mut map = BTreeMap::new();
+        map.insert(
+            "beta".to_string(),
+            fs::canonicalize(&target).expect("canonical target"),
+        );
+        let store = BookmarkStore::from_paths(map);
+
+        reset_env(Some(file.display().to_string()), None);
+
+        let err = crate::common::with_replace_failure_injection_for_tests(|| write_store(&store))
+            .expect_err("replace failure should surface");
+        assert!(matches!(err, StorageError::ReplaceStore { .. }));
+
+        let raw = fs::read_to_string(&file).expect("read persisted target after failure");
+        assert_eq!(raw, original);
+
+        reset_env(None, None);
+        let _ = fs::remove_dir_all(temp);
+    }
 }

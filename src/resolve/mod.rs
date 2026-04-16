@@ -48,7 +48,7 @@ pub enum ResolveError {
 
 #[derive(Debug, Clone)]
 pub struct Resolver {
-    pub config: AppConfig,
+    pub(crate) config: AppConfig,
     bookmark_lookup: fn(&str) -> Option<PathBuf>,
 }
 
