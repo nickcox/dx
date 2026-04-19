@@ -35,13 +35,10 @@ Success looks like: help text prints without errors.
 
 Once your shell is initialized, try one normal navigation command from your shell workflow.
 
-If a command fails, use the troubleshooting guide for quick fixes.
+If a command fails, revisit shell setup and confirm your shell initialization loaded successfully.
 
 ## What to read next
 
 - Project overview: [README](../README.md)
 - Setup details: [Shell Setup](./shell-setup.md)
-- Commands reference (starter): [Command Guide](./command-guide.md)
-- Common fixes: [Troubleshooting](./troubleshooting.md)
-- Common questions: [FAQ](./faq.md)
 - Implementation details: [Technical Docs](../tech-docs/)

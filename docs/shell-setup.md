@@ -37,6 +37,4 @@ Success looks like: help output appears and no shell errors occur during startup
 
 - Project overview: [README](../README.md)
 - Start here: [Quickstart](./quickstart.md)
-- Fix setup/runtime issues: [Troubleshooting](./troubleshooting.md)
-- Common setup questions: [FAQ](./faq.md)
 - Implementation details: [Technical Docs](../tech-docs/)

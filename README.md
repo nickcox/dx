@@ -7,12 +7,6 @@
 - [Quickstart](./docs/quickstart.md)
 - [Shell Setup](./docs/shell-setup.md)
 
-## User Docs
-
-- [Command Guide](./docs/command-guide.md)
-- [Troubleshooting](./docs/troubleshooting.md)
-- [FAQ](./docs/faq.md)
-
 ## Technical Docs
 
 - [Technical docs index](./tech-docs/)
