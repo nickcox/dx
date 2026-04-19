@@ -20,10 +20,6 @@ __dx_push_pwd() {
   dx stack push "$PWD" >/dev/null 2>&1 || true
 }
 
-__dx_cd_native() {
-  builtin cd "$@"
-}
-
 __dx_complete_first() {
   local __dx_target=""
   local __dx_line
@@ -54,7 +50,7 @@ __dx_nav_wrapper() {
     return 1
   fi
 
-  __dx_cd_native "$__dx_target" || return $?
+  builtin cd "$__dx_target" || return $?
   __dx_push_pwd
   return 0
 }
@@ -82,7 +78,7 @@ __dx_stack_wrapper() {
   fi
 
   [[ -n "$__dx_dest" ]] || return 1
-  __dx_cd_native "$__dx_dest"
+  builtin cd "$__dx_dest"
 }
 
 __dx_jump_mode() {
@@ -101,7 +97,7 @@ __dx_jump_mode() {
     return 1
   fi
 
-  __dx_cd_native "$__dx_target" || return $?
+  builtin cd "$__dx_target" || return $?
   __dx_push_pwd
   return 0
 }
@@ -111,7 +107,7 @@ cd() {
 
   if [[ $# -eq 0 ]]; then
     __dx_push_pwd
-    __dx_cd_native
+    builtin cd
     __dx_status=$?
     if [[ $__dx_status -eq 0 ]]; then
       __dx_push_pwd
@@ -121,7 +117,7 @@ cd() {
 
   if [[ "$1" == "-" && $# -eq 1 ]]; then
     __dx_push_pwd
-    __dx_cd_native -
+    builtin cd -
     __dx_status=$?
     if [[ $__dx_status -eq 0 ]]; then
       __dx_push_pwd
@@ -144,7 +140,7 @@ cd() {
   done
 
   if [[ -z "$__dx_path_arg" ]]; then
-    __dx_cd_native "$@"
+    builtin cd "$@"
     return $?
   fi
 
@@ -153,14 +149,14 @@ cd() {
   if (( $+commands[dx] )); then
     __dx_resolved="$(dx resolve "$__dx_path_arg" 2>/dev/null)"
     if [[ $? -eq 0 && -n "$__dx_resolved" ]]; then
-      __dx_cd_native "${__dx_flags[@]}" "$__dx_resolved"
+      builtin cd "${__dx_flags[@]}" "$__dx_resolved"
       __dx_status=$?
     else
-      __dx_cd_native "$@"
+      builtin cd "$@"
       __dx_status=$?
     fi
   else
-    __dx_cd_native "$@"
+    builtin cd "$@"
     __dx_status=$?
   fi
 
@@ -334,7 +330,7 @@ command_not_found_handler() {
     return 127
   fi
 
-  __dx_cd_native "$__dx_resolved" || return $?
+  builtin cd "$__dx_resolved" || return $?
   __dx_push_pwd
   return 0
 }

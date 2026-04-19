@@ -205,3 +205,58 @@ fn zsh_generated_hook_command_not_found_resolves_path_like_command_once() {
     assert_eq!(actual, expected);
     let _ = fs::remove_dir_all(temp);
 }
+
+#[test]
+fn zsh_generated_hook_cd_permission_denied_error_does_not_leak_helper_name() {
+    let temp = make_temp_dir("zsh-hook-cd-perm-denied");
+    let blocked = temp.join("blocked");
+    let hook = write_generated_hook(&temp, "zsh");
+    fs::create_dir_all(&blocked).expect("create blocked dir");
+
+    let mut perms = fs::metadata(&blocked)
+        .expect("blocked metadata")
+        .permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o000);
+    }
+    fs::set_permissions(&blocked, perms).expect("set blocked perms");
+
+    let script = format!(
+        "function compdef() {{ :; }}; source \"{hook}\"; cd \"{blocked}\" >/dev/null; printf '%s' \"$?\"",
+        hook = hook.display(),
+        blocked = blocked.display(),
+    );
+
+    let output = run_shell("zsh", &script, &temp);
+
+    assert!(output.status.success());
+    let status = String::from_utf8_lossy(&output.stdout);
+    assert_ne!(status.trim(), "0");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cd:"),
+        "expected native cd prefix in stderr, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("permission denied"),
+        "expected permission denied in stderr, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("__dx_cd_native"),
+        "stderr should not leak helper name, got: {stderr}"
+    );
+
+    let mut restore = fs::metadata(&blocked)
+        .expect("blocked metadata for restore")
+        .permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        restore.set_mode(0o700);
+    }
+    fs::set_permissions(&blocked, restore).expect("restore blocked perms");
+    let _ = fs::remove_dir_all(temp);
+}
