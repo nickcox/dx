@@ -108,11 +108,26 @@ Current runtime behavior:
 - **Cancel with query change**: `dx menu` may return replace to preserve typed refinement.
 - **No candidates**: `dx menu` returns noop and hooks follow fallback behavior.
 - **No TTY / degraded path**: `dx menu` returns noop and hooks follow fallback behavior.
-- **Noop/error/non-replace fallback**: Bash and Fish use their native completion fallback; Zsh uses `zle expand-or-complete` (native completion-equivalent); PowerShell falls back to `TabExpansion2` / default completion behavior.
+- **Noop/error/non-replace fallback**: Bash and Fish use their native completion fallback; Zsh uses `zle expand-or-complete` (native completion-equivalent); PowerShell falls back to `TabCompleteNext`.
 - **dx not found or invalid JSON**: hooks follow fallback behavior.
 - **POSIX payload parsing hardening**: Bash/Zsh/Fish wrappers deterministically extract and validate `action`, `replaceStart`, `replaceEnd`, and escaped `value`; invalid payloads (including non-replace actions when replace is required) take native completion fallback paths.
 - **PowerShell payload parsing**: remains structured JSON parsing via `ConvertFrom-Json`.
 - **Dependencies**: fallback and payload validation behavior is implemented in existing hook/template code paths with no new external runtime dependencies.
+
+### Durable Decisions
+
+- **PowerShell init evaluation**: evaluate `dx init pwsh` output as a single script block string, e.g. `Invoke-Expression ((& dx init pwsh | Out-String))` and `Invoke-Expression ((& dx init pwsh --menu | Out-String))`.
+- **ProxyCommand posture**: `ProxyCommand` was evaluated for the PowerShell `cd` wrapper and rejected. The current explicit wrapper remains authoritative because it preserved the existing `ConvertFrom-Json` / `TabCompleteNext` fallback contract without adding PowerShell-specific complexity or unsupported-flag ambiguity.
+
+### Verification Checklist
+
+Reusable checks for shell-facing changes:
+
+- Bash/Zsh/Fish generated init output still contains the expected menu/fallback markers when `--menu` is enabled.
+- PowerShell generated init output still works with the one-script-block `Out-String` evaluation form.
+- `dx menu --cwd`-driven path replacement uses the cwd passed from the hook rather than an unrelated process cwd.
+- POSIX flagged `cd` forms preserve the flag portion and replace only the path token.
+- PowerShell `--psreadline-mode` keeps POSIX-style flagged `cd` forms on the noop/native-fallback path.
 
 ### Troubleshooting
 

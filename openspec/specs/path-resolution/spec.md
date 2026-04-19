@@ -60,6 +60,23 @@ The system MUST support configured fallback search roots (analogous to `CD_PATH`
 - **WHEN** the user queries a name that does not match in the current directory or any configured fallback root
 - **THEN** the system MUST fail with a non-zero exit code
 
+### Requirement: Root-Anchored Fallback for Leading Slash Misses
+When a query begins with `/` and direct filesystem resolution does not find an existing directory, any subsequent root-based fallback matching SHALL remain anchored at the filesystem root `/`.
+
+The system SHALL NOT reinterpret that miss relative to the current working directory or configured search roots.
+
+Queries beginning with `./`, `../`, `~`, or `~/` MAY continue into the standard root-based fallback flow after stripping the leading traversal/home prefix from the abbreviation query.
+
+#### Scenario: Leading slash miss stays rooted at filesystem root
+- **WHEN** the user queries `/proj` and `/proj` does not exist as a direct path
+- **AND** `/projects` exists under `/`
+- **AND** configured search roots or cwd also contain unrelated `proj*` matches
+- **THEN** fallback matching SHALL consider only the filesystem-root-anchored branch and SHALL NOT return cwd-rooted or configured-root candidates
+
+#### Scenario: Dot and home misses continue standard fallback behavior
+- **WHEN** the user queries `~/proj` or `../proj` and direct filesystem resolution misses
+- **THEN** the system MAY continue with the standard root-based abbreviation and fallback-root stages for the stripped query text
+
 ### Requirement: Implicit Current Directory Root in Root-Based Resolution
 Root-based resolution stages (abbreviated segment matching and fallback-root matching) SHALL include the current working directory as an implicit root by default.
 

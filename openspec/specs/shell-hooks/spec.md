@@ -30,6 +30,19 @@ The output SHALL be self-contained: evaluating it in the target shell SHALL defi
 - **WHEN** `dx init unknown` is invoked
 - **THEN** the command SHALL exit with a non-zero exit code and print a diagnostic to stderr listing the supported shells
 
+### Requirement: PowerShell Init Evaluation Contract
+The generated PowerShell hook output SHALL remain valid when evaluated as a single script block captured from stdout.
+
+Documentation and examples SHALL preserve multiline constructs by converting stdout to one string before `Invoke-Expression`.
+
+#### Scenario: Evaluate PowerShell init as one script block
+- **WHEN** a user evaluates `Invoke-Expression ((& dx init pwsh | Out-String))`
+- **THEN** the generated PowerShell hooks SHALL load successfully without requiring line-by-line evaluation
+
+#### Scenario: Evaluate menu-enabled PowerShell init as one script block
+- **WHEN** a user evaluates `Invoke-Expression ((& dx init pwsh --menu | Out-String))`
+- **THEN** the generated PowerShell hooks and menu bindings SHALL load successfully without breaking multiline constructs
+
 ### Requirement: Command Not Found Opt-In Flag
 The `dx init` subcommand SHALL accept a `--command-not-found` flag. When this flag is present, the generated hook code SHALL include a `command_not_found` handler in addition to the cd wrapper. When the flag is absent, the generated hook code SHALL NOT include any `command_not_found` handler.
 
@@ -82,6 +95,50 @@ Each completion binding SHALL dispatch to `dx complete <mode> [current-word]` wi
 #### Scenario: PowerShell completion registration
 - **WHEN** `dx init pwsh` is invoked
 - **THEN** the generated code SHALL include `Register-ArgumentCompleter` handlers for `cd`, `Set-Location`, and each navigation wrapper function
+
+### Requirement: Optional Menu Bindings
+When `dx init <shell> --menu` is invoked, the generated hooks SHALL add shell-specific menu bindings for dx navigation commands while preserving the default non-menu behavior when `--menu` is omitted.
+
+Menu-enabled hook invocations SHALL pass the interactive shell's current working directory and session identity into `dx menu` so path replacement behavior is evaluated against the shell state rather than an unrelated process cwd.
+
+#### Scenario: Init without menu flag omits menu bindings
+- **WHEN** `dx init bash` or `dx init pwsh` is invoked without `--menu`
+- **THEN** the generated hooks SHALL keep ordinary completion registration and SHALL NOT install menu-specific Tab handlers
+
+#### Scenario: Menu-enabled hooks pass cwd and session to dx menu
+- **WHEN** a user presses Tab on a dx navigation command in a menu-enabled shell
+- **THEN** the hook SHALL invoke `dx menu` with the current command buffer, cursor position, shell cwd, and session identity
+
+#### Scenario: Explicit shell cwd controls menu path replacement
+- **WHEN** the shell cwd differs from the dx process cwd used to launch the menu helper
+- **AND** menu path candidates are resolved for a `cd`-style command
+- **THEN** candidate collection and replacement SHALL use the cwd provided by the shell-facing hook invocation
+
+### Requirement: Menu Action Boundary and Native Fallback
+When menu mode is enabled, hooks SHALL treat stdout from `dx menu` as a structured action payload channel.
+
+Successful replace actions SHALL apply `replaceStart`, `replaceEnd`, and `value` to the shell buffer. `noop`, invalid payloads, non-replace actions where replacement is required, command failure, no candidates, and non-interactive execution paths SHALL all fall back to native completion behavior for the current shell.
+
+POSIX hooks SHALL keep deterministic dependency-free payload validation. PowerShell SHALL continue structured parsing via `ConvertFrom-Json` and native completion fallback via `TabCompleteNext`.
+
+#### Scenario: Replace action updates the shell buffer
+- **WHEN** `dx menu` returns a `replace` action with `replaceStart`, `replaceEnd`, and `value`
+- **THEN** the hook SHALL replace exactly that span in the shell buffer with the returned value
+
+#### Scenario: Noop or invalid payload falls back natively
+- **WHEN** `dx menu` returns `noop`, invalid payload data, or exits non-zero
+- **THEN** the hook SHALL invoke the shell's native completion fallback instead of applying a replacement
+
+#### Scenario: PowerShell menu fallback remains PSReadLine-native
+- **WHEN** menu-enabled PowerShell hook execution receives `noop`, invalid JSON, missing JSON, or a non-`replace` action
+- **THEN** the hook SHALL parse payloads with `ConvertFrom-Json` when present and SHALL fall back via `TabCompleteNext`
+
+### Requirement: PowerShell PSReadLine Parsing Boundaries
+When the PowerShell menu integration invokes `dx menu --psreadline-mode`, POSIX-style flagged `cd` forms SHALL take the noop/native-fallback path rather than being reinterpreted as supported PowerShell path-editing forms.
+
+#### Scenario: POSIX flagged cd form falls back in PSReadLine mode
+- **WHEN** menu-enabled PowerShell integration evaluates a buffer such as `cd -P foo` under `--psreadline-mode`
+- **THEN** `dx menu` SHALL return the noop/native-fallback path instead of producing a replacement for the path token
 
 ### Requirement: dx Subcommand Completion Dispatch
 When completing arguments for `dx` itself, the completion function SHALL inspect the subcommand position and dispatch accordingly:
