@@ -159,6 +159,25 @@ fn apply_completion_limit(paths: Vec<PathBuf>, limit: Option<usize>) -> Completi
     CompletionCandidates { paths, has_more }
 }
 
+fn sort_filesystem_candidates_by_basename(results: &mut [PathBuf]) {
+    results.sort_by(|left, right| {
+        let left_name = left
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_else(|| left.as_os_str().to_string_lossy());
+        let right_name = right
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_else(|| right.as_os_str().to_string_lossy());
+
+        left_name
+            .to_ascii_lowercase()
+            .cmp(&right_name.to_ascii_lowercase())
+            .then_with(|| left_name.cmp(&right_name))
+            .then_with(|| left.as_os_str().cmp(right.as_os_str()))
+    });
+}
+
 /// Expand a filesystem path prefix by reading the parent directory and
 /// returning all subdirectories whose name starts with the final component.
 fn expand_filesystem_prefix(cwd: &Path, query: &str) -> Vec<PathBuf> {
@@ -200,7 +219,7 @@ fn expand_filesystem_prefix(cwd: &Path, query: &str) -> Vec<PathBuf> {
                 }
             }
         }
-        results.sort();
+        sort_filesystem_candidates_by_basename(&mut results);
         return results;
     }
 
@@ -232,7 +251,7 @@ fn expand_filesystem_prefix(cwd: &Path, query: &str) -> Vec<PathBuf> {
             results.push(entry.path());
         }
     }
-    results.sort();
+    sort_filesystem_candidates_by_basename(&mut results);
     results
 }
 
@@ -365,5 +384,70 @@ mod tests {
 
         assert!(out.contains(&target));
         let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn mixed_case_path_order_for_filesystem_prefix_and_filtered_siblings() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("complete-mixed-case-order");
+        let cwd = temp.join("work");
+        fs::create_dir_all(&cwd).expect("create cwd");
+
+        let code = temp.join("Code");
+        let cobalt = temp.join("cobalt");
+        let cbravo = temp.join("cbravo");
+        fs::create_dir_all(&code).expect("create Code");
+        fs::create_dir_all(&cobalt).expect("create cobalt");
+        fs::create_dir_all(&cbravo).expect("create cbravo");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let prev = std::env::current_dir().expect("read cwd");
+        std::env::set_current_dir(&cwd).expect("set cwd");
+
+        let siblings = resolver.collect_completion_candidates("../");
+        let filtered = resolver.collect_completion_candidates("../c");
+
+        std::env::set_current_dir(prev).expect("restore cwd");
+
+        let sibling_names = siblings
+            .iter()
+            .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().to_string()))
+            .collect::<Vec<_>>();
+        let filtered_names = filtered
+            .iter()
+            .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().to_string()))
+            .collect::<Vec<_>>();
+
+        let expected = vec!["cbravo".to_string(), "cobalt".to_string(), "Code".to_string()];
+        let expected_prefix = &expected[..];
+
+        assert!(
+            sibling_names.len() >= expected_prefix.len(),
+            "expected at least {} sibling entries, got {:?}",
+            expected_prefix.len(),
+            sibling_names
+        );
+        assert_eq!(&sibling_names[..expected_prefix.len()], expected_prefix);
+        assert_eq!(filtered_names, expected_prefix);
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn mixed_case_path_order_tie_breaks_are_deterministic() {
+        let mut results = vec![
+            PathBuf::from("/tmp/cAlpha"),
+            PathBuf::from("/tmp/Calpha"),
+            PathBuf::from("/tmp/cbravo"),
+        ];
+
+        sort_filesystem_candidates_by_basename(&mut results);
+
+        let ordered = results
+            .iter()
+            .map(|path| path.file_name().expect("basename").to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ordered, vec!["Calpha", "cAlpha", "cbravo"]);
     }
 }

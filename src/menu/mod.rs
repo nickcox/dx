@@ -104,3 +104,65 @@ fn apply_limit_with_has_more(
 
     CompletionCandidates { paths, has_more }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use crate::complete::CompletionMode;
+    use crate::config::AppConfig;
+    use crate::resolve::Resolver;
+    use crate::test_support;
+
+    use super::source_candidates;
+
+    fn make_temp_dir(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "dx-menu-source-order-{label}-{nonce}-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).expect("create temp dir");
+        path
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        test_support::env_lock()
+    }
+
+    #[test]
+    fn mixed_case_path_order_menu_paths_matches_completion_order() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("mixed-case-path-order");
+        let cwd = temp.join("work");
+        fs::create_dir_all(&cwd).expect("create cwd");
+
+        fs::create_dir_all(temp.join("Calpha")).expect("create Calpha");
+        fs::create_dir_all(temp.join("cAlpha")).expect("create cAlpha");
+        fs::create_dir_all(temp.join("cbravo")).expect("create cbravo");
+
+        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+
+        let completion = resolver.collect_completion_candidates_with_limit_and_cwd(
+            "../c",
+            None,
+            Some(cwd.as_path()),
+        );
+        let menu = source_candidates(
+            &resolver,
+            CompletionMode::Paths,
+            Some("../c"),
+            None,
+            Some(cwd.as_path()),
+        );
+
+        assert_eq!(menu, completion.paths);
+
+        let _ = fs::remove_dir_all(temp);
+    }
+}
