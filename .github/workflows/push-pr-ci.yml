@@ -1,0 +1,87 @@
+name: push-pr-ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core-tests:
+    name: core-rust-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install zsh for shell-backed tests
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - name: Run core tests
+        run: cargo test --locked
+
+  shell-smoke-ubuntu:
+    name: shell-smoke-${{ matrix.shell }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [bash, zsh, fish, pwsh]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Zsh/Fish
+        if: matrix.shell == 'zsh' || matrix.shell == 'fish'
+        run: sudo apt-get update && sudo apt-get install -y zsh fish
+
+      - name: Build dx
+        run: cargo build --locked
+
+      - name: Run shell smoke
+        run: |
+          case "${{ matrix.shell }}" in
+            bash)
+              bash -lc 'eval "$(./target/debug/dx init bash --menu --command-not-found)"; cd . >/dev/null 2>&1; command -v up >/dev/null; command -v back >/dev/null; command -v forward >/dev/null; command -v cdf >/dev/null; command -v cdr >/dev/null; declare -F command_not_found_handle >/dev/null'
+              ;;
+            zsh)
+              zsh -fc 'function compdef() { :; }; eval "$(./target/debug/dx init zsh --menu --command-not-found)"; cd . >/dev/null 2>&1; whence -w up >/dev/null; whence -w back >/dev/null; whence -w forward >/dev/null; whence -w cdf >/dev/null; whence -w cdr >/dev/null; whence -w command_not_found_handler >/dev/null'
+              ;;
+            fish)
+              fish -c './target/debug/dx init fish --menu --command-not-found | source; cd . >/dev/null 2>/dev/null; functions -q up; and functions -q back; and functions -q forward; and functions -q cdf; and functions -q cdr; and functions -q fish_command_not_found'
+              ;;
+            pwsh)
+              pwsh -NoProfile -Command 'Invoke-Expression ((& ./target/debug/dx init pwsh --menu --command-not-found | Out-String)); Set-Location .; Get-Command up -CommandType Function | Out-Null; Get-Command back -CommandType Function | Out-Null; Get-Command forward -CommandType Function | Out-Null; Get-Command cdf -CommandType Function | Out-Null; Get-Command cdr -CommandType Function | Out-Null'
+              ;;
+          esac
+
+  shell-smoke-pwsh:
+    name: shell-smoke-pwsh
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build dx
+        run: cargo build --locked
+
+      - name: Run PowerShell smoke
+        shell: pwsh
+        run: |
+          Invoke-Expression ((& .\target\debug\dx.exe init pwsh --menu --command-not-found | Out-String))
+          cd .
+          Get-Command up -CommandType Function | Out-Null
+          Get-Command back -CommandType Function | Out-Null
+          Get-Command forward -CommandType Function | Out-Null
+          Get-Command cdf -CommandType Function | Out-Null
+          Get-Command cdr -CommandType Function | Out-Null

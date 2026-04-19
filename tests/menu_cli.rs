@@ -362,8 +362,13 @@ fn menu_paths_mode_honors_explicit_cwd() {
     let replaced_path = value
         .strip_suffix('/')
         .expect("replacement should end with slash");
+    let replaced_abs = if std::path::Path::new(replaced_path).is_relative() {
+        explicit_cwd.join(replaced_path)
+    } else {
+        std::path::PathBuf::from(replaced_path)
+    };
     let replaced_canon =
-        fs::canonicalize(replaced_path).expect("replacement value path should exist");
+        fs::canonicalize(replaced_abs).expect("replacement value path should exist");
     let expected_alpha =
         fs::canonicalize(&child_a).expect("expected child path should canonicalize");
     assert_eq!(
@@ -545,8 +550,13 @@ fn menu_flagged_cd_replace_span_starts_at_path_token() {
     let replaced_path = value
         .strip_suffix('/')
         .expect("replacement should end with slash");
+    let replaced_abs = if std::path::Path::new(replaced_path).is_relative() {
+        explicit_cwd.join(replaced_path)
+    } else {
+        std::path::PathBuf::from(replaced_path)
+    };
     let replaced_canon =
-        fs::canonicalize(replaced_path).expect("replacement value path should exist");
+        fs::canonicalize(replaced_abs).expect("replacement value path should exist");
     let expected_child = fs::canonicalize(&child).expect("expected child path should canonicalize");
     assert_eq!(replaced_canon, expected_child);
 
