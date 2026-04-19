@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 
@@ -62,6 +62,61 @@ fn format_selected_path(path: &str, mode: &CompletionMode) -> String {
         // Stack, ancestors, frecents, recents — no trailing slash needed.
         _ => formatted,
     }
+}
+
+fn sanitize_relative_components(path: &Path) -> PathBuf {
+    use std::path::Component;
+
+    let mut cleaned = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => cleaned.push(part),
+            Component::ParentDir => cleaned.push(".."),
+            Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    cleaned
+}
+
+fn format_selected_path_for_query_style(
+    selected: &Path,
+    mode: &CompletionMode,
+    cwd: &Path,
+    prefer_relative_paths: bool,
+) -> String {
+    match mode {
+        CompletionMode::Paths if prefer_relative_paths => {
+            let selected_str = selected.display().to_string();
+            if let Ok(rel) = selected.strip_prefix(cwd) {
+                use std::path::Component;
+
+                let cleaned = sanitize_relative_components(rel);
+                let rel_text = if cleaned.as_os_str().is_empty() {
+                    "./".to_string()
+                } else {
+                    let starts_with_parent = cleaned
+                        .components()
+                        .next()
+                        .is_some_and(|component| matches!(component, Component::ParentDir));
+                    if starts_with_parent {
+                        format!("{}/", cleaned.display())
+                    } else {
+                        format!("./{}/", cleaned.display())
+                    }
+                };
+                let without_trailing = rel_text.trim_end_matches('/');
+                format_selected_path(without_trailing, mode)
+            } else {
+                format_selected_path(&selected_str, mode)
+            }
+        }
+        _ => format_selected_path(&selected.display().to_string(), mode),
+    }
+}
+
+fn has_explicit_absolute_input(query: Option<&str>, mode: &CompletionMode) -> bool {
+    matches!(mode, CompletionMode::Paths) && query.is_some_and(|q| q.starts_with('/'))
 }
 
 /// Returns true if the string contains characters that require shell quoting.
@@ -200,6 +255,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     }
 
     let initial_query = parsed.query.clone().unwrap_or_default();
+    let prefer_relative_paths = !has_explicit_absolute_input(parsed.query.as_deref(), &parsed.mode);
 
     let query_fn: QueryFn<'_> = Box::new(|q: &str| {
         let resolved_q = if q.is_empty() && matches!(parsed.mode, CompletionMode::Paths) {
@@ -225,13 +281,19 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         initial_candidates,
         &initial_query,
         &cwd,
+        prefer_relative_paths,
         cmd.prompt_row,
         item_max_len,
         cmd.psreadline_mode,
         query_fn,
     ) {
         Some(MenuResult::Selected { value, .. }) => {
-            let formatted = format_selected_path(&value.display().to_string(), &parsed.mode);
+            let formatted = format_selected_path_for_query_style(
+                &value,
+                &parsed.mode,
+                &cwd,
+                prefer_relative_paths,
+            );
             let replacement = if parsed.needs_space_prefix {
                 format!(" {formatted}")
             } else {
@@ -367,6 +429,42 @@ mod tests {
     fn recents_mode_returns_raw_path_no_slash() {
         let result = format_selected_path("/tmp/work", &CompletionMode::Recents);
         assert_eq!(result, "/tmp/work");
+    }
+
+    #[test]
+    fn paths_mode_relative_cwd_descendant_formats_as_dot_slash() {
+        let cwd = Path::new("/tmp/work");
+        let selected = Path::new("/tmp/work/./benches");
+        let result =
+            format_selected_path_for_query_style(selected, &CompletionMode::Paths, cwd, true);
+        assert_eq!(result, "./benches/");
+    }
+
+    #[test]
+    fn paths_mode_parent_relative_prefix_preserved_in_replacement() {
+        let cwd = Path::new("/tmp/work");
+        let selected = Path::new("/tmp/work/../sibling");
+        let result =
+            format_selected_path_for_query_style(selected, &CompletionMode::Paths, cwd, true);
+        assert_eq!(result, "../sibling/");
+    }
+
+    #[test]
+    fn paths_mode_multi_parent_relative_prefix_preserved_in_replacement() {
+        let cwd = Path::new("/tmp/work");
+        let selected = Path::new("/tmp/work/../../outer");
+        let result =
+            format_selected_path_for_query_style(selected, &CompletionMode::Paths, cwd, true);
+        assert_eq!(result, "../../outer/");
+    }
+
+    #[test]
+    fn paths_mode_explicit_absolute_input_preserves_absolute_output() {
+        let cwd = Path::new("/tmp/work");
+        let selected = Path::new("/tmp/work/./benches");
+        let result =
+            format_selected_path_for_query_style(selected, &CompletionMode::Paths, cwd, false);
+        assert_eq!(result, "/tmp/work/./benches/");
     }
 
     #[test]

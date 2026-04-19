@@ -376,6 +376,123 @@ fn menu_paths_mode_honors_explicit_cwd() {
 }
 
 #[test]
+fn menu_paths_mode_relative_query_uses_dot_slash_replacement() {
+    let explicit_cwd = make_temp_dir("explicit-cwd-relative-rendering");
+    let child = explicit_cwd.join("benches");
+    fs::create_dir_all(&child).expect("create benches child dir");
+
+    let output = dx()
+        .args([
+            "menu",
+            "--buffer",
+            "cd b",
+            "--cursor",
+            "4",
+            "--cwd",
+            explicit_cwd
+                .to_str()
+                .expect("explicit cwd path should be valid utf-8"),
+        ])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["replaceStart"], 3);
+    assert_eq!(parsed["replaceEnd"], 4);
+
+    let value = parsed["value"]
+        .as_str()
+        .expect("replace action should include value");
+    assert_eq!(value, "./benches/");
+
+    let _ = fs::remove_dir_all(explicit_cwd);
+}
+
+#[test]
+fn menu_paths_mode_explicit_absolute_query_preserves_absolute_replacement() {
+    let explicit_cwd = make_temp_dir("explicit-cwd-absolute-query");
+    let child = explicit_cwd.join("benches");
+    fs::create_dir_all(&child).expect("create benches child dir");
+
+    let query = format!("{}/b", explicit_cwd.display());
+    let buffer = format!("cd {query}");
+    let output = dx()
+        .args([
+            "menu",
+            "--buffer",
+            &buffer,
+            "--cursor",
+            &buffer.len().to_string(),
+            "--cwd",
+            explicit_cwd
+                .to_str()
+                .expect("explicit cwd path should be valid utf-8"),
+        ])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["replaceStart"], 3);
+    assert_eq!(parsed["replaceEnd"], buffer.len());
+
+    let value = parsed["value"]
+        .as_str()
+        .expect("replace action should include value");
+    let expected = format!("{}/", child.display());
+    assert_eq!(value, expected);
+
+    let _ = fs::remove_dir_all(explicit_cwd);
+}
+
+#[test]
+fn menu_paths_mode_parent_relative_query_preserves_parent_prefix_replacement() {
+    let root = make_temp_dir("explicit-cwd-parent-relative");
+    let explicit_cwd = root.join("work");
+    let sibling = root.join("sibling");
+    fs::create_dir_all(&explicit_cwd).expect("create explicit cwd dir");
+    fs::create_dir_all(&sibling).expect("create sibling dir");
+
+    let buffer = "cd ../s";
+    let output = dx()
+        .args([
+            "menu",
+            "--buffer",
+            buffer,
+            "--cursor",
+            &buffer.len().to_string(),
+            "--cwd",
+            explicit_cwd
+                .to_str()
+                .expect("explicit cwd path should be valid utf-8"),
+        ])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["replaceStart"], 3);
+    assert_eq!(parsed["replaceEnd"], buffer.len());
+
+    let value = parsed["value"]
+        .as_str()
+        .expect("replace action should include value");
+    assert_eq!(value, "../sibling/");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn menu_flagged_cd_replace_span_starts_at_path_token() {
     let explicit_cwd = make_temp_dir("explicit-cwd-flagged-replace");
     let child = explicit_cwd.join("foo");

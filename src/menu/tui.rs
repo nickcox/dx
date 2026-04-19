@@ -155,10 +155,39 @@ mod imp {
     /// - relative to `cwd` if the path is under it (e.g. `Desktop`)
     /// - tilde-contracted if under `$HOME` (e.g. `~/code/dx`)
     /// - full absolute path otherwise
-    fn display_label(path: &Path, cwd: &Path, home: Option<&Path>) -> String {
-        if let Ok(rel) = path.strip_prefix(cwd) {
-            let s = rel.display().to_string();
-            if s.is_empty() { ".".to_string() } else { s }
+    fn sanitize_relative_components(path: &Path) -> PathBuf {
+        use std::path::Component;
+
+        let mut cleaned = PathBuf::new();
+        for component in path.components() {
+            match component {
+                Component::CurDir => {}
+                Component::Normal(part) => cleaned.push(part),
+                Component::ParentDir => cleaned.push(".."),
+                Component::RootDir | Component::Prefix(_) => {}
+            }
+        }
+        cleaned
+    }
+
+    fn display_label(path: &Path, cwd: &Path, home: Option<&Path>, prefer_relative_paths: bool) -> String {
+        if prefer_relative_paths && let Ok(rel) = path.strip_prefix(cwd) {
+            use std::path::Component;
+
+            let cleaned = sanitize_relative_components(rel);
+            if cleaned.as_os_str().is_empty() {
+                "./".to_string()
+            } else {
+                let starts_with_parent = cleaned
+                    .components()
+                    .next()
+                    .is_some_and(|component| matches!(component, Component::ParentDir));
+                if starts_with_parent {
+                    cleaned.display().to_string()
+                } else {
+                    format!("./{}", cleaned.display())
+                }
+            }
         } else if let Some(h) = home {
             if let Ok(rel) = path.strip_prefix(h) {
                 return format!("~/{}", rel.display());
@@ -173,6 +202,7 @@ mod imp {
         initial_candidates: CompletionCandidates,
         initial_query: &str,
         cwd: &Path,
+        prefer_relative_paths: bool,
         prompt_row_override: Option<u16>,
         item_max_len: Option<usize>,
         psreadline_mode: bool,
@@ -198,7 +228,7 @@ mod imp {
         let initial_labels: Vec<String> = initial_candidates
             .paths
             .iter()
-            .map(|p| display_label(p, cwd, home.as_deref()))
+            .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
             .collect();
         let metrics = compute_layout_metrics(
             cols.saturating_sub(2) as usize,
@@ -251,13 +281,23 @@ mod imp {
             use_tty_backend,
         };
 
-        run_loop(initial_candidates, initial_query, cwd, area, use_tty_backend, item_max_len, &query_fn)
+        run_loop(
+            initial_candidates,
+            initial_query,
+            cwd,
+            prefer_relative_paths,
+            area,
+            use_tty_backend,
+            item_max_len,
+            &query_fn,
+        )
     }
 
     fn run_loop(
         initial_candidates: CompletionCandidates,
         initial_query: &str,
         cwd: &Path,
+        prefer_relative_paths: bool,
         area: Rect,
         use_tty_backend: bool,
         item_max_len: Option<usize>,
@@ -293,7 +333,7 @@ mod imp {
             let selected_path = list_state
                 .selected()
                 .and_then(|i| completion.paths.get(i))
-                .map(|p| p.display().to_string())
+                .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
                 .unwrap_or_else(|| "(no matches)".to_string());
 
             let overflow = overflow_note(completion.paths.len(), completion.has_more);
@@ -319,7 +359,7 @@ mod imp {
                     let labels: Vec<String> = completion
                         .paths
                         .iter()
-                        .map(|p| display_label(p, cwd, home.as_deref()))
+                        .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
                         .collect();
                     let metrics = compute_layout_metrics(inner_width, n, &labels, item_max_len);
                     let columns = metrics.columns;
@@ -350,7 +390,12 @@ mod imp {
                                 if idx >= n {
                                     break;
                                 }
-                                let label = display_label(&completion.paths[idx], cwd, home.as_deref());
+                                let label = display_label(
+                                    &completion.paths[idx],
+                                    cwd,
+                                    home.as_deref(),
+                                    prefer_relative_paths,
+                                );
                                 let content_width = metrics.column_widths[col].saturating_sub(2).max(1);
                                 let trunc = truncate_for_cell(&label, content_width);
                                 let text = pad_to_width(&trunc, metrics.column_widths[col]);
@@ -391,7 +436,14 @@ mod imp {
                         let items: Vec<ListItem> = completion
                             .paths
                             .iter()
-                            .map(|p| ListItem::new(display_label(p, cwd, home.as_deref())))
+                            .map(|p| {
+                                ListItem::new(display_label(
+                                    p,
+                                    cwd,
+                                    home.as_deref(),
+                                    prefer_relative_paths,
+                                ))
+                            })
                             .collect();
 
                         let list = List::new(items)
@@ -437,7 +489,7 @@ mod imp {
                 let labels: Vec<String> = completion
                     .paths
                     .iter()
-                    .map(|p| display_label(p, cwd, home.as_deref()))
+                    .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
                     .collect();
                 let metrics = compute_layout_metrics(
                     area.width.saturating_sub(2) as usize,
@@ -664,7 +716,7 @@ mod imp {
         fn display_label_relative_under_cwd() {
             let cwd = Path::new("/Users/nick");
             let path = Path::new("/Users/nick/Desktop");
-            assert_eq!(display_label(path, cwd, None), "Desktop");
+            assert_eq!(display_label(path, cwd, None, true), "./Desktop");
         }
 
         #[test]
@@ -672,7 +724,7 @@ mod imp {
             let cwd = Path::new("/tmp");
             let home = Path::new("/Users/nick");
             let path = Path::new("/Users/nick/code/dx");
-            assert_eq!(display_label(path, cwd, Some(home)), "~/code/dx");
+            assert_eq!(display_label(path, cwd, Some(home), true), "~/code/dx");
         }
 
         #[test]
@@ -680,14 +732,45 @@ mod imp {
             let cwd = Path::new("/tmp");
             let home = Path::new("/Users/nick");
             let path = Path::new("/opt/homebrew/bin");
-            assert_eq!(display_label(path, cwd, Some(home)), "/opt/homebrew/bin");
+            assert_eq!(display_label(path, cwd, Some(home), true), "/opt/homebrew/bin");
         }
 
         #[test]
         fn display_label_cwd_itself_shows_dot() {
             let cwd = Path::new("/Users/nick");
             let path = Path::new("/Users/nick");
-            assert_eq!(display_label(path, cwd, None), ".");
+            assert_eq!(display_label(path, cwd, None, true), "./");
+        }
+
+        #[test]
+        fn display_label_paths_mode_relative_under_cwd_uses_dot_slash() {
+            let cwd = Path::new("/tmp/work");
+            let path = Path::new("/tmp/work/./benches");
+            assert_eq!(display_label(path, cwd, None, true), "./benches");
+        }
+
+        #[test]
+        fn display_label_paths_mode_parent_relative_prefix_is_preserved() {
+            let cwd = Path::new("/tmp/work");
+            let path = Path::new("/tmp/work/../sibling");
+            assert_eq!(display_label(path, cwd, None, true), "../sibling");
+        }
+
+        #[test]
+        fn display_label_paths_mode_multi_parent_relative_prefix_is_preserved() {
+            let cwd = Path::new("/tmp/work");
+            let path = Path::new("/tmp/work/../../outer");
+            assert_eq!(display_label(path, cwd, None, true), "../../outer");
+        }
+
+        #[test]
+        fn display_label_explicit_absolute_mode_preserves_absolute_path() {
+            let cwd = Path::new("/tmp/work");
+            let path = Path::new("/tmp/work/./benches");
+            assert_eq!(
+                display_label(path, cwd, None, false),
+                "/tmp/work/./benches"
+            );
         }
 
         #[test]
@@ -806,6 +889,7 @@ mod imp {
         _candidates: CompletionCandidates,
         initial_query: &str,
         _cwd: &Path,
+        _prefer_relative_paths: bool,
         _prompt_row_override: Option<u16>,
         _item_max_len: Option<usize>,
         _psreadline_mode: bool,
