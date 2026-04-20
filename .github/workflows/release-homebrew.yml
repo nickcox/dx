@@ -1,0 +1,116 @@
+name: release-homebrew
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-binaries:
+    name: build-release-binaries-${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: dx-linux-x86_64
+            binary: dx
+          - os: macos-latest
+            asset: dx-macos-x86_64
+            binary: dx
+          - os: windows-latest
+            asset: dx-windows-x86_64.exe
+            binary: dx.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --locked --release
+
+      - name: Prepare release asset (unix)
+        if: runner.os != 'Windows'
+        run: cp "target/release/${{ matrix.binary }}" "${{ matrix.asset }}"
+
+      - name: Prepare release asset (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Copy-Item -LiteralPath "target/release/${{ matrix.binary }}" -Destination "${{ matrix.asset }}"
+
+      - name: Upload release asset artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs: build-release-binaries
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run release readiness checks
+        run: scripts/check-release-readiness.sh
+
+      - name: Build Homebrew metadata
+        id: metadata
+        run: |
+          set -euo pipefail
+
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          URL="https://github.com/nickcox/dx/archive/refs/tags/${TAG}.tar.gz"
+          SHA256="$(curl -fsSL "$URL" | sha256sum | cut -d ' ' -f1)"
+
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "url=${URL}"
+            echo "sha256=${SHA256}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download release asset artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: release-assets
+
+      - name: Publish metadata in job summary
+        run: |
+          {
+            echo "## Homebrew release metadata"
+            echo
+            echo "- version: \\`${{ steps.metadata.outputs.version }}\\`"
+            echo "- url: \\`${{ steps.metadata.outputs.url }}\\`"
+            echo "- sha256: \\`${{ steps.metadata.outputs.sha256 }}\\`"
+            echo
+            echo "Manual next step: open a PR in \\`nickcox/homebrew-dx\\` updating \\`Formula/cdex.rb\\` with the values above."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or update GitHub Release notes
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.metadata.outputs.tag }}
+          generate_release_notes: true
+          append_body: true
+          files: |
+            release-assets/dx-linux-x86_64/dx-linux-x86_64
+            release-assets/dx-macos-x86_64/dx-macos-x86_64
+            release-assets/dx-windows-x86_64.exe/dx-windows-x86_64.exe
+          body: |
+            ## Homebrew metadata
+
+            - version: `${{ steps.metadata.outputs.version }}`
+            - url: `${{ steps.metadata.outputs.url }}`
+            - sha256: `${{ steps.metadata.outputs.sha256 }}`
+
+            Manual next step: open a PR in `nickcox/homebrew-dx` updating `Formula/cdex.rb` with these values.

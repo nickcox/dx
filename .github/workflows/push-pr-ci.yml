@@ -2,6 +2,8 @@ name: push-pr-ci
 
 on:
   push:
+    tags-ignore:
+      - "v*"
   pull_request:
 
 permissions:
