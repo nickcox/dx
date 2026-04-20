@@ -24,6 +24,25 @@ jobs:
       - name: Run core tests
         run: cargo test --locked
 
+  nix-flake-linux:
+    name: nix-flake-linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v19
+
+      - name: Nix flake check
+        run: nix flake check
+
+      - name: Nix package and app smoke
+        # Phase 2 keeps Nix CI focused on Linux flake/build/run coverage.
+        run: |
+          nix build .#cdex
+          nix run .#dx -- --help
+
   shell-smoke-ubuntu:
     name: shell-smoke-${{ matrix.shell }}
     runs-on: ubuntu-latest

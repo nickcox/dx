@@ -7,6 +7,13 @@
 - [Quickstart](./docs/quickstart.md)
 - [Shell Setup](./docs/shell-setup.md)
 
+Nix users can run `dx` directly from the flake:
+
+```bash
+nix build .#cdex
+nix run .#dx -- --help
+```
+
 ## Technical Docs
 
 - [Technical docs index](./tech-docs/)

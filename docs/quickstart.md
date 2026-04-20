@@ -13,6 +13,13 @@ Welcome! This guide helps you get `dx` working quickly and run your first succes
 
 - A supported shell (Bash, Zsh, Fish, or PowerShell).
 - `dx` installed and available on your `PATH`.
+- If you use Nix, you can build or run the packaged app with:
+
+```bash
+nix build .#cdex
+nix run .#dx -- --help
+```
+
 - A terminal session where you can run shell init commands.
 
 ## 1) Initialize shell integration

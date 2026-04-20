@@ -5,6 +5,7 @@ Use this page to enable `dx` in your shell and verify it is active.
 ## Before you start
 
 - Make sure `dx` is installed and available on your `PATH`.
+- If you use Nix, you can build or run `dx` before shell setup with `nix build .#cdex` or `nix run .#dx -- --help`.
 - Choose the setup instructions for your shell.
 
 ## Bash
