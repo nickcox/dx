@@ -205,6 +205,7 @@ mod imp {
         prefer_relative_paths: bool,
         prompt_row_override: Option<u16>,
         item_max_len: Option<usize>,
+        show_border: bool,
         psreadline_mode: bool,
         query_fn: QueryFn<'_>,
     ) -> Option<MenuResult> {
@@ -230,14 +231,15 @@ mod imp {
             .iter()
             .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
             .collect();
+        let frame_inset = if show_border { 2 } else { 0 };
         let metrics = compute_layout_metrics(
-            cols.saturating_sub(2) as usize,
+            cols.saturating_sub(frame_inset) as usize,
             initial_candidates.paths.len(),
             &initial_labels,
             item_max_len,
         );
         let list_rows = 10u16.min(metrics.rows_total.max(1) as u16);
-        let height = list_rows + 3;
+        let height = list_rows + if show_border { 3 } else { 2 };
 
         let skip_cursor_query = psreadline_mode;
         let prompt_row = if let Some(row) = prompt_row_override {
@@ -289,6 +291,7 @@ mod imp {
             area,
             use_tty_backend,
             item_max_len,
+            show_border,
             &query_fn,
         )
     }
@@ -301,6 +304,7 @@ mod imp {
         area: Rect,
         use_tty_backend: bool,
         item_max_len: Option<usize>,
+        show_border: bool,
         query_fn: &QueryFn<'_>,
     ) -> Option<MenuResult> {
         let writer: Box<dyn Write> = if use_tty_backend {
@@ -352,10 +356,20 @@ mod imp {
                         .split(frame.area());
 
                     let list_area = chunks[0];
+                    let content_area = menu_content_area(list_area, show_border);
+                    let divider_area = menu_divider_area(list_area, show_border);
                     let n = completion.paths.len();
                     let selected = list_state.selected().unwrap_or(0);
-                    let inner_width = list_area.width.saturating_sub(2) as usize;
-                    let visible_rows = list_area.height.saturating_sub(2) as usize;
+                    let inner_width = if show_border {
+                        content_area.width.saturating_sub(2) as usize
+                    } else {
+                        content_area.width as usize
+                    };
+                    let visible_rows = if show_border {
+                        content_area.height.saturating_sub(2) as usize
+                    } else {
+                        content_area.height as usize
+                    };
                     let labels: Vec<String> = completion
                         .paths
                         .iter()
@@ -415,8 +429,11 @@ mod imp {
                             lines.push(Line::from(spans));
                         }
 
-                        let grid = Paragraph::new(lines).block(Block::bordered());
-                        frame.render_widget(grid, list_area);
+                        let mut grid = Paragraph::new(lines);
+                        if show_border {
+                            grid = grid.block(Block::bordered());
+                        }
+                        frame.render_widget(grid, content_area);
 
                         if rows_total > visible_rows && visible_rows > 0 {
                             let mut scrollbar_state = ScrollbarState::new(rows_total)
@@ -424,11 +441,15 @@ mod imp {
                             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                                 .begin_symbol(None)
                                 .end_symbol(None);
-                            let scrollbar_area = Rect {
-                                x: list_area.x,
-                                y: list_area.y + 1,
-                                width: list_area.width,
-                                height: list_area.height.saturating_sub(2),
+                            let scrollbar_area = if show_border {
+                                Rect {
+                                    x: content_area.x,
+                                    y: content_area.y + 1,
+                                    width: content_area.width,
+                                    height: content_area.height.saturating_sub(2),
+                                }
+                            } else {
+                                content_area
                             };
                             frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
                         }
@@ -446,8 +467,7 @@ mod imp {
                             })
                             .collect();
 
-                        let list = List::new(items)
-                            .block(Block::bordered())
+                        let mut list = List::new(items)
                             .highlight_style(
                                 Style::default()
                                     .fg(Color::Black)
@@ -455,8 +475,11 @@ mod imp {
                                     .add_modifier(Modifier::BOLD),
                             )
                             .highlight_symbol("▸ ");
+                        if show_border {
+                            list = list.block(Block::bordered());
+                        }
 
-                        frame.render_stateful_widget(list, list_area, &mut list_state);
+                        frame.render_stateful_widget(list, content_area, &mut list_state);
 
                         if n > visible_rows && visible_rows > 0 {
                             let mut scrollbar_state = ScrollbarState::new(n)
@@ -464,11 +487,15 @@ mod imp {
                             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                                 .begin_symbol(None)
                                 .end_symbol(None);
-                            let scrollbar_area = Rect {
-                                x: list_area.x,
-                                y: list_area.y + 1,
-                                width: list_area.width,
-                                height: list_area.height.saturating_sub(2),
+                            let scrollbar_area = if show_border {
+                                Rect {
+                                    x: content_area.x,
+                                    y: content_area.y + 1,
+                                    width: content_area.width,
+                                    height: content_area.height.saturating_sub(2),
+                                }
+                            } else {
+                                content_area
                             };
                             frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
                         }
@@ -480,6 +507,14 @@ mod imp {
                             .fg(Color::White)
                             .add_modifier(Modifier::DIM),
                     ));
+                    if let Some(divider_area) = divider_area {
+                        let divider = Paragraph::new("─".repeat(divider_area.width as usize)).style(
+                            Style::default()
+                                .fg(Color::DarkGray)
+                                .add_modifier(Modifier::DIM),
+                        );
+                        frame.render_widget(divider, divider_area);
+                    }
                     frame.render_widget(status, chunks[1]);
                 })
                 .ok()?;
@@ -492,7 +527,7 @@ mod imp {
                     .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
                     .collect();
                 let metrics = compute_layout_metrics(
-                    area.width.saturating_sub(2) as usize,
+                    area.width.saturating_sub(if show_border { 2 } else { 0 }) as usize,
                     len,
                     &labels,
                     item_max_len,
@@ -590,6 +625,32 @@ mod imp {
             rows_total,
             use_grid,
             column_widths,
+        }
+    }
+
+    fn menu_content_area(list_area: Rect, show_border: bool) -> Rect {
+        if show_border {
+            list_area
+        } else {
+            Rect {
+                x: list_area.x,
+                y: list_area.y,
+                width: list_area.width,
+                height: list_area.height.saturating_sub(1),
+            }
+        }
+    }
+
+    fn menu_divider_area(list_area: Rect, show_border: bool) -> Option<Rect> {
+        if show_border || list_area.height == 0 {
+            None
+        } else {
+            Some(Rect {
+                x: list_area.x,
+                y: list_area.y + list_area.height.saturating_sub(1),
+                width: list_area.width,
+                height: 1,
+            })
         }
     }
 
@@ -774,6 +835,33 @@ mod imp {
         }
 
         #[test]
+        fn borderless_menu_content_area_reserves_one_separator_row() {
+            let list_area = Rect::new(0, 0, 80, 12);
+            let content = menu_content_area(list_area, false);
+            assert_eq!(content.height, 11);
+        }
+
+        #[test]
+        fn bordered_menu_content_area_uses_full_list_area() {
+            let list_area = Rect::new(0, 0, 80, 12);
+            let content = menu_content_area(list_area, true);
+            assert_eq!(content, list_area);
+        }
+
+        #[test]
+        fn borderless_menu_divider_area_uses_last_row() {
+            let list_area = Rect::new(3, 4, 80, 12);
+            let divider = menu_divider_area(list_area, false).expect("divider expected");
+            assert_eq!(divider, Rect::new(3, 15, 80, 1));
+        }
+
+        #[test]
+        fn bordered_menu_has_no_divider_area() {
+            let list_area = Rect::new(0, 0, 80, 12);
+            assert_eq!(menu_divider_area(list_area, true), None);
+        }
+
+        #[test]
         fn truncate_for_cell_uses_ellipsis_and_tail() {
             assert_eq!(truncate_for_cell("abcdef", 4), "…def");
             assert_eq!(truncate_for_cell("abcdef", 1), "…");
@@ -892,6 +980,7 @@ mod imp {
         _prefer_relative_paths: bool,
         _prompt_row_override: Option<u16>,
         _item_max_len: Option<usize>,
+        _show_border: bool,
         _psreadline_mode: bool,
         _query_fn: QueryFn<'_>,
     ) -> Option<MenuResult> {

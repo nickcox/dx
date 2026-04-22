@@ -63,8 +63,13 @@ Notes:
 - `DX_MAX_MENU_RESULTS`: integer cap for menu candidate display/query pipelines.
   - Default: `1000`.
   - This is menu-specific and does not affect non-menu CLI output by default.
-- `DX_MENU_ITEM_MAX_LEN`: when `>= 1`, enables multicolumn menu layout and sets max cell text length.
-  - Unset/empty/non-numeric/<1 keeps default single-column behavior.
+- `DX_MENU_ITEM_MAX_LEN`: controls multicolumn menu layout and max cell text length.
+  - Default behavior (unset/empty/non-numeric): multicolumn enabled.
+  - `>= 1`: multicolumn enabled with that max cell text length.
+  - `<= 0`: disables multicolumn (single-column rendering).
+- `DX_MENU_BORDER`: controls whether the menu list/grid block border is shown.
+  - Truthy values (`1`, `true`, `yes`, `on`) enable the border.
+  - Unset/empty/`0`/`false`/`no`/`off` keeps border off (default).
 - `DX_MENU_DEBUG`: set to `1` to print menu debug diagnostics to stderr.
 
 ## Command-level Overrides

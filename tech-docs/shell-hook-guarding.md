@@ -145,7 +145,13 @@ If the menu doesn't appear when pressing Tab:
 
 `DX_MENU_ITEM_MAX_LEN` controls optional multicolumn rendering for `dx menu`:
 
-- unset / empty / non-numeric / `< 1`: single-column default behavior
-- `>= 1`: multicolumn enabled with dynamic columns computed from terminal width
+- unset / empty / non-numeric: multicolumn default behavior
+- `>= 1`: multicolumn enabled with dynamic columns computed from terminal width and max cell text length
+- `<= 0`: single-column behavior
+
+`DX_MENU_BORDER` controls whether a border is drawn around the menu list/grid:
+
+- truthy (`1` / `true` / `yes` / `on`): border enabled
+- unset / empty / `0` / `false` / `no` / `off`: border off (default)
 
 The selected full path remains visible in the status line even when grid cells are truncated.

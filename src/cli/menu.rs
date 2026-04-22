@@ -151,13 +151,29 @@ fn needs_shell_quoting(s: &str) -> bool {
 }
 
 fn parse_menu_item_max_len() -> Option<usize> {
-    let raw = std::env::var("DX_MENU_ITEM_MAX_LEN").ok()?;
+    let Ok(raw) = std::env::var("DX_MENU_ITEM_MAX_LEN") else {
+        // Default: multicolumn on, with no artificial truncation cap.
+        return Some(usize::MAX);
+    };
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return None;
+        return Some(usize::MAX);
     }
-    let value = trimmed.parse::<usize>().ok()?;
-    (value >= 1).then_some(value)
+    match trimmed.parse::<i64>() {
+        Ok(value) if value <= 0 => None,
+        Ok(value) => Some(value as usize),
+        Err(_) => Some(usize::MAX),
+    }
+}
+
+fn parse_menu_border() -> bool {
+    let Ok(raw) = std::env::var("DX_MENU_BORDER") else {
+        return false;
+    };
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => true,
+        _ => false,
+    }
 }
 
 fn parse_menu_max_results() -> usize {
@@ -276,6 +292,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     });
 
     let item_max_len = parse_menu_item_max_len();
+    let show_border = parse_menu_border();
 
     match menu::tui::select(
         initial_candidates,
@@ -284,6 +301,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         prefer_relative_paths,
         cmd.prompt_row,
         item_max_len,
+        show_border,
         cmd.psreadline_mode,
         query_fn,
     ) {
@@ -471,18 +489,20 @@ mod tests {
     fn parse_item_max_len_unset_is_none() {
         let _guard = env_lock();
         unsafe { std::env::remove_var("DX_MENU_ITEM_MAX_LEN") };
-        assert_eq!(parse_menu_item_max_len(), None);
+        assert_eq!(parse_menu_item_max_len(), Some(usize::MAX));
     }
 
     #[test]
     fn parse_item_max_len_invalid_is_none() {
         let _guard = env_lock();
         unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "abc") };
-        assert_eq!(parse_menu_item_max_len(), None);
+        assert_eq!(parse_menu_item_max_len(), Some(usize::MAX));
         unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "0") };
         assert_eq!(parse_menu_item_max_len(), None);
-        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "") };
+        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "-3") };
         assert_eq!(parse_menu_item_max_len(), None);
+        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "") };
+        assert_eq!(parse_menu_item_max_len(), Some(usize::MAX));
     }
 
     #[test]
@@ -490,6 +510,33 @@ mod tests {
         let _guard = env_lock();
         unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "24") };
         assert_eq!(parse_menu_item_max_len(), Some(24));
+    }
+
+    #[test]
+    fn parse_menu_border_defaults_off() {
+        let _guard = env_lock();
+        unsafe { std::env::remove_var("DX_MENU_BORDER") };
+        assert!(!parse_menu_border());
+        unsafe { std::env::set_var("DX_MENU_BORDER", "") };
+        assert!(!parse_menu_border());
+    }
+
+    #[test]
+    fn parse_menu_border_truthy_values_enable_border() {
+        let _guard = env_lock();
+        for value in ["1", "true", "TRUE", "yes", "on", " On "] {
+            unsafe { std::env::set_var("DX_MENU_BORDER", value) };
+            assert!(parse_menu_border(), "expected truthy value: {value}");
+        }
+    }
+
+    #[test]
+    fn parse_menu_border_falsy_values_keep_border_off() {
+        let _guard = env_lock();
+        for value in ["0", "false", "FALSE", "no", "off", "random"] {
+            unsafe { std::env::set_var("DX_MENU_BORDER", value) };
+            assert!(!parse_menu_border(), "expected falsy value: {value}");
+        }
     }
 
     #[test]
