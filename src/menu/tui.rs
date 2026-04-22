@@ -356,28 +356,22 @@ mod imp {
                         .split(frame.area());
 
                     let list_area = chunks[0];
-                    let content_area = menu_content_area(list_area, show_border);
-                    let divider_area = menu_divider_area(list_area, show_border);
                     let n = completion.paths.len();
                     let selected = list_state.selected().unwrap_or(0);
-                    let inner_width = if show_border {
-                        content_area.width.saturating_sub(2) as usize
-                    } else {
-                        content_area.width as usize
-                    };
-                    let visible_rows = if show_border {
-                        content_area.height.saturating_sub(2) as usize
-                    } else {
-                        content_area.height as usize
-                    };
                     let labels: Vec<String> = completion
                         .paths
                         .iter()
                         .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
                         .collect();
-                    let metrics = compute_layout_metrics(inner_width, n, &labels, item_max_len);
+                    let layout = build_menu_layout(list_area, show_border, n, &labels, item_max_len);
+                    let content_area = layout.content_area;
+                    let divider_area = layout.divider_area;
+                    let scrollbar_area = layout.scrollbar_area;
+                    let visible_rows = layout.visible_rows;
+                    let metrics = &layout.metrics;
                     let columns = metrics.columns;
                     let use_grid = metrics.use_grid;
+                    let scrollbar_needed = layout.scrollbar_needed;
 
                     if use_grid {
                         let rows_total = metrics.rows_total;
@@ -435,23 +429,17 @@ mod imp {
                         }
                         frame.render_widget(grid, content_area);
 
-                        if rows_total > visible_rows && visible_rows > 0 {
+                        if scrollbar_needed {
                             let mut scrollbar_state = ScrollbarState::new(rows_total)
                                 .position(selected_row);
-                            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                                .begin_symbol(None)
-                                .end_symbol(None);
-                            let scrollbar_area = if show_border {
-                                Rect {
-                                    x: content_area.x,
-                                    y: content_area.y + 1,
-                                    width: content_area.width,
-                                    height: content_area.height.saturating_sub(2),
-                                }
-                            } else {
-                                content_area
-                            };
-                            frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+                            let scrollbar = build_scrollbar(show_border);
+                            let scrollbar_render_area =
+                                menu_scrollbar_render_area(content_area, scrollbar_area, show_border);
+                            frame.render_stateful_widget(
+                                scrollbar,
+                                scrollbar_render_area,
+                                &mut scrollbar_state,
+                            );
                         }
                     } else {
                         let items: Vec<ListItem> = completion
@@ -481,23 +469,17 @@ mod imp {
 
                         frame.render_stateful_widget(list, content_area, &mut list_state);
 
-                        if n > visible_rows && visible_rows > 0 {
+                        if scrollbar_needed {
                             let mut scrollbar_state = ScrollbarState::new(n)
                                 .position(selected);
-                            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                                .begin_symbol(None)
-                                .end_symbol(None);
-                            let scrollbar_area = if show_border {
-                                Rect {
-                                    x: content_area.x,
-                                    y: content_area.y + 1,
-                                    width: content_area.width,
-                                    height: content_area.height.saturating_sub(2),
-                                }
-                            } else {
-                                content_area
-                            };
-                            frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+                            let scrollbar = build_scrollbar(show_border);
+                            let scrollbar_render_area =
+                                menu_scrollbar_render_area(content_area, scrollbar_area, show_border);
+                            frame.render_stateful_widget(
+                                scrollbar,
+                                scrollbar_render_area,
+                                &mut scrollbar_state,
+                            );
                         }
                     }
 
@@ -526,14 +508,15 @@ mod imp {
                     .iter()
                     .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
                     .collect();
-                let metrics = compute_layout_metrics(
-                    area.width.saturating_sub(if show_border { 2 } else { 0 }) as usize,
-                    len,
-                    &labels,
-                    item_max_len,
-                );
-                let columns = metrics.columns;
-                let use_grid = metrics.use_grid;
+                let list_area = Rect {
+                    x: area.x,
+                    y: area.y,
+                    width: area.width,
+                    height: area.height.saturating_sub(1),
+                };
+                let layout = build_menu_layout(list_area, show_border, len, &labels, item_max_len);
+                let columns = layout.metrics.columns;
+                let use_grid = layout.metrics.use_grid;
 
                 match map_key_event(key, use_grid) {
                     MenuKeyAction::Submit => {
@@ -581,6 +564,73 @@ mod imp {
         rows_total: usize,
         use_grid: bool,
         column_widths: Vec<usize>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct MenuLayoutPlan {
+        content_area: Rect,
+        divider_area: Option<Rect>,
+        scrollbar_area: Option<Rect>,
+        visible_rows: usize,
+        scrollbar_needed: bool,
+        metrics: LayoutMetrics,
+    }
+
+    /// Builds the final menu layout with a two-pass calculation.
+    ///
+    /// Borderless mode can reserve a dedicated scrollbar column, but whether that
+    /// column is needed depends on the row/column layout, which itself depends on
+    /// the available width. We therefore do a provisional width probe first,
+    /// decide whether a scrollbar column is needed, and then recompute the final
+    /// layout using the true content width.
+    fn build_menu_layout(
+        list_area: Rect,
+        show_border: bool,
+        item_count: usize,
+        labels: &[String],
+        item_max_len: Option<usize>,
+    ) -> MenuLayoutPlan {
+        let provisional_content_area = menu_content_area(list_area, show_border);
+        let visible_rows = if show_border {
+            provisional_content_area.height.saturating_sub(2) as usize
+        } else {
+            provisional_content_area.height as usize
+        };
+        let provisional_inner_width = if show_border {
+            provisional_content_area.width.saturating_sub(2) as usize
+        } else {
+            provisional_content_area.width as usize
+        };
+        let width_probe_metrics =
+            compute_layout_metrics(provisional_inner_width, item_count, labels, item_max_len);
+        let scrollbar_probe_needed = if width_probe_metrics.use_grid {
+            width_probe_metrics.rows_total > visible_rows && visible_rows > 0
+        } else {
+            item_count > visible_rows && visible_rows > 0
+        };
+        let (content_area, scrollbar_area) =
+            split_menu_areas(provisional_content_area, show_border, scrollbar_probe_needed);
+        let final_inner_width = if show_border {
+            content_area.width.saturating_sub(2) as usize
+        } else {
+            content_area.width as usize
+        };
+        let final_metrics =
+            compute_layout_metrics(final_inner_width, item_count, labels, item_max_len);
+        let scrollbar_needed = if final_metrics.use_grid {
+            final_metrics.rows_total > visible_rows && visible_rows > 0
+        } else {
+            item_count > visible_rows && visible_rows > 0
+        };
+
+        MenuLayoutPlan {
+            content_area,
+            divider_area: menu_divider_area(list_area, show_border),
+            scrollbar_area,
+            visible_rows,
+            scrollbar_needed,
+            metrics: final_metrics,
+        }
     }
 
     fn compute_layout_metrics(
@@ -651,6 +701,71 @@ mod imp {
                 width: list_area.width,
                 height: 1,
             })
+        }
+    }
+
+    fn build_scrollbar(show_border: bool) -> Scrollbar<'static> {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None);
+        if show_border {
+            scrollbar
+        } else {
+            scrollbar
+                .track_symbol(Some("│"))
+                .thumb_symbol("┃")
+                .track_style(
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::DIM),
+                )
+                .thumb_style(
+                    Style::default()
+                        .fg(Color::Gray)
+                        .add_modifier(Modifier::DIM),
+                )
+        }
+    }
+
+    fn menu_scrollbar_render_area(
+        content_area: Rect,
+        scrollbar_area: Option<Rect>,
+        show_border: bool,
+    ) -> Rect {
+        if show_border {
+            Rect {
+                x: content_area.x,
+                y: content_area.y + 1,
+                width: content_area.width,
+                height: content_area.height.saturating_sub(2),
+            }
+        } else {
+            scrollbar_area.expect("borderless scrollbar area expected")
+        }
+    }
+
+    fn split_menu_areas(
+        content_area: Rect,
+        show_border: bool,
+        scrollbar_needed: bool,
+    ) -> (Rect, Option<Rect>) {
+        if show_border || !scrollbar_needed || content_area.width <= 1 {
+            (content_area, None)
+        } else {
+            (
+                Rect {
+                    x: content_area.x,
+                    y: content_area.y,
+                    width: content_area.width.saturating_sub(1),
+                    height: content_area.height,
+                },
+                Some(Rect {
+                    x: content_area.x + content_area.width.saturating_sub(1),
+                    y: content_area.y,
+                    width: 1,
+                    height: content_area.height,
+                }),
+            )
         }
     }
 
@@ -859,6 +974,47 @@ mod imp {
         fn bordered_menu_has_no_divider_area() {
             let list_area = Rect::new(0, 0, 80, 12);
             assert_eq!(menu_divider_area(list_area, true), None);
+        }
+
+        #[test]
+        fn borderless_scrollbar_reserves_rightmost_column() {
+            let content_area = Rect::new(2, 3, 20, 8);
+            let (content, scrollbar) = split_menu_areas(content_area, false, true);
+            assert_eq!(content, Rect::new(2, 3, 19, 8));
+            assert_eq!(scrollbar, Some(Rect::new(21, 3, 1, 8)));
+        }
+
+        #[test]
+        fn bordered_scrollbar_uses_full_content_area() {
+            let content_area = Rect::new(2, 3, 20, 8);
+            let (content, scrollbar) = split_menu_areas(content_area, true, true);
+            assert_eq!(content, content_area);
+            assert_eq!(scrollbar, None);
+        }
+
+        #[test]
+        fn borderless_scrollbar_render_area_uses_reserved_column() {
+            let area = menu_scrollbar_render_area(
+                Rect::new(2, 3, 19, 8),
+                Some(Rect::new(21, 3, 1, 8)),
+                false,
+            );
+            assert_eq!(area, Rect::new(21, 3, 1, 8));
+        }
+
+        #[test]
+        fn bordered_scrollbar_render_area_uses_inner_height() {
+            let area = menu_scrollbar_render_area(Rect::new(2, 3, 20, 8), None, true);
+            assert_eq!(area, Rect::new(2, 4, 20, 6));
+        }
+
+        #[test]
+        fn build_menu_layout_reserves_scrollbar_column_when_needed() {
+            let labels = vec!["one".to_string(); 50];
+            let layout = build_menu_layout(Rect::new(0, 0, 20, 8), false, 50, &labels, Some(8));
+            assert!(layout.scrollbar_needed);
+            assert_eq!(layout.scrollbar_area, Some(Rect::new(19, 0, 1, 7)));
+            assert_eq!(layout.content_area, Rect::new(0, 0, 19, 7));
         }
 
         #[test]
