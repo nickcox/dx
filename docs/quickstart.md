@@ -20,6 +20,18 @@ nix build .#cdex
 nix run .#dx -- --help
 ```
 
+- If you use Homebrew, install from the separate tap with:
+
+```bash
+brew tap nickcox/dx
+brew install nickcox/dx/cdex
+dx --help
+```
+
+- Homebrew installs the `cdex` formula, but the command you run remains `dx`.
+
+- If you prefer direct downloads, tagged GitHub Releases also publish raw binaries for Linux x86_64, Linux ARM64, macOS Intel, macOS Apple Silicon, and Windows x86_64. Download the binary for your platform, make it executable if needed, and place it on your `PATH`.
+
 - A terminal session where you can run shell init commands.
 
 ## 1) Initialize shell integration

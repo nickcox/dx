@@ -6,6 +6,8 @@ Use this page to enable `dx` in your shell and verify it is active.
 
 - Make sure `dx` is installed and available on your `PATH`.
 - If you use Nix, you can build or run `dx` before shell setup with `nix build .#cdex` or `nix run .#dx -- --help`.
+- If you use Homebrew, install from the separate tap with `brew tap nickcox/dx` and `brew install nickcox/dx/cdex` before shell setup.
+- Homebrew installs the `cdex` formula, but the executable you run in your shell is still `dx`.
 - Choose the setup instructions for your shell.
 
 ## Bash
