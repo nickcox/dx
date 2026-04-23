@@ -6,10 +6,14 @@
 //! `/dev/tty` directly, working even when stdin is redirected by a shell
 //! completion hook.
 
+// The interactive menu TUI currently targets Unix TTY semantics (`/dev/tty`,
+// cursor queries, explicit terminal scrolling). Non-Unix builds use the stub
+// implementation below, which preserves the JSON/noop contract for shell
+// fallback paths without enabling the inline TUI yet.
 #[cfg(unix)]
 mod imp {
-    use std::io::{stderr, BufWriter, Read, Write};
     use std::fs::OpenOptions;
+    use std::io::{stderr, BufWriter, Read, Write};
     use std::path::{Path, PathBuf};
 
     use crossterm::{
@@ -204,6 +208,7 @@ mod imp {
         cwd: &Path,
         prefer_relative_paths: bool,
         prompt_row_override: Option<u16>,
+        max_rows: u16,
         item_max_len: Option<usize>,
         show_border: bool,
         psreadline_mode: bool,
@@ -238,7 +243,7 @@ mod imp {
             &initial_labels,
             item_max_len,
         );
-        let list_rows = 10u16.min(metrics.rows_total.max(1) as u16);
+        let list_rows = compute_list_rows(metrics.rows_total, max_rows);
         let height = list_rows + if show_border { 3 } else { 2 };
 
         let skip_cursor_query = psreadline_mode;
@@ -249,19 +254,7 @@ mod imp {
         } else {
             cursor_row_via_tty().unwrap_or(rows.saturating_sub(1))
         };
-        let rows_below = rows.saturating_sub(prompt_row + 1);
-
-        let prompt_row = if rows_below < height {
-            let scroll_needed = height - rows_below;
-            let mut err = stderr();
-            for _ in 0..scroll_needed {
-                let _ = writeln!(err);
-            }
-            let _ = err.flush();
-            prompt_row.saturating_sub(scroll_needed)
-        } else {
-            prompt_row
-        };
+        let prompt_row = reserve_space_on_tty(prompt_row, rows, height);
 
         let menu_top = (prompt_row + 1).min(rows.saturating_sub(height));
         let area = Rect::new(0, menu_top, cols, height);
@@ -556,6 +549,48 @@ mod imp {
                 }
             }
         }
+    }
+
+    fn compute_list_rows(rows_total: usize, max_rows: u16) -> u16 {
+        let cap = max_rows.max(1);
+        cap.min(rows_total.max(1) as u16)
+    }
+
+    fn scroll_rows_needed(prompt_row: u16, terminal_rows: u16, needed_height: u16) -> u16 {
+        let rows_below = terminal_rows.saturating_sub(prompt_row + 1);
+        needed_height.saturating_sub(rows_below)
+    }
+
+    // Reserve vertical space for the inline menu by scrolling the active TTY
+    // viewport upward when there are not enough rows below the prompt. This is
+    // Unix-only for now because it depends on `/dev/tty` and the Unix TUI path.
+    fn reserve_space_on_tty(prompt_row: u16, terminal_rows: u16, needed_height: u16) -> u16 {
+        let scroll_needed = scroll_rows_needed(prompt_row, terminal_rows, needed_height);
+        if scroll_needed == 0 {
+            return prompt_row;
+        }
+
+        let next_prompt_row = prompt_row.saturating_sub(scroll_needed);
+
+        if let Ok(tty_file) = OpenOptions::new().write(true).open("/dev/tty") {
+            let mut tty = BufWriter::new(tty_file);
+            let _ = execute!(
+                tty,
+                cursor::MoveTo(0, terminal_rows.saturating_sub(1)),
+                terminal::ScrollUp(scroll_needed),
+                cursor::MoveTo(0, next_prompt_row)
+            );
+            let _ = tty.flush();
+        } else {
+            let _ = execute!(
+                stderr(),
+                cursor::MoveTo(0, terminal_rows.saturating_sub(1)),
+                terminal::ScrollUp(scroll_needed),
+                cursor::MoveTo(0, next_prompt_row)
+            );
+        }
+
+        next_prompt_row
     }
 
     #[derive(Debug, Clone)]
@@ -1079,6 +1114,21 @@ mod imp {
         }
 
         #[test]
+        fn compute_list_rows_honors_cap_and_minimum() {
+            assert_eq!(compute_list_rows(50, 10), 10);
+            assert_eq!(compute_list_rows(3, 10), 3);
+            assert_eq!(compute_list_rows(0, 10), 1);
+            assert_eq!(compute_list_rows(5, 0), 1);
+        }
+
+        #[test]
+        fn scroll_rows_needed_only_when_not_enough_rows_below() {
+            assert_eq!(scroll_rows_needed(5, 24, 10), 0);
+            assert_eq!(scroll_rows_needed(20, 24, 10), 7);
+            assert_eq!(scroll_rows_needed(23, 24, 2), 2);
+        }
+
+        #[test]
         fn key_event_mapping_j_is_filter_input_not_navigation() {
             let key = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE);
             assert_eq!(map_key_event(key, false), MenuKeyAction::InputChar('j'));
@@ -1135,6 +1185,7 @@ mod imp {
         _cwd: &Path,
         _prefer_relative_paths: bool,
         _prompt_row_override: Option<u16>,
+        _max_rows: u16,
         _item_max_len: Option<usize>,
         _show_border: bool,
         _psreadline_mode: bool,

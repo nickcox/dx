@@ -67,6 +67,10 @@ Notes:
   - Default behavior (unset/empty/non-numeric): multicolumn enabled.
   - `>= 1`: multicolumn enabled with that max cell text length.
   - `<= 0`: disables multicolumn (single-column rendering).
+- `DX_MENU_MAX_ROWS`: integer cap for visible menu candidate/list rows.
+  - Default: `10`.
+  - Applies to candidate/list rows only (not total rendered menu height, which also includes status/prompt chrome).
+  - Unset/empty/invalid/non-positive values fall back to `10`.
 - `DX_MENU_BORDER`: controls whether the menu list/grid block border is shown.
   - Truthy values (`1`, `true`, `yes`, `on`) enable the border.
   - Unset/empty/`0`/`false`/`no`/`off` keeps border off (default).

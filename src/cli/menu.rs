@@ -176,6 +176,14 @@ fn parse_menu_border() -> bool {
     }
 }
 
+fn parse_menu_max_rows() -> u16 {
+    std::env::var("DX_MENU_MAX_ROWS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u16>().ok())
+        .filter(|&value| value > 0)
+        .unwrap_or(10)
+}
+
 fn parse_menu_max_results() -> usize {
     let default = 1000usize;
     let Ok(raw) = std::env::var("DX_MAX_MENU_RESULTS") else {
@@ -293,6 +301,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
 
     let item_max_len = parse_menu_item_max_len();
     let show_border = parse_menu_border();
+    let max_rows = parse_menu_max_rows();
 
     match menu::tui::select(
         initial_candidates,
@@ -300,6 +309,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         &cwd,
         prefer_relative_paths,
         cmd.prompt_row,
+        max_rows,
         item_max_len,
         show_border,
         cmd.psreadline_mode,
@@ -560,5 +570,36 @@ mod tests {
         assert_eq!(parse_menu_max_results(), 1000);
         unsafe { std::env::set_var("DX_MAX_MENU_RESULTS", "abc") };
         assert_eq!(parse_menu_max_results(), 1000);
+    }
+
+    #[test]
+    fn parse_menu_max_rows_defaults_to_10() {
+        let _guard = env_lock();
+        unsafe { std::env::remove_var("DX_MENU_MAX_ROWS") };
+        assert_eq!(parse_menu_max_rows(), 10);
+    }
+
+    #[test]
+    fn parse_menu_max_rows_uses_valid_positive_value() {
+        let _guard = env_lock();
+        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "24") };
+        assert_eq!(parse_menu_max_rows(), 24);
+    }
+
+    #[test]
+    fn parse_menu_max_rows_invalid_falls_back() {
+        let _guard = env_lock();
+
+        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "") };
+        assert_eq!(parse_menu_max_rows(), 10);
+
+        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "abc") };
+        assert_eq!(parse_menu_max_rows(), 10);
+
+        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "0") };
+        assert_eq!(parse_menu_max_rows(), 10);
+
+        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "-3") };
+        assert_eq!(parse_menu_max_rows(), 10);
     }
 }
