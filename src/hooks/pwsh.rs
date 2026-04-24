@@ -289,6 +289,7 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
 
         [Microsoft.PowerShell.PSConsoleReadLine]::Replace($result.replaceStart, $result.replaceEnd - $result.replaceStart, $result.value)
         [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($result.replaceStart + $result.value.Length)
+        [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
     }
 }
 "#,

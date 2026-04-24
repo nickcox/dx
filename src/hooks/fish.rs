@@ -291,6 +291,7 @@ function __dx_menu_complete
   set -l suffix (string sub -s (math $re + 1) -- "$buf")
   commandline -r -- "$prefix$value$suffix"
   commandline -C (math $rs + (string length "$value"))
+  commandline -f repaint
 end
 
 bind \t __dx_menu_complete

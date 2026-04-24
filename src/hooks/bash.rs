@@ -291,6 +291,7 @@ __dx_try_menu() {
 
 _dx_menu_wrapper() {
   if __dx_try_menu; then
+    [[ -t 1 ]] && printf '\r' >/dev/tty
     return 0
   fi
   local __dx_cmd="${COMP_LINE%% *}"

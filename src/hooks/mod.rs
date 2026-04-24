@@ -303,7 +303,10 @@ mod tests {
         assert!(bash.contains("__dx_json=\"$(dx menu --buffer \"$COMP_LINE\" --cursor \"$COMP_POINT\" --cwd \"$PWD\" --session \"${DX_SESSION:-}\" </dev/tty 2>/dev/tty)\" || return 1"));
         assert!(bash.contains("[[ \"$__dx_action\" == \"replace\" ]] || return 1"));
         assert!(bash.contains("(( __dx_re >= __dx_rs )) || return 1"));
-        assert!(bash.contains("if __dx_try_menu; then\n    return 0\n  fi"));
+        assert!(bash.contains("[[ -t 1 ]] && printf '\\r' >/dev/tty"));
+        assert!(bash.contains(
+            "if __dx_try_menu; then\n    [[ -t 1 ]] && printf '\\r' >/dev/tty\n    return 0\n  fi"
+        ));
         assert!(bash.contains("case \"$__dx_cmd\" in"));
 
         let zsh = generate(Shell::Zsh, false, true);
@@ -325,12 +328,14 @@ mod tests {
         assert!(fish.contains("if test (count $value_match) -lt 2"));
         assert!(fish.contains("if test $re -lt $rs"));
         assert!(fish.contains("if test $rs -gt $buflen; or test $re -gt $buflen"));
+        assert!(fish.contains("commandline -f repaint"));
 
         let pwsh = generate(Shell::Pwsh, false, true);
         assert!(pwsh.contains("if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or $first -notin $dxCmds)"));
         assert!(pwsh.contains("if ($LASTEXITCODE -ne 0 -or -not $json)"));
         assert!(pwsh.contains("$result = $json | ConvertFrom-Json"));
         assert!(pwsh.contains("if (-not $result -or $result.action -ne 'replace')"));
+        assert!(pwsh.contains("PSConsoleReadLine]::InvokePrompt()"));
         assert!(
             pwsh.contains("[Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)")
         );
