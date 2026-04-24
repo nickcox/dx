@@ -91,7 +91,7 @@ mod imp {
                 if let Ok(tty_file) = OpenOptions::new().write(true).open("/dev/tty") {
                     let mut tty = BufWriter::new(tty_file);
                     let _ = execute!(tty, cursor::MoveTo(0, self.prompt_row));
-                    for row in self.area.top()..self.area.bottom() {
+                    for row in self.prompt_row.saturating_add(1)..self.area.bottom() {
                         let _ = execute!(
                             tty,
                             cursor::MoveTo(0, row),
@@ -102,7 +102,7 @@ mod imp {
                 }
             } else {
                 let _ = execute!(stderr(), cursor::MoveTo(0, self.prompt_row));
-                for row in self.area.top()..self.area.bottom() {
+                for row in self.prompt_row.saturating_add(1)..self.area.bottom() {
                     let _ = execute!(
                         stderr(),
                         cursor::MoveTo(0, row),
@@ -245,18 +245,19 @@ mod imp {
         );
         let list_rows = compute_list_rows(metrics.rows_total, max_rows);
         let height = list_rows + if show_border { 3 } else { 2 };
+        let required_rows = required_rows_below(height, show_border);
 
         let skip_cursor_query = psreadline_mode;
         let prompt_row = if let Some(row) = prompt_row_override {
             row.min(rows.saturating_sub(1))
         } else if skip_cursor_query {
-            rows.saturating_sub(height + 1)
+            rows.saturating_sub(required_rows + 1)
         } else {
             cursor_row_via_tty().unwrap_or(rows.saturating_sub(1))
         };
-        let prompt_row = reserve_space_on_tty(prompt_row, rows, height);
+        let prompt_row = reserve_space_on_tty(prompt_row, rows, required_rows);
 
-        let menu_top = (prompt_row + 1).min(rows.saturating_sub(height));
+        let menu_top = menu_top_row(prompt_row, rows, height, show_border);
         let area = Rect::new(0, menu_top, cols, height);
 
         let use_tty_backend = psreadline_mode;
@@ -554,6 +555,21 @@ mod imp {
     fn compute_list_rows(rows_total: usize, max_rows: u16) -> u16 {
         let cap = max_rows.max(1);
         cap.min(rows_total.max(1) as u16)
+    }
+
+    fn prompt_gap_rows(show_border: bool) -> u16 {
+        if show_border { 0 } else { 1 }
+    }
+
+    fn required_rows_below(rendered_height: u16, show_border: bool) -> u16 {
+        rendered_height.saturating_add(prompt_gap_rows(show_border))
+    }
+
+    fn menu_top_row(prompt_row: u16, terminal_rows: u16, rendered_height: u16, show_border: bool) -> u16 {
+        prompt_row
+            .saturating_add(1)
+            .saturating_add(prompt_gap_rows(show_border))
+            .min(terminal_rows.saturating_sub(rendered_height))
     }
 
     fn scroll_rows_needed(prompt_row: u16, terminal_rows: u16, needed_height: u16) -> u16 {
@@ -1119,6 +1135,20 @@ mod imp {
             assert_eq!(compute_list_rows(3, 10), 3);
             assert_eq!(compute_list_rows(0, 10), 1);
             assert_eq!(compute_list_rows(5, 0), 1);
+        }
+
+        #[test]
+        fn borderless_menu_adds_prompt_gap_row() {
+            assert_eq!(prompt_gap_rows(true), 0);
+            assert_eq!(prompt_gap_rows(false), 1);
+            assert_eq!(required_rows_below(12, true), 12);
+            assert_eq!(required_rows_below(12, false), 13);
+        }
+
+        #[test]
+        fn menu_top_row_leaves_blank_line_when_borderless() {
+            assert_eq!(menu_top_row(5, 24, 10, true), 6);
+            assert_eq!(menu_top_row(5, 24, 10, false), 7);
         }
 
         #[test]
