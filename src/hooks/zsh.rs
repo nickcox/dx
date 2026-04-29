@@ -189,9 +189,6 @@ _dx_complete_dx() {
         compadd -- __DX_COMPLETE_MODES__
       fi
       ;;
-    stack)
-      _path_files -/
-      ;;
     *)
       ;;
   esac

@@ -80,6 +80,77 @@ mod tests {
         assert_eq!(single_quotes % 2, 0, "unbalanced single quotes");
     }
 
+    fn section_between<'a>(script: &'a str, start: &str, end: &str) -> &'a str {
+        let start_idx = script.find(start).expect("missing start marker");
+        let rest = &script[start_idx..];
+        let end_rel = rest.find(end).expect("missing end marker");
+        &rest[..end_rel]
+    }
+
+    fn assert_bash_root_dx_completion_contract(script: &str) {
+        let section = section_between(
+            script,
+            "_dx_complete_dx() {",
+            "\ncomplete -o default -F _dx_complete_dx dx",
+        );
+        assert!(section.contains(
+            "COMPREPLY=( $(compgen -W \"resolve complete init bookmarks stack navigate menu\" -- \"$cur\") )"
+        ));
+        assert!(section.contains("resolve)\n      _dx_complete_paths"));
+        assert!(section.contains(
+            "COMPREPLY=( $(compgen -W \"paths ancestors frecents recents stack\" -- \"$cur\") )"
+        ));
+        assert!(section.contains("stack)\n      return 1"));
+    }
+
+    fn assert_zsh_root_dx_completion_contract(script: &str) {
+        let section = section_between(
+            script,
+            "_dx_complete_dx() {",
+            "\ncompdef _dx_complete_dx dx",
+        );
+        assert!(section.contains("compadd -- resolve complete init bookmarks stack navigate menu"));
+        assert!(section.contains("resolve)\n      _dx_complete_paths"));
+        assert!(section.contains("compadd -- paths ancestors frecents recents stack"));
+        assert!(!section.contains("\n    stack)"));
+    }
+
+    fn assert_fish_root_dx_completion_contract(script: &str) {
+        let section = section_between(
+            script,
+            "complete -c dx -n '__fish_use_subcommand'",
+            "\n\ncomplete -c cd -a '(dx complete paths (commandline -ct) 2>/dev/null)'",
+        );
+        assert!(section.contains(
+            "complete -c dx -n '__fish_use_subcommand' -a 'resolve complete init bookmarks stack navigate menu'"
+        ));
+        assert!(section.contains(
+            "complete -c dx -n '__fish_seen_subcommand_from complete; and not __fish_seen_subcommand_from paths ancestors frecents recents stack' -a 'paths ancestors frecents recents stack'"
+        ));
+        assert!(section.contains(
+            "complete -c dx -n '__fish_seen_subcommand_from resolve' -a '(dx complete paths (commandline -ct) 2>/dev/null)'"
+        ));
+        assert!(!section.contains("__fish_seen_subcommand_from stack"));
+    }
+
+    fn assert_pwsh_root_dx_completion_contract(script: &str) {
+        let section = section_between(
+            script,
+            "Register-ArgumentCompleter -CommandName dx -ScriptBlock {",
+            "\n\nRegister-ArgumentCompleter -CommandName cd,Set-Location -ScriptBlock {",
+        );
+        assert!(section.contains(
+            "__dx_emit_completion @('resolve', 'complete', 'init', 'bookmarks', 'stack', 'navigate', 'menu')"
+        ));
+        assert!(section.contains(
+            "'resolve' {\n            __dx_emit_completion (__dx_complete_mode -Mode paths -Word $wordToComplete)"
+        ));
+        assert!(section.contains(
+            "__dx_emit_completion @('paths', 'ancestors', 'frecents', 'recents', 'stack')"
+        ));
+        assert!(!section.contains("'stack' {"));
+    }
+
     fn assert_no_unresolved_internal_placeholders(script: &str) {
         for token in script.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
             if token.starts_with("__DX_") {
@@ -237,7 +308,7 @@ mod tests {
         assert!(bash.contains("cd+()"));
         assert!(bash.contains("__dx_resolved=\"$(dx resolve \"$__dx_path_arg\" 2>/dev/null)\""));
         assert!(bash.contains("dx complete paths \"$cur\" 2>/dev/null"));
-        assert!(bash.contains("resolve)\n      _dx_complete_paths"));
+        assert_bash_root_dx_completion_contract(&bash);
         assert!(bash.contains("complete -o default -F _dx_complete_paths cd"));
         assert!(bash.contains("complete -F _dx_complete_stack_back cd-"));
         assert!(bash.contains("complete -F _dx_complete_stack_forward cd+"));
@@ -254,7 +325,7 @@ mod tests {
         assert!(zsh.contains("cd+()"));
         assert!(zsh.contains("__dx_resolved=\"$(dx resolve \"$__dx_path_arg\" 2>/dev/null)\""));
         assert!(zsh.contains("dx complete paths \"$cur\" 2>/dev/null"));
-        assert!(zsh.contains("resolve)\n      _dx_complete_paths"));
+        assert_zsh_root_dx_completion_contract(&zsh);
         assert!(zsh.contains("compdef _dx_complete_paths cd"));
         assert!(zsh.contains("compdef _dx_complete_stack_back back 'cd-'"));
         assert!(zsh.contains("compdef _dx_complete_stack_forward forward 'cd+'"));
@@ -271,6 +342,7 @@ mod tests {
         assert!(fish.contains("function cd+"));
         assert!(fish.contains("set -l __dx_resolved (dx resolve \"$__dx_path_arg\" 2>/dev/null)"));
         assert!(fish.contains("dx complete paths (commandline -ct) 2>/dev/null"));
+        assert_fish_root_dx_completion_contract(&fish);
         assert!(
             fish.contains("complete -c cd -a '(dx complete paths (commandline -ct) 2>/dev/null)'")
         );
@@ -289,7 +361,7 @@ mod tests {
         assert!(pwsh.contains("Set-Alias -Name 'cd+' -Value forward -Scope Global"));
         assert!(pwsh.contains("$resolved = (dx resolve $pathArg 2>$null)"));
         assert!(pwsh.contains("__dx_complete_mode -Mode paths -Word $wordToComplete"));
-        assert!(pwsh.contains("'resolve' {\n            __dx_emit_completion (__dx_complete_mode -Mode paths -Word $wordToComplete)"));
+        assert_pwsh_root_dx_completion_contract(&pwsh);
         assert!(
             pwsh.contains("Register-ArgumentCompleter -CommandName cd,Set-Location -ScriptBlock")
         );
