@@ -1,15 +1,15 @@
 ## 1. CLI and Menu Core
 
-- [x] 1.1 Add `dx menu` subcommand parsing with required inputs (`--buffer`, `--cursor`, `--cwd`, `--session`) and validation/error output contract.
+- [x] 1.1 Add `dx menu` subcommand parsing with required inputs (`--buffer`, `--cursor`, `--cwd`, `--session`) plus buffer/cursor parsing that clamps oversized cursor positions and returns noop for unsupported contexts.
 - [x] 1.2 Implement menu action model (`replace` and `noop`) with JSON serialization and deterministic stdout/stderr exit behavior.
 - [x] 1.3 Implement command-buffer parsing that maps supported contexts (`cd`, `up`, `cdf`, `z`, `cdr`, `back`, `forward`, `cd-`, `cd+`) to completion modes and query token ranges.
-- [x] 1.4 Integrate candidate sourcing by reusing existing `dx complete` mode pipelines and session-aware stack/recents behavior.
+- [x] 1.4 Integrate candidate sourcing by reusing existing `dx complete` mode pipelines and session-aware stack/recents behavior, while de-duplicating and filtering current-directory entries for non-`paths` modes.
 
 ## 2. Interactive Runtime and Fallbacks
 
 - [x] 2.1 Add MSRV-compatible TUI dependencies (`ratatui`/`crossterm`) and implement the interactive selection loop that accepts ranked candidates and returns a user selection or cancellation.
 - [x] 2.2 Implement non-interactive fallback to `noop` when TTY is unavailable, without stderr noise.
-- [x] 2.3 Implement robust failure handling for interactive initialization/rendering errors (diagnostic + non-zero exit).
+- [x] 2.3 Implement graceful failure handling for interactive initialization/rendering errors by returning noop and restoring terminal state.
 
 ## 3. Shell Hook Integration
 

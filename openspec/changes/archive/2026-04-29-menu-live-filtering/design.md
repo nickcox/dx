@@ -12,7 +12,7 @@ Constraints:
 **Goals:**
 - Support live in-menu filtering from printable key input.
 - Support backspace editing of the active in-menu filter string.
-- Keep navigation semantics (arrow, Tab/Shift+Tab, j/k) operating on the filtered list.
+- Keep navigation semantics (arrow, Tab/Shift+Tab) operating on the filtered list while reserving printable characters for filter input.
 - Match `dx complete`-style prefix filtering expectations.
 - Persist typed filter edits to shell buffer on menu exit (confirm or cancel).
 
@@ -41,7 +41,8 @@ Constraints:
 ### D3: Extend key handling for filter editing with safe defaults
 - Printable chars append to `filter_query`.
 - Backspace removes one char from `filter_query`.
-- Navigation keys unchanged and operate over `visible_candidates`.
+- Arrow keys and Tab/Shift+Tab remain navigation and operate over `visible_candidates`.
+- Printable characters such as `j` and `k` remain filter input, even though some list UIs use them for navigation.
 - Enter with empty visible set either keeps menu open or exits with typed-query replacement per UX tuning, but SHALL NOT crash.
 - Rationale: minimal, predictable editing model that matches terminal selector expectations.
 

@@ -15,7 +15,7 @@
 
 - [x] 3.1 Update status bar to show active filter text and selected full path.
 - [x] 3.2 Add explicit no-match UI state while preserving interactive input handling.
-- [x] 3.3 Keep arrow, Tab/Shift+Tab, and j/k navigation operating on filtered candidates.
+- [x] 3.3 Keep arrow and Tab/Shift+Tab navigation operating on filtered candidates while reserving printable keys like `j`/`k` for filter input.
 
 ## 4. Shell Hook and Contract Verification
 

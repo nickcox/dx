@@ -1,32 +1,42 @@
 ## ADDED Requirements
 
 ### Requirement: Multicolumn Activation via Item Max Length
-The system SHALL use `DX_MENU_ITEM_MAX_LEN` to control optional multicolumn rendering.
+The system SHALL use `DX_MENU_ITEM_MAX_LEN` to control multicolumn rendering and optional cell text length limits.
 
-- If `DX_MENU_ITEM_MAX_LEN` is unset, empty, non-numeric, or less than `1`, the menu SHALL render using single-column layout.
-- If `DX_MENU_ITEM_MAX_LEN` is a valid integer greater than or equal to `1`, the menu SHALL enable multicolumn calculations for that render cycle.
+- If `DX_MENU_ITEM_MAX_LEN` is unset, empty, or non-numeric, the menu SHALL keep multicolumn calculations enabled using default behavior with no artificial configuration cap.
+- If `DX_MENU_ITEM_MAX_LEN` is a valid integer greater than or equal to `1`, the menu SHALL enable multicolumn calculations for that render cycle and use the value as an upper bound for cell text length.
+- If `DX_MENU_ITEM_MAX_LEN` is `0` or negative, the menu SHALL render using single-column layout.
 
-#### Scenario: Invalid or missing value keeps single-column
-- **WHEN** `DX_MENU_ITEM_MAX_LEN` is unset, empty, non-numeric, or `0`
+#### Scenario: Missing or invalid value keeps default multicolumn behavior
+- **WHEN** `DX_MENU_ITEM_MAX_LEN` is unset, empty, or non-numeric
+- **THEN** the menu SHALL keep multicolumn calculations enabled without a configured cell text cap
+
+#### Scenario: Non-positive value disables multicolumn
+- **WHEN** `DX_MENU_ITEM_MAX_LEN=0`
 - **THEN** the menu SHALL render using the existing single-column layout
 
 #### Scenario: Positive value enables multicolumn calculations
 - **WHEN** `DX_MENU_ITEM_MAX_LEN=24`
-- **THEN** the menu SHALL calculate columns using max item length `24` plus padding
+- **THEN** the menu SHALL calculate columns using an effective max item length no greater than `24`, plus padding
 
 ### Requirement: Dynamic Column Count Calculation
-In multicolumn mode, the system SHALL calculate possible columns from terminal width and configured cell width.
+In multicolumn mode, the system SHALL calculate possible columns from terminal width and effective cell width.
 
-- `cell_width` SHALL be derived from `DX_MENU_ITEM_MAX_LEN` plus a fixed padding allowance.
-- `columns` SHALL be `max(1, floor(terminal_width / cell_width))`.
+- `effective_item_max_len` SHALL be derived from the longest visible label and any positive `DX_MENU_ITEM_MAX_LEN` cap.
+- `cell_width` SHALL be derived from `effective_item_max_len` plus a fixed padding allowance.
+- `columns` SHALL be `max(1, floor(terminal_width / cell_width))`, capped at the number of visible items.
 
 #### Scenario: Width supports multiple columns
-- **WHEN** terminal width is `120`, `DX_MENU_ITEM_MAX_LEN=24`, and padding yields `cell_width=28`
-- **THEN** the system SHALL calculate `columns=4`
+- **WHEN** terminal width is `120`, the longest visible label is `18` characters, `DX_MENU_ITEM_MAX_LEN=24`, and padding yields `cell_width=20`
+- **THEN** the system SHALL calculate `columns=6`
 
 #### Scenario: Width supports only one column
 - **WHEN** terminal width is less than `2 * cell_width`
 - **THEN** the system SHALL calculate `columns=1` and render effectively as single-column
+
+#### Scenario: Effective max length uses visible label width
+- **WHEN** the longest visible label is `3` characters and `DX_MENU_ITEM_MAX_LEN=10`
+- **THEN** the system SHALL use `3` as the effective item max length for layout calculations
 
 ### Requirement: Deterministic Grid Ordering
 In multicolumn mode, the candidate display SHALL preserve original candidate ordering and map candidates into a deterministic row-major grid.

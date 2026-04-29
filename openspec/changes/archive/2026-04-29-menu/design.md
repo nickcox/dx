@@ -14,7 +14,7 @@ Constraints:
 **Goals:**
 - Add a new `dx menu` subcommand that returns a structured edit operation for shell command-line buffers.
 - Define a shell-agnostic input/output contract for menu invocation (`buffer`, `cursor`, `cwd`, `session`).
-- Reuse existing completion candidate sources and ranking so menu results are consistent with non-menu behavior.
+- Reuse existing completion candidate sources and ranking so menu results stay consistent with non-menu behavior, while allowing mode-specific de-duplication and current-directory filtering.
 - Support cancellation/no-result flows without mutating shell buffers.
 - Add opt-in hook wiring for invoking menu in dx command contexts without breaking default shell completion globally.
 
@@ -55,9 +55,9 @@ Or cancellation/no-op:
 
 ### D2: Candidate sourcing reuses existing completion modes
 
-**Choice:** `dx menu` maps command context to existing completion modes (`paths`, `ancestors`, `frecents`, `recents`, `stack`) and reuses the same filtering/ranking pipeline.
+**Choice:** `dx menu` maps command context to existing completion modes (`paths`, `ancestors`, `frecents`, `recents`, `stack`) and reuses the same filtering/ranking pipeline, with menu-side de-duplication and current-directory filtering for non-`paths` modes.
 
-**Rationale:** Avoids duplicate matching logic and guarantees that menu and non-menu suggestions stay aligned.
+**Rationale:** Avoids duplicate matching logic while preserving the menu-specific rule that non-`paths` modes should not offer the current working directory as a selection target.
 
 **Alternatives considered:**
 - Separate menu ranking engine: higher maintenance and likely behavioral drift.
@@ -74,7 +74,7 @@ Or cancellation/no-op:
 
 ### D4: TTY-aware and dependency-aware fallback behavior
 
-**Choice:** If terminal interaction is unavailable or menu rendering fails, hooks fall back to existing `dx complete` behavior (or native completion path) without changing command semantics.
+**Choice:** If terminal interaction is unavailable or menu rendering fails, `dx menu` returns `noop` and hooks fall back to existing `dx complete` behavior (or native completion path) without changing command semantics.
 
 **Rationale:** Maintains reliability in CI, remote sessions, and minimal terminals.
 
@@ -118,6 +118,15 @@ Or cancellation/no-op:
 **Alternatives considered:**
 - Always-on stderr logs: noisy and can interfere with shell completion behavior.
 
+### D9: Lenient cursor handling
+
+**Choice:** `dx menu` clamps `--cursor` to the buffer length instead of treating oversized cursor positions as hard errors.
+
+**Rationale:** Shell integrations may report cursor positions conservatively; clamping keeps the menu usable and preserves deterministic replacement semantics.
+
+**Alternatives considered:**
+- Non-zero error on oversized cursor: stricter, but unnecessarily fragile for shell integration edge cases.
+
 ## Risks / Trade-offs
 
 - [Risk] Terminal UI behavior differs across emulators -> Mitigation: Keep menu rendering minimal, add snapshot/contract tests for output actions, and provide fallback path.
@@ -128,7 +137,7 @@ Or cancellation/no-op:
 
 ## Migration Plan
 
-1. Implement `dx menu` CLI entry point and buffer/action schema with noop path.
+1. Implement `dx menu` CLI entry point and buffer/action schema with noop path and lenient cursor clamping.
 2. Integrate candidate mapping to existing completion modes and selector pipeline.
 3. Add opt-in hook glue for Bash/Zsh/Fish/PowerShell to call `dx menu` and apply returned edits.
 4. Implement split I/O behavior for completion contexts (TTY input/rendering + JSON stdout contract).

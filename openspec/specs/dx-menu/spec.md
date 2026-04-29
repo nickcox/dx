@@ -1,4 +1,7 @@
-## ADDED Requirements
+## Purpose
+Define expected behavior for the `dx menu` interactive selector, including buffer parsing, candidate sourcing, fallback behavior, completion-context interactivity, terminal cleanup, and shell buffer replacement semantics.
+
+## Requirements
 
 ### Requirement: dx menu Command Contract
 The system SHALL provide a `dx menu` subcommand for interactive, context-aware selection. The command SHALL accept shell buffer context inputs and emit a structured JSON action describing how the shell should update its command line.
@@ -13,19 +16,19 @@ The command SHALL output JSON to stdout with one of:
 - `{ "action": "replace", "replaceStart": <int>, "replaceEnd": <int>, "value": <string> }`
 - `{ "action": "noop" }`
 
-If required inputs are invalid (for example cursor out of range), the command SHALL print a diagnostic to stderr and exit non-zero.
+If `--cursor` exceeds the buffer length, the command SHALL clamp it to the end of the provided buffer before parsing command context.
 
 #### Scenario: Replace action returned after selection
 - **WHEN** `dx menu` is invoked with valid `--buffer`, `--cursor`, `--cwd`, and `--session`, and the user selects a candidate
 - **THEN** stdout SHALL contain a JSON object with `action=replace`, replacement bounds, and replacement value, and exit code SHALL be 0
 
-#### Scenario: Noop action on cancel
-- **WHEN** `dx menu` is invoked with valid inputs and the user cancels the menu
+#### Scenario: Noop action on cancel without query edits
+- **WHEN** `dx menu` is invoked with valid inputs, the user does not change the active query, and the user cancels the menu
 - **THEN** stdout SHALL contain `{ "action": "noop" }` and exit code SHALL be 0
 
-#### Scenario: Invalid cursor input
+#### Scenario: Out-of-range cursor is clamped
 - **WHEN** `dx menu --buffer "cd proj" --cursor 999` is invoked
-- **THEN** the command SHALL print a diagnostic to stderr and exit non-zero
+- **THEN** the command SHALL treat the cursor as if it were positioned at the end of `cd proj`
 
 ### Requirement: Context-to-Mode Mapping
 `dx menu` SHALL infer the candidate source mode from command-buffer context and map to existing completion capabilities:
@@ -52,33 +55,44 @@ If buffer context does not match a supported dx navigation command, `dx menu` SH
 - **THEN** it SHALL return `{ "action": "noop" }`
 
 ### Requirement: Candidate Source Reuse
-`dx menu` SHALL reuse the same candidate-generation and ordering rules as `dx complete` for each mapped mode. Menu candidate ordering SHALL be identical to the corresponding `dx complete` output for equivalent query and context.
+`dx menu` SHALL reuse the same candidate-generation pipelines as `dx complete` for each mapped mode.
+
+For `paths` mode, menu candidate ordering SHALL match the corresponding `dx complete` output for equivalent query and cwd.
+
+For non-`paths` modes, menu candidate ordering SHALL preserve the underlying provider order after de-duplication and removal of any candidate that resolves to the current working directory.
 
 For mapped modes requiring session context (`recents`, `stack`), `dx menu` SHALL use the provided `--session` value.
 
 #### Scenario: Ancestors ordering parity
 - **WHEN** `dx menu` maps to `ancestors` from `/home/user/code/projects/dx`
-- **THEN** candidate ordering SHALL match `dx complete ancestors` ordering for the same cwd
+- **THEN** candidate ordering SHALL preserve the same provider-relative ordering as `dx complete ancestors` after any exact current-directory entry is removed
 
 #### Scenario: Frecents parity with provider output
 - **WHEN** `dx menu` maps to `frecents` with query `proj`
-- **THEN** candidates SHALL match `dx complete frecents proj` ordering
+- **THEN** candidates SHALL preserve the same provider-relative ordering used by `dx complete frecents proj`, except that duplicates and any exact current-directory entry MAY be removed
 
 #### Scenario: Stack mode uses provided session
 - **WHEN** `dx menu` maps to stack mode with `--session 12345`
 - **THEN** candidates SHALL be sourced from session `12345` stack history
 
-### Requirement: Non-Interactive Fallback Behavior
-If interactive menu rendering is unavailable, `dx menu` SHALL degrade gracefully by returning `noop` with exit code 0 and no stderr diagnostics.
+### Requirement: Single-Candidate Fast Path
+When initial candidate sourcing yields exactly one candidate and there are no additional hidden candidates, `dx menu` MAY return a final `replace` action immediately without starting the interactive TUI.
 
-If interactive initialization fails after startup, `dx menu` SHALL return `noop` and restore terminal state before exit.
+#### Scenario: Non-interactive single candidate returns replace
+- **WHEN** `dx menu` is invoked without interactive stdin and initial candidate sourcing yields exactly one candidate with no overflow
+- **THEN** the command MAY return a `replace` action for that candidate instead of `noop`
+
+### Requirement: Non-Interactive Fallback Behavior
+If interactive menu rendering is unavailable and the command does not take the single-candidate fast path, `dx menu` SHALL degrade gracefully by returning `noop` with exit code 0 and no stderr diagnostics unless opt-in debug logging is enabled.
+
+If interactive initialization, rendering, or event handling becomes unavailable during startup or runtime, `dx menu` SHALL return `noop` and restore terminal state before exit when terminal setup had already begun.
 
 #### Scenario: No interactive stdin returns noop
-- **WHEN** `dx menu` is invoked without interactive stdin
+- **WHEN** `dx menu` is invoked without interactive stdin and initial candidate sourcing does not produce exactly one final candidate
 - **THEN** it SHALL output `{ "action": "noop" }` and exit 0
 
-#### Scenario: Interactive startup failure returns noop safely
-- **WHEN** `dx menu` begins interactive initialization and encounters a terminal runtime error
+#### Scenario: Interactive runtime failure returns noop safely
+- **WHEN** `dx menu` begins interactive initialization or rendering and encounters a terminal runtime error
 - **THEN** it SHALL return `{ "action": "noop" }` and leave terminal state restored
 
 ### Requirement: Completion-Context Interactivity Contract
@@ -101,7 +115,7 @@ Terminal restoration SHALL include raw mode disablement and alternate-screen/mou
 
 #### Scenario: Ctrl+C cancel restores terminal state
 - **WHEN** the user presses Ctrl+C while the menu is open
-- **THEN** `dx menu` SHALL return `{ "action": "noop" }` and restore terminal state before returning control to the shell
+- **THEN** `dx menu` SHALL restore terminal state before returning its final action to the shell
 
 #### Scenario: Render error restores terminal state
 - **WHEN** a draw/read error occurs during interactive menu execution
@@ -115,13 +129,31 @@ When interactive mode starts with available candidates, `dx menu` SHALL keep the
 - **THEN** it SHALL remain visible and await user input instead of immediately returning `noop`
 
 ### Requirement: Selection Replacement Semantics
-For `replace` actions, `replaceStart` and `replaceEnd` SHALL define a half-open byte range in the original buffer to replace. `value` SHALL be the selected absolute directory path (or a command token that includes it when mode requires command context preservation).
+For `replace` actions, `replaceStart` and `replaceEnd` SHALL define a half-open byte range in the original buffer to replace. `value` SHALL be the formatted replacement token produced for the selected candidate.
+
+For `paths` mode, the replacement formatter SHALL preserve the user's query style when practical:
+
+- cwd-relative selections MAY be emitted as `./child/`
+- parent-relative selections MAY be emitted as `../sibling/`
+- explicitly absolute input SHALL preserve absolute replacement output
+
+Paths-mode replacements SHALL include a trailing slash and MAY include shell quoting when needed for the selected path text.
+
+For non-`paths` modes, replacements SHALL identify the selected destination without a trailing slash and MAY include shell quoting when needed.
 
 Replacement bounds SHALL only target the active query token under the cursor and SHALL NOT modify unrelated buffer segments.
 
+#### Scenario: Relative query preserves dot-slash style
+- **WHEN** buffer is `cd b`, cwd contains `./benches`, and the selected candidate is that child directory
+- **THEN** the returned replacement value MAY be `./benches/`
+
+#### Scenario: Explicit absolute query preserves absolute replacement
+- **WHEN** buffer is `cd /tmp/b`, the selected candidate is `/tmp/benches`, and `paths` mode is active
+- **THEN** the returned replacement value SHALL be `/tmp/benches/`
+
 #### Scenario: Replace only query token
-- **WHEN** buffer is `cd pr --flag` and user selects `/home/user/projects`
-- **THEN** replacement bounds SHALL cover only `pr`, and resulting buffer SHALL be `cd /home/user/projects --flag`
+- **WHEN** buffer is `cd pr --flag` and the selected replacement token is `./projects/`
+- **THEN** replacement bounds SHALL cover only `pr`, and resulting buffer SHALL be `cd ./projects/ --flag`
 
 #### Scenario: Preserve command prefix
 - **WHEN** buffer is `up co` and user selects `/home/user/code`

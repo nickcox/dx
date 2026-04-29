@@ -7,7 +7,7 @@ The current menu supports selection from an initial candidate list, but users ca
 - Add in-menu live filtering so printable keystrokes narrow the currently displayed menu items in real time.
 - Add backspace-based filter editing and empty-state behavior when no entries match.
 - Commit typed filter text back into the shell buffer when the menu exits, including cancel paths, so user refinement is not lost.
-- Keep existing navigation controls (arrow keys, Tab/Shift+Tab, and vim j/k) and make them operate on the filtered list.
+- Keep list navigation on arrow keys and Tab/Shift+Tab while treating printable characters, including `j`/`k`, as filter input.
 
 ## Capabilities
 

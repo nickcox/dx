@@ -1,7 +1,7 @@
 ## 1. Configuration and Mode Wiring
 
 - [x] 1.1 Parse `DX_MENU_ITEM_MAX_LEN` in menu runtime and validate integer semantics
-- [x] 1.2 Keep single-column as default when value is missing/empty/non-numeric/<1
+- [x] 1.2 Keep multicolumn as the default for missing/empty/non-numeric values and use non-positive values to disable it
 - [x] 1.3 Thread parsed item max length into TUI render path without changing action output contracts
 
 ## 2. Multicolumn Layout Engine
@@ -20,7 +20,7 @@
 
 ## 4. Verification
 
-- [x] 4.1 Add unit/integration tests for activation/default fallback behavior
+- [x] 4.1 Add unit/integration tests for activation, default multicolumn behavior, and disable fallback behavior
 - [x] 4.2 Add tests for dynamic column calculation across terminal widths
 - [x] 4.3 Add tests for row-major ordering, navigation behavior, and truncation semantics
 - [x] 4.4 Add tests to verify JSON action protocol compatibility (`replace`/`noop`) in multicolumn mode

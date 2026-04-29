@@ -5,9 +5,9 @@
 ## What Changes
 
 - Add a new `dx menu` command that opens an interactive selector for navigation candidates based on command-buffer context.
-- Define a shell-agnostic buffer protocol so shell hooks can pass `buffer`, `cursor`, `cwd`, and `session` context to `dx menu` and apply a structured replacement result.
+- Define a shell-agnostic buffer protocol so shell hooks can pass `buffer`, `cursor`, `cwd`, and `session` context to `dx menu`, with out-of-range cursors clamped to the buffer end and structured replacement results returned to the shell.
 - Add shell hook integration points for invoking `dx menu` from an opt-in keybinding path while preserving default completion behavior outside dx navigation contexts.
-- Add graceful no-TUI fallback behavior for non-interactive terminals and cancellation paths.
+- Add graceful `noop` fallback behavior for non-interactive terminals and terminal-runtime failure paths.
 
 ## Capabilities
 

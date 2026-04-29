@@ -5,9 +5,9 @@ The current single-column menu becomes hard to scan when many candidates are pre
 ## What Changes
 
 - Add optional multicolumn display mode for `dx menu` candidate lists.
-- Use `DX_MENU_ITEM_MAX_LEN` as the activation and sizing control for multicolumn rendering.
-- Keep single-column layout as the default when `DX_MENU_ITEM_MAX_LEN` is unset, empty, non-numeric, or less than `1`.
-- Compute column count dynamically from terminal width and configured item max length plus padding.
+- Use `DX_MENU_ITEM_MAX_LEN` as the sizing and enable/disable control for multicolumn rendering.
+- Keep multicolumn enabled by default when `DX_MENU_ITEM_MAX_LEN` is unset, empty, or non-numeric, and allow single-column opt-out with non-positive values.
+- Compute column count dynamically from terminal width and effective item max length plus padding.
 - Keep final replacement JSON action semantics unchanged so shell hooks do not require protocol changes.
 
 ## Capabilities

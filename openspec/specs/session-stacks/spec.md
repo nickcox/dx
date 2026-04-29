@@ -30,19 +30,19 @@ The system SHALL NOT attempt to auto-detect the parent shell PID.
 If neither `--session` nor `DX_SESSION` is provided, the command SHALL fail with a non-zero exit code and a diagnostic on stderr.
 
 #### Scenario: Session ID from CLI flag
-- **WHEN** `dx push /foo --session 12345` is invoked
+- **WHEN** `dx stack push /foo --session 12345` is invoked
 - **THEN** the system SHALL operate on session file `12345.json`
 
 #### Scenario: Session ID from environment variable
-- **WHEN** `DX_SESSION=12345` is set and `dx undo` is invoked without `--session`
+- **WHEN** `DX_SESSION=12345` is set and `dx stack undo` is invoked without `--session`
 - **THEN** the system SHALL operate on session file `12345.json`
 
 #### Scenario: CLI flag overrides environment variable
-- **WHEN** `DX_SESSION=11111` is set and `dx undo --session 22222` is invoked
+- **WHEN** `DX_SESSION=11111` is set and `dx stack undo --session 22222` is invoked
 - **THEN** the system SHALL operate on session file `22222.json`
 
 #### Scenario: No session ID provided
-- **WHEN** `dx push /foo` is invoked with no `--session` flag and `DX_SESSION` is unset
+- **WHEN** `dx stack push /foo` is invoked with no `--session` flag and `DX_SESSION` is unset
 - **THEN** the command SHALL exit with a non-zero code and print a diagnostic to stderr
 
 ### Requirement: Session File Schema
@@ -68,7 +68,7 @@ Each session file SHALL be a JSON object with the following structure:
 - **THEN** the system SHALL treat the session as empty (as if no file existed) and overwrite it on next write
 
 ### Requirement: Push Operation
-`dx push <path>` SHALL record a new directory in the session:
+`dx stack push <path>` SHALL record a new directory in the session:
 1. If the session has an existing `cwd`, push it onto the `undo` stack.
 2. Set `cwd` to the provided `<path>`.
 3. Clear the `redo` stack (new navigation branch).
@@ -78,19 +78,19 @@ Each session file SHALL be a JSON object with the following structure:
 If `<path>` equals the current `cwd`, the push SHALL be a no-op (no duplicate entry, redo preserved) and still print the path and exit 0.
 
 #### Scenario: Push onto empty session
-- **WHEN** `dx push /home/user --session 100` is invoked with no existing session file
+- **WHEN** `dx stack push /home/user --session 100` is invoked with no existing session file
 - **THEN** session state SHALL be `{ "cwd": "/home/user", "undo": [], "redo": [] }` and stdout SHALL contain `/home/user`
 
 #### Scenario: Push with existing history
-- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b"], "redo": ["/c"] }` and `dx push /d --session 100` is invoked
+- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b"], "redo": ["/c"] }` and `dx stack push /d --session 100` is invoked
 - **THEN** session state SHALL be `{ "cwd": "/d", "undo": ["/b", "/a"], "redo": [] }` and stdout SHALL contain `/d`
 
 #### Scenario: Push duplicate of current directory
-- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b"], "redo": ["/c"] }` and `dx push /a --session 100` is invoked
+- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b"], "redo": ["/c"] }` and `dx stack push /a --session 100` is invoked
 - **THEN** session state SHALL remain `{ "cwd": "/a", "undo": ["/b"], "redo": ["/c"] }` and stdout SHALL contain `/a`
 
 ### Requirement: Undo Operation
-`dx undo` SHALL non-destructively navigate backward:
+`dx stack undo` SHALL non-destructively navigate backward:
 1. If the `undo` stack is empty, fail with a non-zero exit code and print a diagnostic to stderr.
 2. Otherwise, push the current `cwd` onto the `redo` stack.
 3. Pop the top entry from `undo` and set it as `cwd`.
@@ -98,19 +98,19 @@ If `<path>` equals the current `cwd`, the push SHALL be a no-op (no duplicate en
 5. Exit with code 0.
 
 #### Scenario: Undo with history
-- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b", "/c"], "redo": [] }` and `dx undo --session 100` is invoked
+- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b", "/c"], "redo": [] }` and `dx stack undo --session 100` is invoked
 - **THEN** session state SHALL be `{ "cwd": "/c", "undo": ["/b"], "redo": ["/a"] }` and stdout SHALL contain `/c`
 
 #### Scenario: Multiple consecutive undos
-- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b", "/c"], "redo": [] }` and `dx undo` is invoked twice
+- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b", "/c"], "redo": [] }` and `dx stack undo` is invoked twice
 - **THEN** after first undo: `{ "cwd": "/c", "undo": ["/b"], "redo": ["/a"] }` and after second undo: `{ "cwd": "/b", "undo": [], "redo": ["/a", "/c"] }`
 
 #### Scenario: Undo with empty undo stack
-- **WHEN** session state is `{ "cwd": "/a", "undo": [], "redo": ["/b"] }` and `dx undo --session 100` is invoked
+- **WHEN** session state is `{ "cwd": "/a", "undo": [], "redo": ["/b"] }` and `dx stack undo --session 100` is invoked
 - **THEN** the command SHALL exit with a non-zero code and print a diagnostic to stderr, and session state SHALL be unchanged
 
 ### Requirement: Redo Operation
-`dx redo` SHALL non-destructively navigate forward:
+`dx stack redo` SHALL non-destructively navigate forward:
 1. If the `redo` stack is empty, fail with a non-zero exit code and print a diagnostic to stderr.
 2. Otherwise, push the current `cwd` onto the `undo` stack.
 3. Pop the top entry from `redo` and set it as `cwd`.
@@ -118,18 +118,18 @@ If `<path>` equals the current `cwd`, the push SHALL be a no-op (no duplicate en
 5. Exit with code 0.
 
 #### Scenario: Redo after undo
-- **WHEN** session state is `{ "cwd": "/c", "undo": ["/b"], "redo": ["/a"] }` and `dx redo --session 100` is invoked
+- **WHEN** session state is `{ "cwd": "/c", "undo": ["/b"], "redo": ["/a"] }` and `dx stack redo --session 100` is invoked
 - **THEN** session state SHALL be `{ "cwd": "/a", "undo": ["/b", "/c"], "redo": [] }` and stdout SHALL contain `/a`
 
 #### Scenario: Redo with empty redo stack
-- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b"], "redo": [] }` and `dx redo --session 100` is invoked
+- **WHEN** session state is `{ "cwd": "/a", "undo": ["/b"], "redo": [] }` and `dx stack redo --session 100` is invoked
 - **THEN** the command SHALL exit with a non-zero code and print a diagnostic to stderr, and session state SHALL be unchanged
 
 ### Requirement: Redo Cleared on Push
-When `dx push` records a new directory (that is not a duplicate of `cwd`), the `redo` stack SHALL be cleared. This enforces standard undo/redo branch semantics - navigating to a new location discards the forward history.
+When `dx stack push` records a new directory (that is not a duplicate of `cwd`), the `redo` stack SHALL be cleared. This enforces standard undo/redo branch semantics - navigating to a new location discards the forward history.
 
 #### Scenario: Push after undo clears redo
-- **WHEN** session state is `{ "cwd": "/c", "undo": ["/b"], "redo": ["/a"] }` and `dx push /d --session 100` is invoked
+- **WHEN** session state is `{ "cwd": "/c", "undo": ["/b"], "redo": ["/a"] }` and `dx stack push /d --session 100` is invoked
 - **THEN** session state SHALL be `{ "cwd": "/d", "undo": ["/b", "/c"], "redo": [] }`
 
 ### Requirement: Atomic File Writes
@@ -148,16 +148,18 @@ This ensures readers never observe a partially-written file.
 - **THEN** the session file SHALL contain valid, complete JSON after the operation
 
 ### Requirement: Output Contract
-All stack subcommands (`push`, `undo`, `redo`) SHALL follow a consistent output contract:
+All stack action subcommands (`dx stack push`, `dx stack undo`, `dx stack redo`) SHALL follow a consistent output contract:
 - **On success**: Print exactly one absolute path to stdout, followed by a newline. Exit with code 0.
 - **On failure**: Print nothing to stdout. Print a human-readable diagnostic to stderr. Exit with a non-zero code.
 
+`dx stack --list` and `dx stack --clear` SHALL follow their own command-specific output contracts as defined by stack inspection and stack maintenance capabilities.
+
 #### Scenario: Successful operation output
-- **WHEN** `dx undo --session 100` succeeds and the restored path is `/home/user`
+- **WHEN** `dx stack undo --session 100` succeeds and the restored path is `/home/user`
 - **THEN** stdout SHALL contain exactly `/home/user\n` and the exit code SHALL be 0
 
 #### Scenario: Failed operation output
-- **WHEN** `dx undo --session 100` fails because the undo stack is empty
+- **WHEN** `dx stack undo --session 100` fails because the undo stack is empty
 - **THEN** stdout SHALL be empty, stderr SHALL contain a diagnostic message, and the exit code SHALL be non-zero
 
 ### Requirement: Stale Session Cleanup

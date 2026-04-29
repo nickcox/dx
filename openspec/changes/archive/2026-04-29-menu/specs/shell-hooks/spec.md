@@ -45,7 +45,7 @@ Shell hooks SHALL NOT treat captured stdout as a reason to bypass menu invocatio
 Shell hooks SHALL parse `dx menu` JSON output and apply actions deterministically:
 
 - `action=replace`: update only the indicated buffer range with `value` and place cursor at end of replacement.
-- `action=noop`: leave buffer and cursor unchanged.
+- `action=noop`: leave the menu payload unapplied and fall back to existing non-menu completion behavior.
 
 If JSON parsing fails or action payload is invalid, hooks SHALL leave buffer unchanged and fall back to existing non-menu behavior.
 
@@ -53,9 +53,9 @@ If JSON parsing fails or action payload is invalid, hooks SHALL leave buffer unc
 - **WHEN** `dx menu` returns `{ "action": "replace", "replaceStart": 3, "replaceEnd": 5, "value": "/tmp" }` for buffer `cd pr`
 - **THEN** shell hook SHALL update command line to `cd /tmp` and move cursor to end of `/tmp`
 
-#### Scenario: Noop action keeps buffer
+#### Scenario: Noop action falls back safely
 - **WHEN** `dx menu` returns `{ "action": "noop" }`
-- **THEN** shell hook SHALL keep command line and cursor unchanged
+- **THEN** shell hook SHALL avoid applying a menu replacement and SHALL fall back to existing completion behavior
 
 #### Scenario: Invalid action falls back safely
 - **WHEN** `dx menu` returns malformed JSON

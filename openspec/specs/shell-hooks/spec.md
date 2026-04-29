@@ -117,17 +117,35 @@ Menu-enabled hook invocations SHALL pass the interactive shell's current working
 ### Requirement: Menu Action Boundary and Native Fallback
 When menu mode is enabled, hooks SHALL treat stdout from `dx menu` as a structured action payload channel.
 
-Successful replace actions SHALL apply `replaceStart`, `replaceEnd`, and `value` to the shell buffer. `noop`, invalid payloads, non-replace actions where replacement is required, command failure, no candidates, and non-interactive execution paths SHALL all fall back to native completion behavior for the current shell.
+Successful replace actions SHALL update the shell buffer using the returned `value`.
+
+Shells with direct buffer-editing APIs (Zsh, Fish, and PowerShell) SHALL apply `replaceStart`, `replaceEnd`, and `value` exactly to the shell buffer.
+
+Bash SHALL validate the replace payload fields, but MAY rely on Readline completion semantics to insert `value` rather than directly applying `replaceStart` and `replaceEnd` itself.
+
+`noop`, invalid payloads, non-replace actions where replacement is required, command failure, no candidates, and non-interactive execution paths SHALL all fall back to native completion behavior for the current shell.
 
 POSIX hooks SHALL keep deterministic dependency-free payload validation. PowerShell SHALL continue structured parsing via `ConvertFrom-Json` and native completion fallback via `TabCompleteNext`.
 
 #### Scenario: Replace action updates the shell buffer
-- **WHEN** `dx menu` returns a `replace` action with `replaceStart`, `replaceEnd`, and `value`
+- **WHEN** Zsh, Fish, or PowerShell receives a `replace` action with `replaceStart`, `replaceEnd`, and `value`
 - **THEN** the hook SHALL replace exactly that span in the shell buffer with the returned value
+
+#### Scenario: Bash uses value-oriented completion insertion
+- **WHEN** Bash receives a valid `replace` action from `dx menu`
+- **THEN** the hook SHALL validate the returned range fields and use the returned `value` as the completion insertion payload, relying on Readline to perform the replacement
+
+#### Scenario: Cancelled menu may still return replace after typed edits
+- **WHEN** `dx menu` returns a `replace` action after the user types filter text and then cancels
+- **THEN** the hook SHALL still apply the returned replacement using that shell's normal `replace` handling path
 
 #### Scenario: Noop or invalid payload falls back natively
 - **WHEN** `dx menu` returns `noop`, invalid payload data, or exits non-zero
 - **THEN** the hook SHALL invoke the shell's native completion fallback instead of applying a replacement
+
+#### Scenario: Noop leaves menu payload unapplied
+- **WHEN** `dx menu` returns `{ "action": "noop" }`
+- **THEN** the hook SHALL avoid mutating the shell buffer from the menu payload and SHALL continue with native fallback behavior
 
 #### Scenario: PowerShell menu fallback remains PSReadLine-native
 - **WHEN** menu-enabled PowerShell hook execution receives `noop`, invalid JSON, missing JSON, or a non-`replace` action
@@ -143,10 +161,11 @@ When the PowerShell menu integration invokes `dx menu --psreadline-mode`, POSIX-
 ### Requirement: dx Subcommand Completion Dispatch
 When completing arguments for `dx` itself, the completion function SHALL inspect the subcommand position and dispatch accordingly:
 
+- At the first argument position, hooks SHALL offer the top-level subcommands `resolve`, `complete`, `init`, `bookmarks`, `stack`, `navigate`, and `menu`
 - `dx resolve ...` SHALL complete using `dx complete paths`
 - `dx complete ...` SHALL complete mode names: `paths`, `ancestors`, `frecents`, `recents`, `stack`
-- `dx push ...` SHALL fall through to filesystem default completion in shells that support native fallback
-- Other subcommands (`undo`, `redo`, `bookmarks`, `init`, `navigate`) SHALL NOT offer path completion
+- `dx stack ...` SHALL currently use shell-specific fallback behavior rather than a shared generated subcommand tree: Bash falls back to default/native completion, Zsh delegates to directory completion, and Fish/PowerShell provide no dedicated second-level completion
+- Other subcommands (`init`, `bookmarks`, `navigate`, `menu`) SHALL not receive dedicated generated argument completion beyond each shell's default behavior
 
 #### Scenario: Complete dx resolve argument
 - **WHEN** the user types `dx resolve pr<TAB>` in a hooked shell
@@ -155,6 +174,14 @@ When completing arguments for `dx` itself, the completion function SHALL inspect
 #### Scenario: Complete dx complete mode name
 - **WHEN** the user types `dx complete <TAB>` in a hooked shell
 - **THEN** the completion function SHALL offer `paths`, `ancestors`, `frecents`, `recents`, `stack` as candidates
+
+#### Scenario: Bash dx stack falls back to default completion
+- **WHEN** the user types `dx stack <TAB>` in a hooked Bash shell
+- **THEN** the generated `dx` completion function SHALL fall back to Bash's default completion behavior instead of offering a generated `dx stack` subcommand tree
+
+#### Scenario: Zsh dx stack delegates to directory completion
+- **WHEN** the user types `dx stack <TAB>` in a hooked Zsh shell
+- **THEN** the generated completion function SHALL delegate to `_path_files -/`
 
 ### Requirement: Navigation Wrapper Completion Bindings
 Each navigation wrapper function generated by `dx init` SHALL have a dedicated completion binding that invokes the matching `dx complete` mode with the current word as query:
@@ -168,7 +195,7 @@ Each navigation wrapper function generated by `dx init` SHALL have a dedicated c
 | `cd-` | `dx complete stack --direction back <word>` |
 | `cd+` | `dx complete stack --direction forward <word>` |
 
-The completion function names SHALL use a `_dx_complete_` prefix (for example `_dx_complete_ancestors`) to avoid namespace collisions with user-defined functions.
+Generated Bash and Zsh completion helper function names SHALL use a `_dx_complete_` prefix (for example `_dx_complete_ancestors`) to avoid namespace collisions with user-defined functions.
 
 #### Scenario: up completion invokes ancestors mode
 - **WHEN** the user types `up co<TAB>` in a hooked Zsh shell
@@ -189,15 +216,15 @@ The `cd-` and `back` wrappers SHALL be aliases for the same behavior (navigate b
 
 Navigation wrappers fall into three categories with distinct stack interaction contracts:
 
-**Forward-navigation wrappers** (`up`): Before navigating, the wrapper SHALL call `dx push $PWD` to seed the current directory as session baseline. After the shell's native cd completes, the wrapper SHALL call `dx push` again to record the destination.
+**Forward-navigation wrappers** (`up`): Before navigating, the wrapper SHALL call `dx stack push $PWD` to seed the current directory as session baseline. After the shell's native cd completes, the wrapper SHALL call `dx stack push` again to record the destination.
 
-**Stack-transition wrappers** (`back`, `forward`, `cd-`, `cd+`): These wrappers traverse existing undo/redo history. They SHALL call `dx undo` (for back) or `dx redo` (for forward). They SHALL NOT call `dx push`. When a selector is provided, `dx navigate` resolves the target path first, then `dx undo --target <path>` or `dx redo --target <path>` consumes entries until the target is reached.
+**Stack-transition wrappers** (`back`, `forward`, `cd-`, `cd+`): These wrappers traverse existing undo/redo history. They SHALL call `dx stack undo` (for back) or `dx stack redo` (for forward). They SHALL NOT call `dx stack push`. When a selector is provided, `dx navigate` resolves the target path first, then `dx stack undo --target <path>` or `dx stack redo --target <path>` consumes entries until the target is reached.
 
-**Jump wrappers** (`cdf`/`z`, `cdr`): These wrappers SHALL obtain a destination candidate from `dx complete <mode>` and navigate to the first result. After successful native cd, they SHALL call `dx push` to record the destination.
+**Jump wrappers** (`cdf`/`z`, `cdr`): These wrappers SHALL obtain a destination candidate from `dx complete <mode>` and navigate to the first result. After successful native cd, they SHALL call `dx stack push` to record the destination.
 
 #### Scenario: up with no argument
 - **WHEN** the user invokes `up` with no arguments in a hooked shell
-- **THEN** the wrapper SHALL seed the current directory via `dx push $PWD`, resolve the target via `dx navigate up`, call the shell's native cd to the target, and record the destination via `dx push`
+- **THEN** the wrapper SHALL seed the current directory via `dx stack push $PWD`, resolve the target via `dx navigate up`, call the shell's native cd to the target, and record the destination via `dx stack push`
 
 #### Scenario: up with numeric selector
 - **WHEN** the user invokes `up 3` in a hooked shell
@@ -205,11 +232,11 @@ Navigation wrappers fall into three categories with distinct stack interaction c
 
 #### Scenario: back with selector
 - **WHEN** the user invokes `back 2` in a hooked shell with undo entries `[/a, /b, /c]`
-- **THEN** the wrapper SHALL resolve the target via `dx navigate back 2`, then call `dx undo --target <path>` to consume undo entries until the target is reached, and cd to the returned path
+- **THEN** the wrapper SHALL resolve the target via `dx navigate back 2`, then call `dx stack undo --target <path>` to consume undo entries until the target is reached, and cd to the returned path
 
 #### Scenario: cdf jumps to frecent directory
 - **WHEN** the user invokes `cdf proj` in a hooked shell and zoxide returns `/home/user/projects` as the top match
-- **THEN** the wrapper SHALL navigate to `/home/user/projects` and record the destination via `dx push`
+- **THEN** the wrapper SHALL navigate to `/home/user/projects` and record the destination via `dx stack push`
 
 ### Requirement: Wrapper Selector Resolution via dx
 Navigation wrappers (`up`, `back`, `forward`) SHALL delegate selector resolution to `dx` rather than implementing matching logic in shell code. The wrapper SHALL invoke a `dx` subcommand that accepts the selector, resolves it against the appropriate candidate list, and prints a single absolute path to stdout.
@@ -225,37 +252,37 @@ If the selector cannot be resolved, `dx` SHALL exit non-zero and the wrapper SHA
 - **THEN** `dx` SHALL exit non-zero, the wrapper SHALL not call cd, and an error message SHALL appear on stderr
 
 ### Requirement: cd Wrapper — No Arguments
-When the cd wrapper is invoked with no arguments, it SHALL call the shell's native cd (e.g., `builtin cd` for Bash/Zsh, `cd` in Fish, `Set-Location ~` in PowerShell) to navigate to the user's home directory. After a successful directory change, the wrapper SHALL call `dx push` with the new working directory. The push call SHALL be fire-and-forget: push failure SHALL NOT affect the cd exit code.
+When the cd wrapper is invoked with no arguments, it SHALL call the shell's native cd (e.g., `builtin cd` for Bash/Zsh, `cd` in Fish, `Set-Location ~` in PowerShell) to navigate to the user's home directory. After a successful directory change, the wrapper SHALL call `dx stack push` with the new working directory. The push call SHALL be fire-and-forget: push failure SHALL NOT affect the cd exit code.
 
 #### Scenario: cd with no arguments
 - **WHEN** a user invokes `cd` with no arguments in a hooked shell
-- **THEN** the shell SHALL change to `$HOME` and invoke `dx push` with the home directory path
+- **THEN** the shell SHALL change to `$HOME` and invoke `dx stack push` with the home directory path
 
 #### Scenario: Push failure on no-arg cd
-- **WHEN** `cd` with no arguments succeeds but `dx push` fails (e.g., session dir unwritable)
+- **WHEN** `cd` with no arguments succeeds but `dx stack push` fails (e.g., session dir unwritable)
 - **THEN** the cd SHALL still succeed and the shell SHALL be in `$HOME`
 
 ### Requirement: cd Wrapper — Dash Argument
-When the cd wrapper is invoked with `-` as the sole argument, it SHALL call the shell's native cd with `-` to navigate to the previous directory. After a successful directory change, the wrapper SHALL call `dx push` with the new working directory.
+When the cd wrapper is invoked with `-` as the sole argument, it SHALL call the shell's native cd with `-` to navigate to the previous directory. After a successful directory change, the wrapper SHALL call `dx stack push` with the new working directory.
 
 #### Scenario: cd dash navigates to previous directory
 - **WHEN** a user invokes `cd -` in a hooked shell
-- **THEN** the shell SHALL change to the previous directory (`$OLDPWD` equivalent) and invoke `dx push` with the new working directory
+- **THEN** the shell SHALL change to the previous directory (`$OLDPWD` equivalent) and invoke `dx stack push` with the new working directory
 
 ### Requirement: cd Wrapper — Path Resolution
-When the cd wrapper is invoked with a path argument (not `-`), it SHALL first attempt `dx resolve "<arg>"`. If resolve succeeds, the wrapper SHALL call the shell's native cd with the resolved path. If resolve fails (non-zero exit), the wrapper SHALL fall through to the shell's native cd with the original argument unmodified. After a successful directory change (regardless of whether resolve was used), the wrapper SHALL call `dx push` with the new working directory.
+When the cd wrapper is invoked with a path argument (not `-`), it SHALL first attempt `dx resolve "<arg>"`. If resolve succeeds, the wrapper SHALL call the shell's native cd with the resolved path. If resolve fails (non-zero exit), the wrapper SHALL fall through to the shell's native cd with the original argument unmodified. After a successful directory change (regardless of whether resolve was used), the wrapper SHALL call `dx stack push` with the new working directory.
 
 #### Scenario: Resolve succeeds
 - **WHEN** `cd pr/dx` is invoked and `dx resolve "pr/dx"` exits 0 with output `/home/user/projects/dx`
-- **THEN** the shell SHALL call `builtin cd /home/user/projects/dx` and then `dx push /home/user/projects/dx`
+- **THEN** the shell SHALL call `builtin cd /home/user/projects/dx` and then `dx stack push /home/user/projects/dx`
 
 #### Scenario: Resolve fails, native cd succeeds
 - **WHEN** `cd /tmp` is invoked and `dx resolve "/tmp"` exits non-zero
-- **THEN** the shell SHALL fall through to `builtin cd /tmp` and then `dx push /tmp`
+- **THEN** the shell SHALL fall through to `builtin cd /tmp` and then `dx stack push /tmp`
 
 #### Scenario: Both resolve and native cd fail
 - **WHEN** `cd nonexistent` is invoked, `dx resolve` fails, and `builtin cd nonexistent` also fails
-- **THEN** the cd wrapper SHALL propagate the non-zero exit code from the native cd and SHALL NOT call `dx push`
+- **THEN** the cd wrapper SHALL propagate the non-zero exit code from the native cd and SHALL NOT call `dx stack push`
 
 ### Requirement: cd Wrapper — Flag Passthrough
 When the cd wrapper is invoked with flags (e.g., `-L`, `-P`), those flags SHALL be passed through to the shell's native cd command. The wrapper SHALL only resolve the path argument, not flags.
@@ -284,11 +311,11 @@ When the opt-in `command_not_found` handler receives an unrecognized command, it
 - **THEN** the handler SHALL NOT invoke `dx resolve` and SHALL produce the standard "command not found" error
 
 ### Requirement: command_not_found Handler — Resolve Success
-When the `command_not_found` handler invokes `dx resolve` and it succeeds, the handler SHALL call the shell's native cd with the resolved path and then call `dx push` with the new working directory. The handler SHALL exit with code 0.
+When the `command_not_found` handler invokes `dx resolve` and it succeeds, the handler SHALL call the shell's native cd with the resolved path and then call `dx stack push` with the new working directory. The handler SHALL exit with code 0.
 
 #### Scenario: Auto-cd on resolve success
 - **WHEN** `pr/dx` triggers the handler and `dx resolve "pr/dx"` returns `/home/user/projects/dx`
-- **THEN** the shell SHALL change directory to `/home/user/projects/dx`, call `dx push`, and the command SHALL exit 0
+- **THEN** the shell SHALL change directory to `/home/user/projects/dx`, call `dx stack push`, and the command SHALL exit 0
 
 ### Requirement: command_not_found Handler — Resolve Failure
 When the `command_not_found` handler invokes `dx resolve` and it fails (non-zero exit), the handler SHALL produce the shell's standard "command not found" error message and exit with code 127.
@@ -315,7 +342,7 @@ Before defining the `cd` function wrapper, the generated hook code SHALL remove 
 
 #### Scenario: PowerShell cd wrapper uses Set-Location
 - **WHEN** `cd pr/dx` is invoked in a PowerShell session with dx hooks
-- **THEN** the hook SHALL call `dx resolve`, and on success call `Set-Location` with the resolved path, then `dx push`
+- **THEN** the hook SHALL call `dx resolve`, and on success call `Set-Location` with the resolved path, then `dx stack push`
 
 #### Scenario: PowerShell CommandNotFoundAction feature detection
 - **WHEN** `dx init pwsh --command-not-found` output is evaluated and `$ExecutionContext.InvokeCommand` has a `CommandNotFoundAction` member
@@ -330,27 +357,27 @@ Before defining the `cd` function wrapper, the generated hook code SHALL remove 
 - **THEN** the script SHALL execute `Remove-Item Alias:cd -ErrorAction SilentlyContinue` before defining the `cd` function
 
 ### Requirement: PowerShell Stack Transition Wrappers
-In PowerShell hooks, `back` and `forward` wrappers SHALL traverse existing session stack history using `dx undo` and `dx redo` rather than `dx navigate` plus `dx push`.
+In PowerShell hooks, `back` and `forward` wrappers SHALL traverse existing session stack history using `dx stack undo` and `dx stack redo` rather than `dx navigate` plus `dx stack push`.
 
-For selector-based traversal, the wrapper SHALL first resolve a target path with `dx navigate back|forward <selector>`, then invoke `dx undo --target <path>` or `dx redo --target <path>` respectively.
+For selector-based traversal, the wrapper SHALL first resolve a target path with `dx navigate back|forward <selector>`, then invoke `dx stack undo --target <path>` or `dx stack redo --target <path>` respectively.
 
-PowerShell stack-transition wrappers SHALL NOT call `dx push`.
+PowerShell stack-transition wrappers SHALL NOT call `dx stack push`.
 
 #### Scenario: PowerShell back without selector uses undo
 - **WHEN** a user invokes `back` in a PowerShell session with dx hooks and a non-empty undo stack
-- **THEN** the wrapper SHALL call `dx undo`, `Set-Location` to the returned path, and SHALL NOT call `dx push`
+- **THEN** the wrapper SHALL call `dx stack undo`, `Set-Location` to the returned path, and SHALL NOT call `dx stack push`
 
 #### Scenario: PowerShell forward without selector uses redo
 - **WHEN** a user invokes `forward` in a PowerShell session with dx hooks and a non-empty redo stack
-- **THEN** the wrapper SHALL call `dx redo`, `Set-Location` to the returned path, and SHALL NOT call `dx push`
+- **THEN** the wrapper SHALL call `dx stack redo`, `Set-Location` to the returned path, and SHALL NOT call `dx stack push`
 
 #### Scenario: PowerShell back with selector uses undo target
 - **WHEN** a user invokes `back 2` in a PowerShell session with dx hooks
-- **THEN** the wrapper SHALL resolve the target via `dx navigate back 2`, call `dx undo --target <path>`, and `Set-Location` to the returned path
+- **THEN** the wrapper SHALL resolve the target via `dx navigate back 2`, call `dx stack undo --target <path>`, and `Set-Location` to the returned path
 
 #### Scenario: PowerShell forward with selector uses redo target
 - **WHEN** a user invokes `forward code` in a PowerShell session with dx hooks
-- **THEN** the wrapper SHALL resolve the target via `dx navigate forward code`, call `dx redo --target <path>`, and `Set-Location` to the returned path
+- **THEN** the wrapper SHALL resolve the target via `dx navigate forward code`, call `dx stack redo --target <path>`, and `Set-Location` to the returned path
 
 ### Requirement: Fish Auto-cd Cooperation
 The Fish hook code SHALL cooperate with Fish's built-in auto-cd feature. The `fish_command_not_found` handler (when enabled) SHALL only attempt `dx resolve` for inputs that Fish's native auto-cd would not handle (abbreviated paths, multi-dot patterns, bookmark names). If the input is a literal existing directory, Fish's auto-cd SHALL take precedence.
@@ -372,4 +399,4 @@ The Fish hook code SHALL cooperate with Fish's built-in auto-cd feature. The `fi
 
 #### Scenario: Consistent cd wrapper across shells
 - **WHEN** the hook code from each shell is evaluated and `cd pr/dx` is invoked where `dx resolve "pr/dx"` succeeds
-- **THEN** each shell SHALL navigate to the resolved path and record the change via `dx push`
+- **THEN** each shell SHALL navigate to the resolved path and record the change via `dx stack push`
