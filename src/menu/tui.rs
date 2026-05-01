@@ -6,6 +6,19 @@
 //! `/dev/tty` directly, working even when stdin is redirected by a shell
 //! completion hook.
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MenuResult {
+    Selected {
+        filter_query: String,
+        changed_query: bool,
+        value: std::path::PathBuf,
+    },
+    Cancelled {
+        filter_query: String,
+        changed_query: bool,
+    },
+}
+
 // The interactive menu TUI currently targets Unix TTY semantics (`/dev/tty`,
 // cursor queries, explicit terminal scrolling). Non-Unix builds use the stub
 // implementation below, which preserves the JSON/noop contract for shell
@@ -35,19 +48,7 @@ mod imp {
 
     use crate::resolve::CompletionCandidates;
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum MenuResult {
-        Selected {
-            filter_query: String,
-            changed_query: bool,
-            /// The selected path value.
-            value: PathBuf,
-        },
-        Cancelled {
-            filter_query: String,
-            changed_query: bool,
-        },
-    }
+    use super::MenuResult;
 
     fn cursor_row_via_tty() -> Option<u16> {
         let mut tty = std::fs::OpenOptions::new()
@@ -227,6 +228,13 @@ mod imp {
         reset_selection(list_state, completion.paths.len());
     }
 
+    fn selected_label(labels: &[String], selected: Option<usize>) -> String {
+        selected
+            .and_then(|idx| labels.get(idx))
+            .cloned()
+            .unwrap_or_else(|| "(no matches)".to_string())
+    }
+
     /// Compute a compact display label for a path:
     /// - relative to `cwd` if the path is under it (e.g. `Desktop`)
     /// - tilde-contracted if under `$HOME` (e.g. `~/code/dx`)
@@ -362,6 +370,147 @@ mod imp {
         )
     }
 
+    fn render_grid_items(
+        completion: &CompletionCandidates,
+        labels: &[String],
+        layout: &MenuLayoutPlan,
+        selected: usize,
+    ) -> Vec<Line<'static>> {
+        let n = completion.paths.len();
+        let visible_rows = layout.visible_rows;
+        let metrics = &layout.metrics;
+        let columns = metrics.columns;
+        let rows_total = metrics.rows_total;
+        let selected_row = selected / columns;
+        let top_row = if visible_rows == 0 {
+            0
+        } else if selected_row >= visible_rows {
+            selected_row - visible_rows + 1
+        } else {
+            0
+        };
+
+        let mut lines: Vec<Line> = Vec::new();
+        for vr in 0..visible_rows {
+            let row = top_row + vr;
+            if row >= rows_total {
+                lines.push(Line::from(""));
+                continue;
+            }
+
+            let mut spans: Vec<Span> = Vec::new();
+            for col in 0..columns {
+                let idx = row * columns + col;
+                if idx >= n {
+                    break;
+                }
+                let content_width = metrics.column_widths[col].saturating_sub(2).max(1);
+                let trunc = truncate_for_cell(&labels[idx], content_width);
+                let text = pad_to_width(&trunc, metrics.column_widths[col]);
+                let span = if idx == selected {
+                    Span::styled(
+                        text,
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    Span::raw(text)
+                };
+                spans.push(span);
+            }
+            lines.push(Line::from(spans));
+        }
+
+        lines
+    }
+
+    fn render_grid(
+        frame: &mut ratatui::Frame<'_>,
+        completion: &CompletionCandidates,
+        labels: &[String],
+        layout: &MenuLayoutPlan,
+        content_area: Rect,
+        scrollbar_area: Option<Rect>,
+        selected: usize,
+        show_border: bool,
+    ) {
+        let lines = render_grid_items(completion, labels, layout, selected);
+        let mut grid = Paragraph::new(lines);
+        if show_border {
+            grid = grid.block(Block::bordered());
+        }
+        frame.render_widget(grid, content_area);
+
+        if layout.scrollbar_needed {
+            let selected_row = selected / layout.metrics.columns;
+            let mut scrollbar_state = ScrollbarState::new(layout.metrics.rows_total).position(selected_row);
+            let scrollbar = build_scrollbar(show_border);
+            let scrollbar_render_area =
+                menu_scrollbar_render_area(content_area, scrollbar_area, show_border);
+            frame.render_stateful_widget(scrollbar, scrollbar_render_area, &mut scrollbar_state);
+        }
+    }
+
+    fn render_list(
+        frame: &mut ratatui::Frame<'_>,
+        labels: &[String],
+        layout: &MenuLayoutPlan,
+        content_area: Rect,
+        scrollbar_area: Option<Rect>,
+        list_state: &mut ListState,
+        show_border: bool,
+    ) {
+        let items: Vec<ListItem> = labels.iter().cloned().map(ListItem::new).collect();
+
+        let mut list = List::new(items)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("▸ ");
+        if show_border {
+            list = list.block(Block::bordered());
+        }
+
+        frame.render_stateful_widget(list, content_area, list_state);
+
+        if layout.scrollbar_needed {
+            let selected = list_state.selected().unwrap_or(0);
+            let mut scrollbar_state = ScrollbarState::new(labels.len()).position(selected);
+            let scrollbar = build_scrollbar(show_border);
+            let scrollbar_render_area =
+                menu_scrollbar_render_area(content_area, scrollbar_area, show_border);
+            frame.render_stateful_widget(scrollbar, scrollbar_render_area, &mut scrollbar_state);
+        }
+    }
+
+    fn render_status(
+        frame: &mut ratatui::Frame<'_>,
+        chunks: &[Rect],
+        divider_area: Option<Rect>,
+        filter_label: &str,
+        selected_path: &str,
+        overflow: &str,
+    ) {
+        let status = Paragraph::new(Span::styled(
+            format!(" filter: {filter_label} | {selected_path}{overflow}"),
+            Style::default().fg(Color::White).add_modifier(Modifier::DIM),
+        ));
+        if let Some(divider_area) = divider_area {
+            let divider = Paragraph::new("─".repeat(divider_area.width as usize)).style(
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::DIM),
+            );
+            frame.render_widget(divider, divider_area);
+        }
+        frame.render_widget(status, chunks[1]);
+    }
+
     fn run_loop(
         initial_candidates: CompletionCandidates,
         initial_query: &str,
@@ -431,11 +580,7 @@ mod imp {
                 item_max_len,
             );
 
-            let selected_path = list_state
-                .selected()
-                .and_then(|i| completion.paths.get(i))
-                .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
-                .unwrap_or_else(|| "(no matches)".to_string());
+            let selected_path = selected_label(&labels, list_state.selected());
 
             let overflow = overflow_note(completion.paths.len(), completion.has_more);
 
@@ -459,142 +604,43 @@ mod imp {
                         .constraints([Constraint::Min(1), Constraint::Length(1)])
                         .split(current_area);
 
-                    let n = completion.paths.len();
                     let selected = list_state.selected().unwrap_or(0);
                     let content_area = layout.content_area;
                     let divider_area = layout.divider_area;
                     let scrollbar_area = layout.scrollbar_area;
-                    let visible_rows = layout.visible_rows;
-                    let metrics = &layout.metrics;
-                    let columns = metrics.columns;
-                    let use_grid = metrics.use_grid;
-                    let scrollbar_needed = layout.scrollbar_needed;
+                    let use_grid = layout.metrics.use_grid;
 
                     if use_grid {
-                        let rows_total = metrics.rows_total;
-                        let selected_row = selected / columns;
-                        let top_row = if visible_rows == 0 {
-                            0
-                        } else if selected_row >= visible_rows {
-                            selected_row - visible_rows + 1
-                        } else {
-                            0
-                        };
-
-                        let mut lines: Vec<Line> = Vec::new();
-                        for vr in 0..visible_rows {
-                            let row = top_row + vr;
-                            if row >= rows_total {
-                                lines.push(Line::from(""));
-                                continue;
-                            }
-
-                            let mut spans: Vec<Span> = Vec::new();
-                            for col in 0..columns {
-                                let idx = row * columns + col;
-                                if idx >= n {
-                                    break;
-                                }
-                                let label = display_label(
-                                    &completion.paths[idx],
-                                    cwd,
-                                    home.as_deref(),
-                                    prefer_relative_paths,
-                                );
-                                let content_width = metrics.column_widths[col].saturating_sub(2).max(1);
-                                let trunc = truncate_for_cell(&label, content_width);
-                                let text = pad_to_width(&trunc, metrics.column_widths[col]);
-                                let span = if idx == selected {
-                                    Span::styled(
-                                        text,
-                                        Style::default()
-                                            .fg(Color::Black)
-                                            .bg(Color::Cyan)
-                                            .add_modifier(Modifier::BOLD),
-                                    )
-                                } else {
-                                    Span::raw(text)
-                                };
-                                spans.push(span);
-                            }
-                            lines.push(Line::from(spans));
-                        }
-
-                        let mut grid = Paragraph::new(lines);
-                        if show_border {
-                            grid = grid.block(Block::bordered());
-                        }
-                        frame.render_widget(grid, content_area);
-
-                        if scrollbar_needed {
-                            let mut scrollbar_state = ScrollbarState::new(rows_total)
-                                .position(selected_row);
-                            let scrollbar = build_scrollbar(show_border);
-                            let scrollbar_render_area =
-                                menu_scrollbar_render_area(content_area, scrollbar_area, show_border);
-                            frame.render_stateful_widget(
-                                scrollbar,
-                                scrollbar_render_area,
-                                &mut scrollbar_state,
-                            );
-                        }
-                    } else {
-                        let items: Vec<ListItem> = completion
-                            .paths
-                            .iter()
-                            .map(|p| {
-                                ListItem::new(display_label(
-                                    p,
-                                    cwd,
-                                    home.as_deref(),
-                                    prefer_relative_paths,
-                                ))
-                            })
-                            .collect();
-
-                        let mut list = List::new(items)
-                            .highlight_style(
-                                Style::default()
-                                    .fg(Color::Black)
-                                    .bg(Color::Cyan)
-                                    .add_modifier(Modifier::BOLD),
-                            )
-                            .highlight_symbol("▸ ");
-                        if show_border {
-                            list = list.block(Block::bordered());
-                        }
-
-                        frame.render_stateful_widget(list, content_area, &mut list_state);
-
-                        if scrollbar_needed {
-                            let mut scrollbar_state = ScrollbarState::new(n)
-                                .position(selected);
-                            let scrollbar = build_scrollbar(show_border);
-                            let scrollbar_render_area =
-                                menu_scrollbar_render_area(content_area, scrollbar_area, show_border);
-                            frame.render_stateful_widget(
-                                scrollbar,
-                                scrollbar_render_area,
-                                &mut scrollbar_state,
-                            );
-                        }
-                    }
-
-                    let status = Paragraph::new(Span::styled(
-                        format!(" filter: {filter_label} | {selected_path}{overflow}"),
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::DIM),
-                    ));
-                    if let Some(divider_area) = divider_area {
-                        let divider = Paragraph::new("─".repeat(divider_area.width as usize)).style(
-                            Style::default()
-                                .fg(Color::DarkGray)
-                                .add_modifier(Modifier::DIM),
+                        render_grid(
+                            frame,
+                            &completion,
+                            &labels,
+                            &layout,
+                            content_area,
+                            scrollbar_area,
+                            selected,
+                            show_border,
                         );
-                        frame.render_widget(divider, divider_area);
+                    } else {
+                        render_list(
+                            frame,
+                            &labels,
+                            &layout,
+                            content_area,
+                            scrollbar_area,
+                            &mut list_state,
+                            show_border,
+                        );
                     }
-                    frame.render_widget(status, chunks[1]);
+
+                    render_status(
+                        frame,
+                        &chunks,
+                        divider_area,
+                        &filter_label,
+                        &selected_path,
+                        &overflow,
+                    );
                 })
                 .ok()?;
 
@@ -1070,9 +1116,9 @@ mod imp {
     }
 
     #[cfg(test)]
-        mod tests {
-            use super::*;
-            use std::cell::RefCell;
+    mod tests {
+        use super::*;
+        use std::cell::RefCell;
 
         #[test]
         fn display_label_relative_under_cwd() {
@@ -1519,25 +1565,22 @@ mod imp {
             assert!(completion.paths.is_empty());
             assert_eq!(list_state.selected(), None);
         }
+
+        #[test]
+        fn selected_label_uses_precomputed_labels_and_falls_back_for_empty_selection() {
+            let labels = vec!["./alpha".to_string(), "./beta".to_string()];
+
+            assert_eq!(selected_label(&labels, Some(1)), "./beta");
+            assert_eq!(selected_label(&labels, None), "(no matches)");
+            assert_eq!(selected_label(&labels, Some(99)), "(no matches)");
+        }
     }
 }
 
 #[cfg(not(unix))]
 mod imp {
-    use std::path::{Path, PathBuf};
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum MenuResult {
-        Selected {
-            filter_query: String,
-            changed_query: bool,
-            value: PathBuf,
-        },
-        Cancelled {
-            filter_query: String,
-            changed_query: bool,
-        },
-    }
+    use super::MenuResult;
+    use std::path::Path;
 
     use crate::resolve::CompletionCandidates;
 
@@ -1562,4 +1605,4 @@ mod imp {
     }
 }
 
-pub use imp::{select, MenuResult, QueryFn};
+pub use imp::{select, QueryFn};
