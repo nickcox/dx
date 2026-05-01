@@ -199,6 +199,47 @@ fn parse_menu_max_results() -> usize {
     }
 }
 
+fn menu_result_to_action(
+    result: Option<MenuResult>,
+    parsed: &menu::ParsedBuffer,
+    mode: &CompletionMode,
+    cwd: &Path,
+    prefer_relative_paths: bool,
+) -> MenuAction {
+    match result {
+        Some(MenuResult::Selected { value, .. }) => {
+            let formatted = format_selected_path_for_query_style(
+                &value,
+                mode,
+                cwd,
+                prefer_relative_paths,
+            );
+            let replacement = if parsed.needs_space_prefix {
+                format!(" {formatted}")
+            } else {
+                formatted
+            };
+            MenuAction::replace(parsed.replace_start, parsed.replace_end, replacement)
+        }
+        Some(MenuResult::Cancelled {
+            filter_query,
+            changed_query,
+        }) => {
+            if changed_query {
+                let replacement = if parsed.needs_space_prefix {
+                    format!(" {filter_query}")
+                } else {
+                    filter_query
+                };
+                MenuAction::replace(parsed.replace_start, parsed.replace_end, replacement)
+            } else {
+                MenuAction::noop()
+            }
+        }
+        None => MenuAction::noop(),
+    }
+}
+
 pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     let debug = std::env::var("DX_MENU_DEBUG").is_ok_and(|v| v == "1");
     let session = super::complete::resolve_session(cmd.session.as_deref());
@@ -303,7 +344,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     let show_border = parse_menu_border();
     let max_rows = parse_menu_max_rows();
 
-    match menu::tui::select(
+    let menu_result = menu::tui::select(
         initial_candidates,
         &initial_query,
         &cwd,
@@ -314,61 +355,44 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         show_border,
         cmd.psreadline_mode,
         query_fn,
+    );
+
+    match menu_result_to_action(
+        menu_result.clone(),
+        &parsed,
+        &parsed.mode,
+        &cwd,
+        prefer_relative_paths,
     ) {
-        Some(MenuResult::Selected { value, .. }) => {
-            let formatted = format_selected_path_for_query_style(
-                &value,
-                &parsed.mode,
-                &cwd,
-                prefer_relative_paths,
-            );
-            let replacement = if parsed.needs_space_prefix {
-                format!(" {formatted}")
-            } else {
-                formatted
-            };
-            let action = MenuAction::replace(parsed.replace_start, parsed.replace_end, replacement);
+        action @ MenuAction::Replace { .. } => {
             if debug {
-                eprintln!(
-                    "[dx-menu-debug] action=replace value={:?}",
-                    action.to_json()
-                );
+                match menu_result {
+                    Some(MenuResult::Selected { .. }) => {
+                        eprintln!("[dx-menu-debug] action=replace value={:?}", action.to_json());
+                    }
+                    Some(MenuResult::Cancelled { changed_query: true, .. }) => {
+                        eprintln!(
+                            "[dx-menu-debug] cancel with changed query -> action=replace value={:?}",
+                            action.to_json()
+                        );
+                    }
+                    _ => {}
+                }
             }
             println!("{}", action.to_json());
             0
         }
-        Some(MenuResult::Cancelled {
-            filter_query,
-            changed_query,
-        }) => {
-            if changed_query {
-                // On cancel the user is still typing — no trailing slash or quoting,
-                // just preserve what they typed so they can continue refining.
-                let replacement = if parsed.needs_space_prefix {
-                    format!(" {filter_query}")
-                } else {
-                    filter_query
-                };
-                let action =
-                    MenuAction::replace(parsed.replace_start, parsed.replace_end, replacement);
-                if debug {
-                    eprintln!(
-                        "[dx-menu-debug] cancel with changed query -> action=replace value={:?}",
-                        action.to_json()
-                    );
-                }
-                println!("{}", action.to_json());
-            } else {
-                if debug {
-                    eprintln!("[dx-menu-debug] cancel without query change -> noop");
-                }
-                println!("{}", MenuAction::noop().to_json());
-            }
-            0
-        }
-        None => {
+        MenuAction::Noop => {
             if debug {
-                eprintln!("[dx-menu-debug] tui unavailable -> noop");
+                match menu_result {
+                    Some(MenuResult::Cancelled { .. }) => {
+                        eprintln!("[dx-menu-debug] cancel without query change -> noop");
+                    }
+                    None => {
+                        eprintln!("[dx-menu-debug] tui unavailable -> noop");
+                    }
+                    _ => {}
+                }
             }
             println!("{}", MenuAction::noop().to_json());
             0
@@ -389,6 +413,51 @@ mod tests {
             format_selected_path("/Users/nick/Downloads", &CompletionMode::Paths),
             "/Users/nick/Downloads/"
         );
+    }
+
+    #[test]
+    fn menu_result_to_action_returns_noop_for_tui_resize_failure() {
+        let parsed = menu::ParsedBuffer {
+            mode: CompletionMode::Paths,
+            query: Some("foo".to_string()),
+            replace_start: 3,
+            replace_end: 6,
+            needs_space_prefix: false,
+        };
+
+        let action = menu_result_to_action(
+            None,
+            &parsed,
+            &parsed.mode,
+            Path::new("/tmp"),
+            true,
+        );
+
+        assert_eq!(action, MenuAction::Noop);
+    }
+
+    #[test]
+    fn menu_result_to_action_preserves_cancel_replace_semantics() {
+        let parsed = menu::ParsedBuffer {
+            mode: CompletionMode::Paths,
+            query: Some("D".to_string()),
+            replace_start: 3,
+            replace_end: 4,
+            needs_space_prefix: false,
+        };
+
+        let action = menu_result_to_action(
+            Some(MenuResult::Cancelled {
+                filter_query: "Do".to_string(),
+                changed_query: true,
+            }),
+            &parsed,
+            &parsed.mode,
+            Path::new("/tmp"),
+            true,
+        );
+
+        assert_eq!(action, MenuAction::replace(3, 4, "Do".to_string()));
     }
 
     #[test]

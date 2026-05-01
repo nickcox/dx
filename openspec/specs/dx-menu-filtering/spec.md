@@ -25,6 +25,8 @@ Pressing Backspace SHALL remove one character only from the refinement typed dur
 
 If no candidates match the active filter query, the menu SHALL remain open, SHALL show an explicit no-match state, and SHALL continue accepting additional input, Backspace, or cancellation.
 
+During filtering, the menu runtime SHALL reduce visible menu body height as the filtered candidate set narrows, without collapsing below a minimal interactive no-match layout.
+
 #### Scenario: Backspace removes only typed refinement
 - **WHEN** the menu opens with initial query `Do`, the user types `w`, and then presses Backspace
 - **THEN** the active filter query SHALL return to `Do`
@@ -42,6 +44,14 @@ If no candidates match the active filter query, the menu SHALL remain open, SHAL
 #### Scenario: No-match state remains interactive
 - **WHEN** the user types a filter query that matches no candidates
 - **THEN** the menu SHALL display a no-match indication and remain interactive until further input, Enter on a valid selection, or cancel
+
+#### Scenario: Filtering to a small set shrinks list footprint
+- **WHEN** a filter reduces visible candidates from many rows to one row
+- **THEN** the rendered menu body SHALL shrink to the smaller footprint while keeping filter/status context visible
+
+#### Scenario: No-match state keeps minimal interactive footprint
+- **WHEN** a filter query matches zero candidates
+- **THEN** the menu SHALL keep a minimal interactive layout for no-match feedback and additional typing instead of collapsing to zero-height or exiting
 
 ### Requirement: Exit Actions Preserve Typed Refinement
 On menu exit, `dx menu` SHALL emit a single final JSON action.

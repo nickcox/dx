@@ -27,7 +27,7 @@ mod imp {
         style::{Color, Modifier, Style},
         text::{Line, Span},
         widgets::{
-            Block, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
+            Block, Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
             ScrollbarState,
         },
         Terminal, TerminalOptions, Viewport,
@@ -308,15 +308,14 @@ mod imp {
             .iter()
             .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
             .collect();
-        let frame_inset = if show_border { 2 } else { 0 };
-        let metrics = compute_layout_metrics(
-            cols.saturating_sub(frame_inset) as usize,
+        let height = compute_rendered_height(
+            cols,
             initial_candidates.paths.len(),
             &initial_labels,
+            max_rows,
             item_max_len,
+            show_border,
         );
-        let list_rows = compute_list_rows(metrics.rows_total, max_rows);
-        let height = list_rows + if show_border { 3 } else { 2 };
         let required_rows = required_rows_below(height, show_border);
 
         let skip_cursor_query = psreadline_mode;
@@ -355,6 +354,7 @@ mod imp {
             cwd,
             prefer_relative_paths,
             area,
+            max_rows,
             use_tty_backend,
             item_max_len,
             show_border,
@@ -368,6 +368,7 @@ mod imp {
         cwd: &Path,
         prefer_relative_paths: bool,
         area: Rect,
+        max_rows: u16,
         use_tty_backend: bool,
         item_max_len: Option<usize>,
         show_border: bool,
@@ -398,8 +399,38 @@ mod imp {
         }
 
         let home = dirs::home_dir();
+        let mut previous_height = area.height;
 
         loop {
+            let labels: Vec<String> = completion
+                .paths
+                .iter()
+                .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
+                .collect();
+            let target_height = compute_rendered_height(
+                area.width,
+                completion.paths.len(),
+                &labels,
+                max_rows,
+                item_max_len,
+                show_border,
+            );
+            let current_height = bounded_rendered_height(area.height, target_height);
+            let current_area = rendered_menu_area(area, current_height);
+            let list_area = Rect {
+                x: current_area.x,
+                y: current_area.y,
+                width: current_area.width,
+                height: current_area.height.saturating_sub(1),
+            };
+            let layout = build_menu_layout(
+                list_area,
+                show_border,
+                completion.paths.len(),
+                &labels,
+                item_max_len,
+            );
+
             let selected_path = list_state
                 .selected()
                 .and_then(|i| completion.paths.get(i))
@@ -417,20 +448,19 @@ mod imp {
 
             terminal
                 .draw(|frame| {
+                    frame.render_widget(Clear, current_area);
+                    if let Some(vacated_area) = cleared_trailing_area(frame.area(), previous_height, current_height)
+                    {
+                        frame.render_widget(Clear, vacated_area);
+                    }
+
                     let chunks = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints([Constraint::Min(1), Constraint::Length(1)])
-                        .split(frame.area());
+                        .split(current_area);
 
-                    let list_area = chunks[0];
                     let n = completion.paths.len();
                     let selected = list_state.selected().unwrap_or(0);
-                    let labels: Vec<String> = completion
-                        .paths
-                        .iter()
-                        .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
-                        .collect();
-                    let layout = build_menu_layout(list_area, show_border, n, &labels, item_max_len);
                     let content_area = layout.content_area;
                     let divider_area = layout.divider_area;
                     let scrollbar_area = layout.scrollbar_area;
@@ -568,20 +598,10 @@ mod imp {
                 })
                 .ok()?;
 
+            previous_height = current_height;
+
             if let Event::Key(key) = event::read().ok()? {
                 let len = completion.paths.len();
-                let labels: Vec<String> = completion
-                    .paths
-                    .iter()
-                    .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
-                    .collect();
-                let list_area = Rect {
-                    x: area.x,
-                    y: area.y,
-                    width: area.width,
-                    height: area.height.saturating_sub(1),
-                };
-                let layout = build_menu_layout(list_area, show_border, len, &labels, item_max_len);
                 let columns = layout.metrics.columns;
                 let use_grid = layout.metrics.use_grid;
 
@@ -620,6 +640,55 @@ mod imp {
     fn compute_list_rows(rows_total: usize, max_rows: u16) -> u16 {
         let cap = max_rows.max(1);
         cap.min(rows_total.max(1) as u16)
+    }
+
+    fn compute_rendered_height(
+        width: u16,
+        item_count: usize,
+        labels: &[String],
+        max_rows: u16,
+        item_max_len: Option<usize>,
+        show_border: bool,
+    ) -> u16 {
+        let frame_inset = if show_border { 2 } else { 0 };
+        let metrics = compute_layout_metrics(
+            width.saturating_sub(frame_inset) as usize,
+            item_count,
+            labels,
+            item_max_len,
+        );
+        let list_rows = compute_list_rows(metrics.rows_total, max_rows);
+        list_rows + menu_chrome_height(show_border)
+    }
+
+    fn menu_chrome_height(show_border: bool) -> u16 {
+        if show_border { 3 } else { 2 }
+    }
+
+    fn bounded_rendered_height(reserved_height: u16, target_height: u16) -> u16 {
+        reserved_height.min(target_height)
+    }
+
+    fn rendered_menu_area(area: Rect, rendered_height: u16) -> Rect {
+        Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: rendered_height.min(area.height),
+        }
+    }
+
+    fn cleared_trailing_area(area: Rect, previous_height: u16, current_height: u16) -> Option<Rect> {
+        if current_height >= previous_height {
+            return None;
+        }
+
+        Some(Rect {
+            x: area.x,
+            y: area.y + current_height,
+            width: area.width,
+            height: previous_height - current_height,
+        })
     }
 
     fn prompt_gap_rows(show_border: bool) -> u16 {
@@ -1201,6 +1270,96 @@ mod imp {
             assert_eq!(compute_list_rows(3, 10), 3);
             assert_eq!(compute_list_rows(0, 10), 1);
             assert_eq!(compute_list_rows(5, 0), 1);
+        }
+
+        #[test]
+        fn compute_rendered_height_keeps_minimal_no_match_floor() {
+            assert_eq!(compute_rendered_height(80, 0, &[], 10, None, false), 3);
+            assert_eq!(compute_rendered_height(80, 0, &[], 10, None, true), 4);
+        }
+
+        #[test]
+        fn compute_rendered_height_shrinks_with_filtered_single_column_results() {
+            let labels = vec!["alpha".to_string(); 8];
+            let smaller = vec!["alpha".to_string(); 1];
+
+            let tall = compute_rendered_height(80, labels.len(), &labels, 10, None, false);
+            let short = compute_rendered_height(80, smaller.len(), &smaller, 10, None, false);
+
+            assert!(short < tall);
+            assert_eq!(short, 3);
+        }
+
+        #[test]
+        fn compute_rendered_height_shrinks_with_filtered_bordered_single_column_results() {
+            let labels = vec!["alpha".to_string(); 8];
+            let smaller = vec!["alpha".to_string(); 1];
+
+            let tall = compute_rendered_height(20, labels.len(), &labels, 10, None, true);
+            let short = compute_rendered_height(20, smaller.len(), &smaller, 10, None, true);
+
+            assert!(short < tall);
+            assert_eq!(short, 4);
+        }
+
+        #[test]
+        fn compute_rendered_height_shrinks_with_filtered_multicolumn_results() {
+            let many = vec!["abcdefgh".to_string(); 9];
+            let few = vec!["abcdefgh".to_string(); 3];
+
+            let tall = compute_rendered_height(36, many.len(), &many, 10, Some(8), true);
+            let short = compute_rendered_height(36, few.len(), &few, 10, Some(8), true);
+
+            assert!(short < tall);
+            assert_eq!(short, 4);
+        }
+
+        #[test]
+        fn compute_rendered_height_shrinks_with_filtered_borderless_multicolumn_results() {
+            let many = vec!["abcdefgh".to_string(); 9];
+            let few = vec!["abcdefgh".to_string(); 3];
+
+            let tall = compute_rendered_height(36, many.len(), &many, 10, Some(8), false);
+            let short = compute_rendered_height(36, few.len(), &few, 10, Some(8), false);
+
+            assert!(short < tall);
+            assert_eq!(short, 3);
+        }
+
+        #[test]
+        fn bounded_rendered_height_stays_within_reserved_height() {
+            assert_eq!(bounded_rendered_height(8, 5), 5);
+            assert_eq!(bounded_rendered_height(8, 8), 8);
+            assert_eq!(bounded_rendered_height(8, 10), 8);
+        }
+
+        #[test]
+        fn bounded_rendered_height_allows_reexpansion_back_to_reserved_height() {
+            let reserved_height = 8;
+
+            let shrunk_height = bounded_rendered_height(reserved_height, 3);
+            let reexpanded_height = bounded_rendered_height(reserved_height, reserved_height);
+
+            assert_eq!(shrunk_height, 3);
+            assert_eq!(reexpanded_height, reserved_height);
+        }
+
+        #[test]
+        fn rendered_menu_area_uses_current_height_within_reserved_area() {
+            let reserved = Rect::new(0, 5, 80, 10);
+            assert_eq!(rendered_menu_area(reserved, 4), Rect::new(0, 5, 80, 4));
+            assert_eq!(rendered_menu_area(reserved, 12), reserved);
+        }
+
+        #[test]
+        fn cleared_trailing_area_returns_vacated_rows_on_shrink() {
+            let reserved = Rect::new(0, 5, 80, 10);
+            assert_eq!(
+                cleared_trailing_area(reserved, 8, 3),
+                Some(Rect::new(0, 8, 80, 5))
+            );
+            assert_eq!(cleared_trailing_area(reserved, 3, 3), None);
+            assert_eq!(cleared_trailing_area(reserved, 3, 5), None);
         }
 
         #[test]
