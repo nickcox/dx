@@ -10,6 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::Serialize;
 
 use crate::frecency::FrecencyProvider;
+use crate::stacks::{storage, SessionStack};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionMode {
@@ -67,6 +68,32 @@ pub fn complete_frecents(provider: &dyn FrecencyProvider, query: Option<&str>) -
     }
 
     provider.query(query.unwrap_or(""))
+}
+
+pub(super) fn complete_session_paths(
+    session: Option<&str>,
+    query: Option<&str>,
+    select_paths: impl FnOnce(SessionStack) -> Vec<PathBuf>,
+) -> Vec<PathBuf> {
+    let Some(session) = session.filter(|value| !value.trim().is_empty()) else {
+        return Vec::new();
+    };
+
+    let Ok(dir) = storage::ensure_session_dir() else {
+        return Vec::new();
+    };
+
+    let Ok(stack) = storage::read_session(&dir, session) else {
+        return Vec::new();
+    };
+
+    let mut output = select_paths(stack);
+    output.reverse();
+
+    match query.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => filter::filter_candidates(&output, value),
+        None => output,
+    }
 }
 
 pub fn select_candidate(
@@ -168,12 +195,17 @@ pub fn label_for_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use std::{env, fs};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        complete_frecents, format_json, format_plain, label_for_path, select_candidate,
+        complete_frecents, complete_session_paths, format_json, format_plain, label_for_path,
+        select_candidate,
         SelectorError,
     };
     use crate::frecency::FrecencyProvider;
+    use crate::stacks::{storage, SessionStack};
+    use crate::test_support;
 
     #[derive(Debug)]
     struct MockProvider {
@@ -275,5 +307,63 @@ mod tests {
         };
         let output = complete_frecents(&provider, Some("work"));
         assert!(output.is_empty());
+    }
+
+    fn make_temp_dir(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "dx-complete-shared-{label}-{nonce}-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).expect("create temp dir");
+        path
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        test_support::env_lock()
+    }
+
+    #[test]
+    fn session_helper_returns_empty_for_missing_session() {
+        assert!(complete_session_paths(None, None, |stack| stack.undo).is_empty());
+    }
+
+    #[test]
+    fn session_helper_reverses_selected_paths_and_applies_filter() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("session-helper-filter");
+        let runtime = temp.join("runtime");
+        fs::create_dir_all(&runtime).expect("create runtime");
+        unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
+
+        let dir = storage::ensure_session_dir().expect("session dir");
+        let stack = SessionStack {
+            cwd: Some(PathBuf::from("/now")),
+            undo: vec![
+                PathBuf::from("/tmp/scratch"),
+                PathBuf::from("/home/user/projects/dx"),
+            ],
+            redo: vec![PathBuf::from("/redo/a"), PathBuf::from("/redo/b")],
+        };
+        storage::write_session(&dir, "s1", &stack).expect("write session");
+
+        let undo_output = complete_session_paths(Some("s1"), None, |stack| stack.undo);
+        assert_eq!(
+            undo_output,
+            vec![
+                PathBuf::from("/home/user/projects/dx"),
+                PathBuf::from("/tmp/scratch")
+            ]
+        );
+
+        let redo_filtered =
+            complete_session_paths(Some("s1"), Some("redo/b"), |stack| stack.redo);
+        assert_eq!(redo_filtered, vec![PathBuf::from("/redo/b")]);
+
+        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
+        let _ = fs::remove_dir_all(temp);
     }
 }

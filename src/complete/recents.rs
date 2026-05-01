@@ -1,32 +1,9 @@
 use std::path::PathBuf;
 
-use crate::stacks::storage;
-
-use super::filter::filter_candidates;
+use super::complete_session_paths;
 
 pub fn complete(session: Option<&str>, query: Option<&str>) -> Vec<PathBuf> {
-    let session = match session.filter(|value| !value.trim().is_empty()) {
-        Some(value) => value,
-        None => return Vec::new(),
-    };
-
-    let dir = match storage::ensure_session_dir() {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-
-    let stack = match storage::read_session(&dir, session) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut output = stack.undo;
-    output.reverse();
-
-    match query.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(value) => filter_candidates(&output, value),
-        None => output,
-    }
+    complete_session_paths(session, query, |stack| stack.undo)
 }
 
 #[cfg(test)]
