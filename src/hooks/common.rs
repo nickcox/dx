@@ -72,6 +72,13 @@ pub const COMPLETION_ROUTES: &[CompletionRoute] = &[
     },
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UniqueCompletionHandler {
+    handler: &'static str,
+    mode: &'static str,
+    stack_direction: Option<&'static str>,
+}
+
 pub fn shell_words(words: &[&str]) -> String {
     words.join(" ")
 }
@@ -131,6 +138,58 @@ pub fn render_bash_completion_bindings() -> String {
     lines.join("\n")
 }
 
+fn unique_completion_handlers(
+    pick_handler: impl Fn(&CompletionRoute) -> &'static str,
+) -> Vec<UniqueCompletionHandler> {
+    let mut seen_handlers: Vec<&str> = Vec::new();
+    let mut unique = Vec::new();
+
+    for route in COMPLETION_ROUTES {
+        let handler = pick_handler(route);
+        if seen_handlers.contains(&handler) {
+            continue;
+        }
+        seen_handlers.push(handler);
+        unique.push(UniqueCompletionHandler {
+            handler,
+            mode: route.mode,
+            stack_direction: route.stack_direction,
+        });
+    }
+
+    unique
+}
+
+fn dx_complete_command(mode: &str, stack_direction: Option<&str>, current_word: &str) -> String {
+    if let Some(direction) = stack_direction {
+        format!(
+            "dx complete {mode} --direction {direction} \"{current_word}\" 2>/dev/null"
+        )
+    } else {
+        format!("dx complete {mode} \"{current_word}\" 2>/dev/null")
+    }
+}
+
+fn fish_complete_rhs(mode: &str, stack_direction: Option<&str>) -> String {
+    if let Some(direction) = stack_direction {
+        format!(
+            "'(dx complete {mode} --direction {direction} (commandline -ct) 2>/dev/null)'"
+        )
+    } else {
+        format!("'(dx complete {mode} (commandline -ct) 2>/dev/null)'")
+    }
+}
+
+fn pwsh_complete_invocation(mode: &str, stack_direction: Option<&str>) -> String {
+    if let Some(direction) = stack_direction {
+        format!(
+            "__dx_emit_completion (__dx_complete_mode -Mode {mode} -Word $wordToComplete -ExtraArgs @('--direction', '{direction}'))"
+        )
+    } else {
+        format!("__dx_emit_completion (__dx_complete_mode -Mode {mode} -Word $wordToComplete)")
+    }
+}
+
 pub fn render_zsh_completion_bindings() -> String {
     let mut lines = vec!["compdef _dx_complete_dx dx".to_string()];
     for route in COMPLETION_ROUTES {
@@ -149,17 +208,7 @@ pub fn render_fish_completion_bindings() -> String {
     let mut lines = Vec::new();
     for route in COMPLETION_ROUTES {
         for command in route.commands {
-            let rhs = if let Some(direction) = route.stack_direction {
-                format!(
-                    "'(dx complete {} --direction {} (commandline -ct) 2>/dev/null)'",
-                    route.mode, direction
-                )
-            } else {
-                format!(
-                    "'(dx complete {} (commandline -ct) 2>/dev/null)'",
-                    route.mode
-                )
-            };
+            let rhs = fish_complete_rhs(route.mode, route.stack_direction);
             lines.push(format!("complete -c {command} -a {rhs}"));
         }
     }
@@ -224,23 +273,10 @@ cdr() {
 }
 
 pub fn render_bash_completion_functions() -> String {
-    let mut seen_handlers: Vec<&str> = Vec::new();
     let mut out = Vec::new();
 
-    for route in COMPLETION_ROUTES {
-        if seen_handlers.contains(&route.bash_handler) {
-            continue;
-        }
-        seen_handlers.push(route.bash_handler);
-
-        let dx_complete_call = if let Some(direction) = route.stack_direction {
-            format!(
-                "dx complete {} --direction {} \"$cur\" 2>/dev/null",
-                route.mode, direction
-            )
-        } else {
-            format!("dx complete {} \"$cur\" 2>/dev/null", route.mode)
-        };
+    for handler in unique_completion_handlers(|route| route.bash_handler) {
+        let dx_complete_call = dx_complete_command(handler.mode, handler.stack_direction, "$cur");
 
         out.push(format!(
             r#"{}() {{
@@ -248,11 +284,11 @@ pub fn render_bash_completion_functions() -> String {
   COMPREPLY=()
   command -v dx >/dev/null 2>&1 || return 1
   local line
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && COMPREPLY+=("$line")
-  done < <({})
+   while IFS= read -r line; do
+     [[ -n "$line" ]] && COMPREPLY+=("$line")
+   done < <({})
 }}"#,
-            route.bash_handler, dx_complete_call
+            handler.handler, dx_complete_call
         ));
     }
 
@@ -260,23 +296,10 @@ pub fn render_bash_completion_functions() -> String {
 }
 
 pub fn render_zsh_completion_functions() -> String {
-    let mut seen_handlers: Vec<&str> = Vec::new();
     let mut out = Vec::new();
 
-    for route in COMPLETION_ROUTES {
-        if seen_handlers.contains(&route.zsh_handler) {
-            continue;
-        }
-        seen_handlers.push(route.zsh_handler);
-
-        let dx_complete_call = if let Some(direction) = route.stack_direction {
-            format!(
-                "dx complete {} --direction {} \"$cur\" 2>/dev/null",
-                route.mode, direction
-            )
-        } else {
-            format!("dx complete {} \"$cur\" 2>/dev/null", route.mode)
-        };
+    for handler in unique_completion_handlers(|route| route.zsh_handler) {
+        let dx_complete_call = dx_complete_command(handler.mode, handler.stack_direction, "$cur");
 
         out.push(format!(
             r#"{}() {{
@@ -286,7 +309,7 @@ pub fn render_zsh_completion_functions() -> String {
   candidates=("${{(@f)$({})}}")
   (( ${{#candidates}} )) && compadd -a candidates
 }}"#,
-            route.zsh_handler, dx_complete_call
+            handler.handler, dx_complete_call
         ));
     }
 
@@ -299,17 +322,10 @@ pub fn render_posix_menu_eligible_case_pattern() -> String {
 
 fn render_pwsh_route_binding(route: &CompletionRoute) -> String {
     let command_names = route.commands.join(",");
-    if let Some(direction) = route.stack_direction {
-        format!(
-            "Register-ArgumentCompleter -CommandName {command_names} -ScriptBlock {{\n    param($wordToComplete, $commandAst, $cursorPosition)\n    __dx_emit_completion (__dx_complete_mode -Mode {} -Word $wordToComplete -ExtraArgs @('--direction', '{}'))\n}}",
-            route.mode, direction
-        )
-    } else {
-        format!(
-            "Register-ArgumentCompleter -CommandName {command_names} -ScriptBlock {{\n    param($wordToComplete, $commandAst, $cursorPosition)\n    __dx_emit_completion (__dx_complete_mode -Mode {} -Word $wordToComplete)\n}}",
-            route.mode
-        )
-    }
+    let invocation = pwsh_complete_invocation(route.mode, route.stack_direction);
+    format!(
+        "Register-ArgumentCompleter -CommandName {command_names} -ScriptBlock {{\n    param($wordToComplete, $commandAst, $cursorPosition)\n    {invocation}\n}}"
+    )
 }
 
 pub fn render_pwsh_navigation_completion_bindings() -> String {
@@ -365,4 +381,49 @@ pub fn render_pwsh_completion_bindings() -> String {
         render_pwsh_navigation_completion_bindings(),
     ]
     .join("\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        dx_complete_command, fish_complete_rhs, pwsh_complete_invocation,
+        unique_completion_handlers, COMPLETION_ROUTES,
+    };
+
+    #[test]
+    fn unique_completion_handlers_dedupes_by_selected_handler() {
+        let bash_handlers = unique_completion_handlers(|route| route.bash_handler);
+        let zsh_handlers = unique_completion_handlers(|route| route.zsh_handler);
+        let bash_handler_names = bash_handlers
+            .iter()
+            .map(|handler| handler.handler)
+            .collect::<Vec<_>>();
+
+        assert_eq!(bash_handlers.len(), 6);
+        assert_eq!(zsh_handlers.len(), 6);
+        assert_eq!(bash_handlers[0].handler, "_dx_complete_paths");
+        assert_eq!(bash_handlers[5].handler, "_dx_complete_stack_forward");
+        assert!(bash_handler_names.contains(&"_dx_complete_stack_back"));
+        assert_eq!(COMPLETION_ROUTES.len(), 6);
+    }
+
+    #[test]
+    fn shared_completion_command_assembly_preserves_stack_direction_forms() {
+        assert_eq!(
+            dx_complete_command("paths", None, "$cur"),
+            "dx complete paths \"$cur\" 2>/dev/null"
+        );
+        assert_eq!(
+            dx_complete_command("stack", Some("back"), "$cur"),
+            "dx complete stack --direction back \"$cur\" 2>/dev/null"
+        );
+        assert_eq!(
+            fish_complete_rhs("stack", Some("forward")),
+            "'(dx complete stack --direction forward (commandline -ct) 2>/dev/null)'"
+        );
+        assert_eq!(
+            pwsh_complete_invocation("stack", Some("back")),
+            "__dx_emit_completion (__dx_complete_mode -Mode stack -Word $wordToComplete -ExtraArgs @('--direction', 'back'))"
+        );
+    }
 }
