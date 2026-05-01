@@ -58,6 +58,15 @@ pub struct CompletionCandidates {
     pub has_more: bool,
 }
 
+impl CompletionCandidates {
+    pub fn empty() -> Self {
+        Self {
+            paths: Vec::new(),
+            has_more: false,
+        }
+    }
+}
+
 impl Resolver {
     pub fn from_environment() -> Self {
         let config = AppConfig::load().unwrap_or_default();
@@ -145,6 +154,12 @@ pub(super) fn strip_filesystem_prefix_for_fallback(query: &str) -> &str {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FilesystemPrefixFallback {
+    DirectResolutionOnly,
+    AlwaysForFilesystemPrefix,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FallbackScope {
     Standard,
     RootAnchored,
@@ -187,4 +202,74 @@ impl FallbackPolicy {
     pub fn allow_direct_injection(&self) -> bool {
         self.allow_step_up
     }
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct PreparedQuery<'a> {
+    pub effective_query: &'a str,
+    pub direct_dir: Option<PathBuf>,
+    pub fallback_policy: FallbackPolicy,
+}
+
+pub(super) fn prepare_search_query<'a>(
+    cwd: &Path,
+    configured_roots: &[PathBuf],
+    raw_query: &'a str,
+    prefix_fallback: FilesystemPrefixFallback,
+) -> Result<PreparedQuery<'a>, ResolveError> {
+    let trimmed = raw_query.trim();
+    if trimmed.is_empty() {
+        return Err(ResolveError::EmptyQuery);
+    }
+
+    let mut effective_query = trimmed;
+    let mut uses_prefix_fallback = false;
+    let mut direct_dir = None;
+
+    if let Some(path) = precedence::resolve_direct(cwd, trimmed) {
+        if path.is_dir() {
+            direct_dir = Some(path);
+        } else if is_filesystem_prefix(trimmed) {
+            effective_query = strip_filesystem_prefix_for_fallback(trimmed);
+            if effective_query.is_empty() {
+                return Err(ResolveError::PathNotFound(path.display().to_string()));
+            }
+            uses_prefix_fallback = true;
+        } else {
+            return Err(ResolveError::PathNotFound(path.display().to_string()));
+        }
+    } else if prefix_fallback == FilesystemPrefixFallback::AlwaysForFilesystemPrefix
+        && is_filesystem_prefix(trimmed)
+    {
+        effective_query = strip_filesystem_prefix_for_fallback(trimmed);
+        if effective_query.is_empty() {
+            return Err(ResolveError::PathNotFound(trimmed.to_string()));
+        }
+        uses_prefix_fallback = true;
+    }
+
+    let fallback_policy = FallbackPolicy::from_query_context(
+        cwd,
+        configured_roots,
+        trimmed,
+        uses_prefix_fallback,
+    );
+
+    Ok(PreparedQuery {
+        effective_query,
+        direct_dir,
+        fallback_policy,
+    })
+}
+
+pub(super) fn resolve_search_candidates(
+    effective_roots: &[PathBuf],
+    query: &str,
+    case_sensitive: bool,
+) -> Vec<PathBuf> {
+    let mut candidates = abbreviation::resolve_abbreviation(effective_roots, query, case_sensitive);
+    if candidates.is_empty() {
+        candidates = roots::resolve_fallbacks(effective_roots, query, case_sensitive);
+    }
+    candidates
 }

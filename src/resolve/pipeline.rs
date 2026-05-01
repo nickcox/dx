@@ -1,66 +1,36 @@
 use super::{
-    abbreviation, is_filesystem_prefix, prepare_candidates, roots,
-    strip_filesystem_prefix_for_fallback, traversal, FallbackPolicy, ResolveError, ResolveQuery,
-    ResolveResult, Resolver,
+    prepare_candidates, traversal, FilesystemPrefixFallback, ResolveError, ResolveQuery,
+    ResolveResult, Resolver, prepare_search_query, resolve_search_candidates,
 };
 
 impl Resolver {
     pub fn resolve(&self, query: ResolveQuery<'_>) -> Result<ResolveResult, ResolveError> {
-        let trimmed = query.raw.trim();
-        if trimmed.is_empty() {
-            return Err(ResolveError::EmptyQuery);
-        }
-
-        let mut resolution_query = trimmed;
-        let mut uses_prefix_fallback = false;
-
-        if let Some(path) = super::precedence::resolve_direct(query.cwd, trimmed) {
-            if path.is_dir() {
-                return Ok(ResolveResult { path });
-            }
-
-            if is_filesystem_prefix(trimmed) {
-                let stripped = strip_filesystem_prefix_for_fallback(trimmed);
-                if stripped.is_empty() {
-                    return Err(ResolveError::PathNotFound(path.display().to_string()));
-                }
-                resolution_query = stripped;
-                uses_prefix_fallback = true;
-            } else {
-                return Err(ResolveError::PathNotFound(path.display().to_string()));
-            }
-        }
-
-        let fallback_policy = FallbackPolicy::from_query_context(
+        let prepared = prepare_search_query(
             query.cwd,
             &self.config.search_roots,
-            trimmed,
-            uses_prefix_fallback,
-        );
+            query.raw,
+            FilesystemPrefixFallback::DirectResolutionOnly,
+        )?;
 
-        if fallback_policy.allow_step_up
-            && let Some(path) = traversal::resolve_step_up(query.cwd, resolution_query)
+        if let Some(path) = prepared.direct_dir {
+            return Ok(ResolveResult { path });
+        }
+
+        if prepared.fallback_policy.allow_step_up
+            && let Some(path) = traversal::resolve_step_up(query.cwd, prepared.effective_query)
         {
             return Ok(ResolveResult { path });
         }
 
-        let mut candidates = abbreviation::resolve_abbreviation(
-            &fallback_policy.effective_roots,
-            resolution_query,
+        let mut candidates = resolve_search_candidates(
+            &prepared.fallback_policy.effective_roots,
+            prepared.effective_query,
             self.config.resolve.case_sensitive,
         );
 
         if candidates.is_empty() {
-            candidates = roots::resolve_fallbacks(
-                &fallback_policy.effective_roots,
-                resolution_query,
-                self.config.resolve.case_sensitive,
-            );
-        }
-
-        if candidates.is_empty() {
-            if fallback_policy.allow_bookmark_lookup
-                && let Some(path) = (self.bookmark_lookup)(resolution_query)
+            if prepared.fallback_policy.allow_bookmark_lookup
+                && let Some(path) = (self.bookmark_lookup)(prepared.effective_query)
             {
                 return Ok(ResolveResult { path });
             }

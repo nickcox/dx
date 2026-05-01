@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use crate::common;
 
 use super::{
-    CompletionCandidates, FallbackPolicy, Resolver, abbreviation, is_filesystem_prefix,
-    prepare_candidates, roots, strip_filesystem_prefix_for_fallback, traversal,
+    CompletionCandidates, FilesystemPrefixFallback, Resolver, prepare_candidates,
+    prepare_search_query, resolve_search_candidates, traversal,
 };
 
 impl Resolver {
@@ -45,35 +45,25 @@ impl Resolver {
     ) -> CompletionCandidates {
         let trimmed = raw_query.trim();
         if trimmed.is_empty() {
-            return CompletionCandidates {
-                paths: Vec::new(),
-                has_more: false,
-            };
+            return CompletionCandidates::empty();
         }
+        let explicit_filesystem_prefix = super::is_filesystem_prefix(trimmed);
 
         let effective_cwd = match cwd {
             Some(path) => path.to_path_buf(),
             None => match std::env::current_dir() {
                 Ok(value) => value,
-                Err(_) => {
-                    return CompletionCandidates {
-                        paths: Vec::new(),
-                        has_more: false,
-                    }
-                }
+                Err(_) => return CompletionCandidates::empty(),
             },
         };
 
         let mut output = Vec::new();
         let mut seen = HashSet::new();
 
-        let mut completion_query = trimmed;
-        let mut uses_prefix_fallback = false;
-
         // Filesystem prefix expansion: when the query looks like a rooted or
         // relative filesystem path prefix, readdir the parent and return
         // matching children. Covers: /abs/pre, ~/pre, ./pre, ../pre.
-        if is_filesystem_prefix(trimmed) {
+        if super::is_filesystem_prefix(trimmed) {
             let candidates = expand_filesystem_prefix(&effective_cwd, trimmed);
             for path in candidates {
                 push_unique(&mut output, &mut seen, path);
@@ -84,61 +74,56 @@ impl Resolver {
             if !output.is_empty() {
                 return apply_completion_limit(output, limit);
             }
-
-            // When expansion yields no filesystem matches, continue into
-            // abbreviation/fallback completion using a prefix-stripped query.
-            completion_query = strip_filesystem_prefix_for_fallback(trimmed);
-            uses_prefix_fallback = true;
-            if completion_query.is_empty() {
-                return apply_completion_limit(output, limit);
-            }
         }
 
-        let fallback_policy = FallbackPolicy::from_query_context(
+        let prepared = match prepare_search_query(
             &effective_cwd,
             &self.config.search_roots,
-            trimmed,
-            uses_prefix_fallback,
-        );
+            raw_query,
+            FilesystemPrefixFallback::AlwaysForFilesystemPrefix,
+        ) {
+            Ok(value) => value,
+            Err( super::ResolveError::EmptyQuery | super::ResolveError::PathNotFound(_)) => {
+                return apply_completion_limit(output, limit);
+            }
+            Err(super::ResolveError::Ambiguous { .. } | super::ResolveError::NotFound) => {
+                return apply_completion_limit(output, limit);
+            }
+        };
+
+        if prepared.effective_query.is_empty() {
+            return apply_completion_limit(output, limit);
+        }
 
         let probe_limit = limit.map(|value| value.saturating_add(1));
 
-        if fallback_policy.allow_direct_injection()
-            && let Some(path) = super::precedence::resolve_direct(&effective_cwd, completion_query)
+        if !explicit_filesystem_prefix
+            && let Some(path) = prepared.direct_dir
+            && prepared.fallback_policy.allow_direct_injection()
             && path.is_dir()
         {
             push_unique(&mut output, &mut seen, path);
         }
 
-        if fallback_policy.allow_step_up
-            && let Some(path) = traversal::resolve_step_up(&effective_cwd, completion_query)
+        if prepared.fallback_policy.allow_step_up
+            && let Some(path) = traversal::resolve_step_up(&effective_cwd, prepared.effective_query)
             && path.is_dir()
         {
             push_unique(&mut output, &mut seen, path);
         }
 
-        let mut abbreviation_candidates = abbreviation::resolve_abbreviation(
-            &fallback_policy.effective_roots,
-            completion_query,
+        let mut search_candidates = resolve_search_candidates(
+            &prepared.fallback_policy.effective_roots,
+            prepared.effective_query,
             self.config.resolve.case_sensitive,
         );
-        prepare_candidates(&mut abbreviation_candidates, probe_limit);
-        for candidate in abbreviation_candidates {
+        prepare_candidates(&mut search_candidates, probe_limit);
+        for candidate in search_candidates {
             push_unique(&mut output, &mut seen, candidate);
         }
 
-        let mut fallback_candidates = roots::resolve_fallbacks(
-            &fallback_policy.effective_roots,
-            completion_query,
-            self.config.resolve.case_sensitive,
-        );
-        prepare_candidates(&mut fallback_candidates, probe_limit);
-        for candidate in fallback_candidates {
-            push_unique(&mut output, &mut seen, candidate);
-        }
-
-        if fallback_policy.allow_bookmark_lookup
-            && let Some(path) = (self.bookmark_lookup)(completion_query)
+        if prepared.fallback_policy.allow_bookmark_lookup
+            && let Some(path) = (self.bookmark_lookup)(prepared.effective_query)
         {
             push_unique(&mut output, &mut seen, path);
         }
@@ -147,9 +132,8 @@ impl Resolver {
     }
 }
 
-fn push_unique(output: &mut Vec<PathBuf>, seen: &mut HashSet<String>, candidate: PathBuf) {
-    let key = candidate.display().to_string();
-    if seen.insert(key) {
+fn push_unique(output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, candidate: PathBuf) {
+    if seen.insert(candidate.clone()) {
         output.push(candidate);
     }
 }
@@ -181,51 +165,69 @@ fn sort_filesystem_candidates_by_basename(results: &mut [PathBuf]) {
 /// Expand a filesystem path prefix by reading the parent directory and
 /// returning all subdirectories whose name starts with the final component.
 fn expand_filesystem_prefix(cwd: &Path, query: &str) -> Vec<PathBuf> {
-    use std::env;
-
-    // Resolve home prefix first.
-    let expanded: std::borrow::Cow<str> = if query == "~" {
-        match env::var("HOME") {
-            Ok(home) => std::borrow::Cow::Owned(home),
-            Err(_) => return Vec::new(),
-        }
-    } else if let Some(rest) = query.strip_prefix("~/") {
-        match env::var("HOME") {
-            Ok(home) => std::borrow::Cow::Owned(format!("{home}/{rest}")),
-            Err(_) => return Vec::new(),
-        }
-    } else {
-        std::borrow::Cow::Borrowed(query)
+    let Some(path) = expand_query_path(cwd, query) else {
+        return Vec::new();
     };
 
-    let path = if expanded.starts_with('/') {
-        PathBuf::from(expanded.as_ref())
-    } else {
-        cwd.join(expanded.as_ref())
-    };
-
-    // If the path itself is an existing directory, return it directly.
-    if path.is_dir() && !query.ends_with('/') {
-        return vec![path];
-    }
-
-    // If path is a directory and query ends with '/', list its children.
-    if path.is_dir() && query.ends_with('/') {
-        let mut results = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&path) {
-            for entry in entries.flatten() {
-                if entry.metadata().map(|m| m.is_dir()).unwrap_or(false) {
-                    results.push(entry.path());
-                }
-            }
-        }
-        sort_filesystem_candidates_by_basename(&mut results);
+    if let Some(results) = exact_directory_candidates(&path, query) {
         return results;
     }
 
-    // Otherwise treat it as a prefix: parent dir + prefix filter.
+    prefix_directory_candidates(&path)
+}
+
+fn expand_query_path(cwd: &Path, query: &str) -> Option<PathBuf> {
+    let expanded = expand_home_prefix(query)?;
+    Some(if expanded.starts_with('/') {
+        PathBuf::from(expanded.as_ref())
+    } else {
+        cwd.join(expanded.as_ref())
+    })
+}
+
+fn expand_home_prefix(query: &str) -> Option<std::borrow::Cow<'_, str>> {
+    use std::env;
+
+    if query == "~" {
+        env::var("HOME").ok().map(std::borrow::Cow::Owned)
+    } else if let Some(rest) = query.strip_prefix("~/") {
+        env::var("HOME")
+            .ok()
+            .map(|home| std::borrow::Cow::Owned(format!("{home}/{rest}")))
+    } else {
+        Some(std::borrow::Cow::Borrowed(query))
+    }
+}
+
+fn exact_directory_candidates(path: &Path, query: &str) -> Option<Vec<PathBuf>> {
+    if !path.is_dir() {
+        return None;
+    }
+
+    if !query.ends_with('/') {
+        return Some(vec![path.to_path_buf()]);
+    }
+
+    let mut results = child_directory_candidates(path);
+    sort_filesystem_candidates_by_basename(&mut results);
+    Some(results)
+}
+
+fn child_directory_candidates(path: &Path) -> Vec<PathBuf> {
+    let mut results = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if entry.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+                results.push(entry.path());
+            }
+        }
+    }
+    results
+}
+
+fn prefix_directory_candidates(path: &Path) -> Vec<PathBuf> {
     let parent = match path.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        Some(p) if !p.as_os_str().is_empty() => p,
         _ => return Vec::new(),
     };
     let prefix = match path.file_name() {
@@ -234,7 +236,7 @@ fn expand_filesystem_prefix(cwd: &Path, query: &str) -> Vec<PathBuf> {
     };
 
     let mut results = Vec::new();
-    let entries = match std::fs::read_dir(&parent) {
+    let entries = match std::fs::read_dir(parent) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
     };
@@ -247,7 +249,7 @@ fn expand_filesystem_prefix(cwd: &Path, query: &str) -> Vec<PathBuf> {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_lowercase();
-        if name.starts_with(&*prefix) {
+        if name.starts_with(&prefix) {
             results.push(entry.path());
         }
     }
@@ -391,6 +393,33 @@ mod tests {
         }
 
         assert!(out.contains(&target));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn completion_matches_resolve_for_dot_slash_prefix_fallback_target() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("complete-resolve-prefix-parity");
+        let root = temp.join("root");
+        let target = root.join("no-local-hit").join("project");
+        fs::create_dir_all(&target).expect("create fallback target");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
+
+        let resolved = resolver
+            .resolve(super::super::ResolveQuery {
+                raw: "./no-local-hit/pro",
+                cwd: &temp,
+            })
+            .expect("resolve should succeed");
+        let completed = resolver.collect_completion_candidates_with_limit_and_cwd(
+            "./no-local-hit/pro",
+            None,
+            Some(&temp),
+        );
+
+        assert!(completed.paths.contains(&resolved.path));
+
         let _ = fs::remove_dir_all(temp);
     }
 
