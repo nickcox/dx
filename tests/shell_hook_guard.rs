@@ -207,6 +207,166 @@ fn zsh_generated_hook_command_not_found_resolves_path_like_command_once() {
 }
 
 #[test]
+fn bash_generated_hook_command_not_found_resolves_delimiter_shortened_command_once() {
+    let temp = make_temp_dir("hook-resolve-delimiter");
+    let target = temp.join("cd-extras");
+    let hook = write_generated_hook(&temp, "bash");
+    fs::create_dir_all(&target).expect("create target");
+
+    let script = format!(
+        "source \"{hook}\"; __dx_calls=0; dx() {{ __dx_calls=$((__dx_calls+1)); if [[ \"$1\" == resolve ]]; then printf '%s\\n' \"{target}\"; return 0; fi; return 1; }}; command_not_found_handle \"cd-e\" >/dev/null 2>&1; status=$?; printf '%s:%s:%s' \"$status\" \"$PWD\" \"$__dx_calls\"",
+        hook = hook.display(),
+        target = target.display(),
+    );
+
+    let output = run_shell("bash", &script, &temp);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut parts = stdout.trim().splitn(3, ':');
+    let status = parts.next().expect("status part");
+    let pwd = parts.next().expect("pwd part");
+    let calls = parts.next().expect("calls part");
+    assert_eq!(status, "0");
+    assert_eq!(calls, "1");
+
+    let expected = fs::canonicalize(&target)
+        .expect("canonical target")
+        .display()
+        .to_string();
+    let actual = fs::canonicalize(pwd)
+        .expect("canonical actual")
+        .display()
+        .to_string();
+    assert_eq!(actual, expected);
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
+fn bash_generated_hook_command_not_found_plain_word_still_falls_through() {
+    let temp = make_temp_dir("hook-plain-word-fallthrough");
+    let hook = write_generated_hook(&temp, "bash");
+    let script = format!(
+        "source \"{hook}\"; __dx_calls=0; dx() {{ __dx_calls=$((__dx_calls+1)); return 0; }}; command_not_found_handle \"gti\" >/dev/null 2>&1; status=$?; printf '%s:%s' \"$status\" \"$__dx_calls\"",
+        hook = hook.display(),
+    );
+
+    let output = run_shell("bash", &script, &temp);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut parts = stdout.trim().splitn(2, ':');
+    let status = parts.next().expect("status part");
+    let calls = parts.next().expect("calls part");
+    assert_eq!(status, "127");
+    assert_eq!(calls, "0");
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
+fn zsh_generated_hook_command_not_found_resolves_doubled_period_command_once() {
+    let temp = make_temp_dir("zsh-hook-resolve-gap");
+    let target = temp.join("PowerShell");
+    let hook = write_generated_hook(&temp, "zsh");
+    fs::create_dir_all(&target).expect("create target");
+
+    let script = format!(
+        "function compdef() {{ :; }}; source \"{hook}\"; __dx_calls=0; function dx() {{ __dx_calls=$((__dx_calls+1)); if [[ \"$1\" == \"resolve\" ]]; then print -r -- \"{target}\"; return 0; fi; return 1; }}; command_not_found_handler \"p..shell\" >/dev/null 2>&1; rc=$?; printf '%s:%s:%s' \"$rc\" \"$PWD\" \"$__dx_calls\"",
+        hook = hook.display(),
+        target = target.display(),
+    );
+
+    let output = run_shell("zsh", &script, &temp);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut parts = stdout.trim().splitn(3, ':');
+    let status = parts.next().expect("status part");
+    let pwd = parts.next().expect("pwd part");
+    let calls = parts.next().expect("calls part");
+    assert_eq!(status, "0");
+    assert_eq!(calls, "1");
+
+    let expected = fs::canonicalize(&target)
+        .expect("canonical target")
+        .display()
+        .to_string();
+    let actual = fs::canonicalize(pwd)
+        .expect("canonical actual")
+        .display()
+        .to_string();
+    assert_eq!(actual, expected);
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
+fn fish_generated_hook_command_not_found_respects_literal_directory_auto_cd_behavior() {
+    let temp = make_temp_dir("fish-hook-literal-dir");
+    let target = temp.join("literal-dir");
+    fs::create_dir_all(&target).expect("create target");
+
+    let output = Command::new("fish")
+        .arg("-c")
+        .arg("if test -d literal-dir; cd literal-dir; end; pwd")
+        .current_dir(&temp)
+        .output()
+        .expect("run fish literal dir script");
+
+    assert!(output.status.success());
+    let actual = fs::canonicalize(String::from_utf8_lossy(&output.stdout).trim())
+        .expect("canonical actual")
+        .display()
+        .to_string();
+    let expected = fs::canonicalize(&target)
+        .expect("canonical target")
+        .display()
+        .to_string();
+    assert_eq!(actual, expected);
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
+fn fish_generated_hook_command_not_found_resolves_delimiter_shortened_command_once() {
+    let temp = make_temp_dir("fish-hook-resolve-delimiter");
+    let target = temp.join("cd-extras");
+    let hook = write_generated_hook(&temp, "fish");
+    fs::create_dir_all(&target).expect("create target");
+
+    let script = format!(
+        "source \"{hook}\"; set -g __dx_resolve_calls 0; function dx; if test \"$argv[1]\" = resolve; set -g __dx_resolve_calls (math $__dx_resolve_calls + 1); printf '%s\\n' \"{target}\"; return 0; end; return 0; end; fish_command_not_found cd-e >/dev/null 2>&1; set status_value $status; printf '%s:%s:%s' $status_value $PWD $__dx_resolve_calls",
+        hook = hook.display(),
+        target = target.display(),
+    );
+
+    let output = Command::new("fish")
+        .arg("-c")
+        .arg(&script)
+        .current_dir(&temp)
+        .output()
+        .expect("run fish delimiter-shortened hook script");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut parts = stdout.trim().splitn(3, ':');
+    let status = parts.next().expect("status part");
+    let pwd = parts.next().expect("pwd part");
+    let calls = parts.next().expect("calls part");
+    assert_eq!(status, "0");
+    assert_eq!(calls, "1");
+
+    let expected = fs::canonicalize(&target)
+        .expect("canonical target")
+        .display()
+        .to_string();
+    let actual = fs::canonicalize(pwd)
+        .expect("canonical actual")
+        .display()
+        .to_string();
+    assert_eq!(actual, expected);
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
 fn zsh_generated_hook_cd_permission_denied_error_does_not_leak_helper_name() {
     let temp = make_temp_dir("zsh-hook-cd-perm-denied");
     let blocked = temp.join("blocked");

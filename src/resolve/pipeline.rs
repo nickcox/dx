@@ -108,9 +108,17 @@ mod tests {
     }
 
     fn create_resolver_with_roots(roots: Vec<PathBuf>) -> Resolver {
+        create_resolver_with_roots_and_case_sensitivity(roots, true)
+    }
+
+    fn create_resolver_with_roots_and_case_sensitivity(
+        roots: Vec<PathBuf>,
+        case_sensitive: bool,
+    ) -> Resolver {
         Resolver::with_bookmark_lookup(
             AppConfig {
                 search_roots: roots,
+                resolve: crate::config::ResolveOptions { case_sensitive },
                 ..AppConfig::default()
             },
             |_| None,
@@ -336,6 +344,107 @@ mod tests {
                 candidates: _
             }
         ));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolves_delimiter_aware_query() {
+        let temp = make_temp_dir("resolve-delimiter-aware");
+        let root = temp.join("root");
+        let target = root.join("cd-extras");
+        fs::create_dir_all(&target).expect("create target");
+
+        let resolver = create_resolver_with_roots(vec![root]);
+        let query = ResolveQuery {
+            raw: "cd-e",
+            cwd: &temp,
+        };
+
+        let result = resolver.resolve(query).expect("delimiter-aware resolve");
+        assert_eq!(result.path, target);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolves_doubled_period_query() {
+        let temp = make_temp_dir("resolve-gap-aware");
+        let root = temp.join("root");
+        let target = root.join("PowerShell");
+        fs::create_dir_all(&target).expect("create target");
+
+        let resolver = create_resolver_with_roots_and_case_sensitivity(vec![root], false);
+        let query = ResolveQuery {
+            raw: "p..shell",
+            cwd: &temp,
+        };
+
+        let result = resolver.resolve(query).expect("gap-aware resolve");
+        assert_eq!(result.path, target);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolves_multi_segment_delimiter_aware_query() {
+        let temp = make_temp_dir("resolve-multi-delimiter-aware");
+        let root = temp.join("root");
+        let target = root.join("project/PowerShell/src/Microsoft.PowerShell.SDK");
+        fs::create_dir_all(&target).expect("create target");
+
+        let resolver = create_resolver_with_roots_and_case_sensitivity(vec![root], false);
+        let query = ResolveQuery {
+            raw: "pro/p..shell/s/.sdk",
+            cwd: &temp,
+        };
+
+        let result = resolver.resolve(query).expect("multi-segment delimiter-aware resolve");
+        assert_eq!(result.path, target);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn returns_ambiguous_error_for_delimiter_aware_candidates() {
+        let temp = make_temp_dir("resolve-delimiter-ambiguous");
+        let root = temp.join("root");
+        fs::create_dir_all(root.join("cd-extras")).expect("create cd-extras");
+        fs::create_dir_all(root.join("cd-editor")).expect("create cd-editor");
+
+        let resolver = create_resolver_with_roots(vec![root]);
+        let query = ResolveQuery {
+            raw: "cd-e",
+            cwd: &temp,
+        };
+
+        let err = resolver
+            .resolve(query)
+            .expect_err("delimiter-aware query should be ambiguous");
+        assert!(matches!(
+            err,
+            ResolveError::Ambiguous {
+                count: 2,
+                candidates: _
+            }
+        ));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn step_up_alias_keeps_precedence_over_gap_syntax() {
+        let temp = make_temp_dir("resolve-gap-precedence");
+        let root = temp.join("root");
+        fs::create_dir_all(root.join("..."))
+            .expect("create literal triple-dot directory inside search root");
+
+        let cwd = temp.join("a/b/c");
+        fs::create_dir_all(&cwd).expect("create cwd");
+
+        let resolver = create_resolver_with_roots(vec![root]);
+        let query = ResolveQuery {
+            raw: "...",
+            cwd: &cwd,
+        };
+
+        let result = resolver.resolve(query).expect("step-up precedence should win");
+        assert_eq!(result.path, temp.join("a"));
         let _ = fs::remove_dir_all(temp);
     }
 

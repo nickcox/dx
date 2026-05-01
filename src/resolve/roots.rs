@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::abbreviation::matches_prefix;
+use super::abbreviation::matches_segment;
 use super::traversal;
 
 pub fn resolve_fallbacks(roots: &[PathBuf], query: &str, case_sensitive: bool) -> Vec<PathBuf> {
@@ -29,7 +29,7 @@ pub fn resolve_fallbacks(roots: &[PathBuf], query: &str, case_sensitive: bool) -
             matches.extend(traversal::traverse_segment_paths(
                 vec![root.to_path_buf()],
                 &segments,
-                |name, segment| matches_prefix(name, segment, case_sensitive),
+                |name, segment| matches_segment(name, segment, case_sensitive),
             ));
         } else {
             matches.extend(resolve_single_segment(root, query, case_sensitive));
@@ -55,7 +55,7 @@ fn resolve_single_segment(root: &Path, segment: &str, case_sensitive: bool) -> V
             }
             let name = entry.file_name();
             let name = name.to_str()?;
-            if matches_prefix(name, segment, case_sensitive) {
+            if matches_segment(name, segment, case_sensitive) {
                 Some(path)
             } else {
                 None
@@ -102,6 +102,30 @@ mod tests {
         fs::create_dir_all(&target).expect("create dirs");
 
         let matches = resolve_fallbacks(&[root], "pro/sr/com", true);
+        assert_eq!(matches, vec![target]);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolves_delimiter_aware_single_segment_match_in_root() {
+        let temp = make_temp_dir("roots-delimiter");
+        let root = temp.join("root");
+        let target = root.join("cd-extras");
+        fs::create_dir_all(&target).expect("create dirs");
+
+        let matches = resolve_fallbacks(&[root], "cd-e", true);
+        assert_eq!(matches, vec![target]);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn resolves_delimiter_aware_multi_segment_match_in_root() {
+        let temp = make_temp_dir("roots-delimiter-multi");
+        let root = temp.join("root");
+        let target = root.join("project/PowerShell/src/Microsoft.PowerShell.SDK");
+        fs::create_dir_all(&target).expect("create dirs");
+
+        let matches = resolve_fallbacks(&[root], "pro/p..shell/s/.sdk", false);
         assert_eq!(matches, vec![target]);
         let _ = fs::remove_dir_all(temp);
     }

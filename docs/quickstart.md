@@ -54,6 +54,20 @@ Success looks like: help text prints without errors.
 
 Once your shell is initialized, try one normal navigation command from your shell workflow.
 
+`dx` path resolution supports shortened path segments, not just literal directory names. Examples:
+
+```bash
+cd pr/dx
+cd cd-e
+cd p..shell
+cd proj/p..shell/s/.sdk
+```
+
+Shortening rules:
+- Plain fragments still match from the start of a segment.
+- Word delimiters `.`, `_`, and `-` can be used inside a segment, so queries like `cd-e` and `.sdk` match names around those literal delimiters.
+- Doubled periods `..` act as an in-segment gap operator, so `p..shell` can match `PowerShell` and `s..32` can match `System32`.
+
 If a command fails, revisit shell setup and confirm your shell initialization loaded successfully.
 
 ## What to read next

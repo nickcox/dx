@@ -36,6 +36,8 @@ dx --help
 
 Success looks like: help output appears and no shell errors occur during startup.
 
+If you enabled command-not-found integration, you can also verify path shortening behavior directly from your shell. For example, delimiter-aware shortcuts such as `cd-e` and doubled-period queries such as `p..shell` should resolve the same way as `cd cd-e` and `cd p..shell` when they are unambiguous.
+
 ## Related docs
 
 - Project overview: [README](../README.md)

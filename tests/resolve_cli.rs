@@ -130,3 +130,56 @@ fn resolve_uses_cwd_as_implicit_root_when_unset() {
 
     let _ = fs::remove_dir_all(cwd);
 }
+
+#[test]
+fn resolves_delimiter_aware_segment_query() {
+    let cwd = make_temp_dir("cli-delimiter-aware");
+    let root = cwd.join("root");
+    let target = root.join("cd-extras");
+    fs::create_dir_all(&target).expect("create target");
+
+    let output = Command::new(dx_bin())
+        .arg("resolve")
+        .arg("cd-e")
+        .env("DX_SEARCH_ROOTS", root.display().to_string())
+        .current_dir(&cwd)
+        .output()
+        .expect("run dx delimiter-aware resolve");
+
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        fs::canonicalize(String::from_utf8_lossy(&output.stdout).trim())
+            .expect("canonical stdout path")
+            .display()
+            .to_string(),
+        canonical_string(&target),
+    );
+    let _ = fs::remove_dir_all(cwd);
+}
+
+#[test]
+fn resolves_doubled_period_segment_query() {
+    let cwd = make_temp_dir("cli-gap-aware");
+    let root = cwd.join("root");
+    let target = root.join("PowerShell");
+    fs::create_dir_all(&target).expect("create target");
+
+    let output = Command::new(dx_bin())
+        .arg("resolve")
+        .arg("p..shell")
+        .env("DX_SEARCH_ROOTS", root.display().to_string())
+        .env("DX_CASE_SENSITIVE", "false")
+        .current_dir(&cwd)
+        .output()
+        .expect("run dx gap-aware resolve");
+
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        fs::canonicalize(String::from_utf8_lossy(&output.stdout).trim())
+            .expect("canonical stdout path")
+            .display()
+            .to_string(),
+        canonical_string(&target),
+    );
+    let _ = fs::remove_dir_all(cwd);
+}

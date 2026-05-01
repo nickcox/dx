@@ -292,7 +292,7 @@ When the cd wrapper is invoked with flags (e.g., `-L`, `-P`), those flags SHALL 
 - **THEN** the flags SHALL be passed to `builtin cd -P` and `dx resolve` SHALL receive only the path argument
 
 ### Requirement: command_not_found Handler — Path-Like Heuristic
-When the opt-in `command_not_found` handler receives an unrecognized command, it SHALL only invoke `dx resolve` if the input matches a path-like heuristic: contains `/`, starts with `.` or `~`, or matches a multi-dot pattern (e.g., `...`, `....`). If the input does not match the heuristic, the handler SHALL immediately produce the shell's standard "command not found" error without invoking dx.
+When the opt-in `command_not_found` handler receives an unrecognized command, it SHALL only invoke `dx resolve` if the input matches a path-like heuristic: contains `/`, starts with `.` or `~`, matches a multi-dot pattern (e.g., `...`, `....`), contains a supported word delimiter (`.`, `_`, `-`), or contains an in-segment doubled-period sequence (`..`) that is not a pure multi-dot step-up token. If the input does not match the heuristic, the handler SHALL immediately produce the shell's standard "command not found" error without invoking dx.
 
 #### Scenario: Slash-containing input triggers resolve
 - **WHEN** the command `pr/dx` is not found and the command_not_found handler is active
@@ -305,6 +305,14 @@ When the opt-in `command_not_found` handler receives an unrecognized command, it
 #### Scenario: Multi-dot input triggers resolve
 - **WHEN** the command `...` is not found and the command_not_found handler is active
 - **THEN** the handler SHALL invoke `dx resolve "..."`
+
+#### Scenario: Delimiter-shortened input triggers resolve
+- **WHEN** the command `cd-e` is not found and the command_not_found handler is active
+- **THEN** the handler SHALL invoke `dx resolve "cd-e"`
+
+#### Scenario: Doubled-period shortening input triggers resolve
+- **WHEN** the command `p..shell` is not found and the command_not_found handler is active
+- **THEN** the handler SHALL invoke `dx resolve "p..shell"`
 
 #### Scenario: Plain word does not trigger resolve
 - **WHEN** the command `gti` is not found and the command_not_found handler is active
@@ -380,7 +388,7 @@ PowerShell stack-transition wrappers SHALL NOT call `dx stack push`.
 - **THEN** the wrapper SHALL resolve the target via `dx navigate forward code`, call `dx stack redo --target <path>`, and `Set-Location` to the returned path
 
 ### Requirement: Fish Auto-cd Cooperation
-The Fish hook code SHALL cooperate with Fish's built-in auto-cd feature. The `fish_command_not_found` handler (when enabled) SHALL only attempt `dx resolve` for inputs that Fish's native auto-cd would not handle (abbreviated paths, multi-dot patterns, bookmark names). If the input is a literal existing directory, Fish's auto-cd SHALL take precedence.
+The Fish hook code SHALL cooperate with Fish's built-in auto-cd feature. The `fish_command_not_found` handler (when enabled) SHALL only attempt `dx resolve` for inputs that Fish's native auto-cd would not handle (abbreviated paths, delimiter-shortened paths, multi-dot patterns, or bookmark names). If the input is a literal existing directory, Fish's auto-cd SHALL take precedence.
 
 #### Scenario: Fish auto-cd handles literal directory
 - **WHEN** a user types a literal directory name that exists on disk in a Fish shell with dx hooks
@@ -389,6 +397,10 @@ The Fish hook code SHALL cooperate with Fish's built-in auto-cd feature. The `fi
 #### Scenario: Fish handler resolves abbreviated path
 - **WHEN** a user types an abbreviated path like `pr/dx` that is not a literal directory, and the Fish command_not_found handler is active
 - **THEN** the handler SHALL invoke `dx resolve "pr/dx"` and navigate on success
+
+#### Scenario: Fish handler resolves delimiter-shortened path
+- **WHEN** a user types a delimiter-shortened query like `cd-e` that is not a literal directory, and the Fish command_not_found handler is active
+- **THEN** the handler SHALL invoke `dx resolve "cd-e"` and navigate on success
 
 ### Requirement: Shell Coverage
 `dx init` SHALL support all four target shells: Bash, Zsh, Fish, and PowerShell. Each shell's generated hook code SHALL be idiomatic for that shell and SHALL provide equivalent functionality: cd wrapper with resolve integration, session identity export, fire-and-forget push recording, and (when opted in) command_not_found handling.

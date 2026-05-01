@@ -419,6 +419,8 @@ mod tests {
         assert!(bash.contains("command_not_found_handle()"));
         assert!(bash.contains("if [[ -n \"${DX_RESOLVE_GUARD:-}\" ]]; then"));
         assert!(bash.contains("if ! __dx_is_path_like \"$__dx_cmd\"; then"));
+        assert!(bash.contains("\"$__dx_cmd\" == *-*"));
+        assert!(bash.contains("\"$__dx_cmd\" == *..*"));
         assert!(bash.contains(
             "__dx_resolved=\"$(DX_RESOLVE_GUARD=1 dx resolve \"$__dx_cmd\" 2>/dev/null)\""
         ));
@@ -427,6 +429,8 @@ mod tests {
         assert!(zsh.contains("command_not_found_handler()"));
         assert!(zsh.contains("if [[ -n \"${DX_RESOLVE_GUARD:-}\" ]]; then"));
         assert!(zsh.contains("if ! __dx_is_path_like \"$__dx_cmd\"; then"));
+        assert!(zsh.contains("\"$__dx_cmd\" == *-*"));
+        assert!(zsh.contains("\"$__dx_cmd\" == *..*"));
         assert!(zsh.contains(
             "__dx_resolved=\"$(DX_RESOLVE_GUARD=1 dx resolve \"$__dx_cmd\" 2>/dev/null)\""
         ));
@@ -435,6 +439,7 @@ mod tests {
         assert!(fish.contains("function fish_command_not_found --argument __dx_cmd"));
         assert!(fish.contains("if set -q DX_RESOLVE_GUARD"));
         assert!(fish.contains("if not __dx_is_path_like \"$__dx_cmd\""));
+        assert!(fish.contains(".*-|.*_|.*\\.\\..*"));
         assert!(fish.contains("set -lx DX_RESOLVE_GUARD 1"));
         assert!(fish.contains("set -l __dx_resolved (dx resolve \"$__dx_cmd\" 2>/dev/null)"));
         assert!(fish.contains("set -e DX_RESOLVE_GUARD"));
@@ -443,6 +448,7 @@ mod tests {
         assert!(pwsh.contains("CommandNotFoundAction"));
         assert!(pwsh.contains("if ($env:DX_RESOLVE_GUARD) { return }"));
         assert!(pwsh.contains("if (-not (__dx_is_path_like $cmd)) { return }"));
+        assert!(pwsh.contains("-match '(/|^\\.|^~|^\\.{3,}$|-|_|\\.\\.)'"));
         assert!(pwsh.contains("$env:DX_RESOLVE_GUARD = '1'"));
         assert!(pwsh.contains("$resolved = (dx resolve $cmd 2>$null)"));
         assert!(pwsh.contains("Remove-Item Env:DX_RESOLVE_GUARD -ErrorAction SilentlyContinue"));

@@ -279,9 +279,17 @@ mod tests {
     }
 
     fn create_resolver_with_roots_and_bookmarks(roots: Vec<PathBuf>) -> Resolver {
+        create_resolver_with_roots_and_bookmarks_and_case_sensitivity(roots, true)
+    }
+
+    fn create_resolver_with_roots_and_bookmarks_and_case_sensitivity(
+        roots: Vec<PathBuf>,
+        case_sensitive: bool,
+    ) -> Resolver {
         Resolver::with_bookmark_lookup(
             AppConfig {
                 search_roots: roots,
+                resolve: crate::config::ResolveOptions { case_sensitive },
                 ..AppConfig::default()
             },
             bookmarks::lookup,
@@ -449,5 +457,33 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(ordered, vec!["Calpha", "cAlpha", "cbravo"]);
+    }
+
+    #[test]
+    fn completion_returns_delimiter_aware_matches() {
+        let temp = make_temp_dir("complete-delimiter-aware");
+        let root = temp.join("root");
+        let target = root.join("cd-extras");
+        fs::create_dir_all(&target).expect("create target");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
+        let out = resolver.collect_completion_candidates("cd-e");
+
+        assert_eq!(out, vec![target]);
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn completion_returns_doubled_period_matches() {
+        let temp = make_temp_dir("complete-gap-aware");
+        let root = temp.join("root");
+        let target = root.join("PowerShell");
+        fs::create_dir_all(&target).expect("create target");
+
+        let resolver = create_resolver_with_roots_and_bookmarks_and_case_sensitivity(vec![root], false);
+        let out = resolver.collect_completion_candidates("p..shell");
+
+        assert_eq!(out, vec![target]);
+        let _ = fs::remove_dir_all(temp);
     }
 }

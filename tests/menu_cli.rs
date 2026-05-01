@@ -603,7 +603,7 @@ fn hook_scripts_contain_fallback_on_noop() {
     let bash_out = String::from_utf8_lossy(&bash.stdout);
     // Bash: _dx_menu_wrapper calls original completion when __dx_try_menu fails
     assert!(
-        bash_out.contains("__dx_try_menu; then\n    return 0\n  fi"),
+        bash_out.contains("if __dx_try_menu; then\n    [[ -t 1 ]] && printf '\\r' >/dev/tty\n    return 0\n  fi"),
         "bash menu wrapper should fall back to original completion"
     );
 

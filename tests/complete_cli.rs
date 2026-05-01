@@ -330,3 +330,46 @@ fn complete_paths_uses_cwd_as_implicit_root_when_unset() {
 
     let _ = fs::remove_dir_all(temp);
 }
+
+#[test]
+fn complete_paths_returns_delimiter_aware_matches() {
+    let temp = make_temp_dir("paths-delimiter-aware");
+    let root = temp.join("root");
+    fs::create_dir_all(root.join("cd-extras")).expect("create cd-extras");
+    fs::create_dir_all(root.join("cd-editor")).expect("create cd-editor");
+
+    let output = Command::new(dx_bin())
+        .args(["complete", "paths", "cd-e"])
+        .env("DX_SEARCH_ROOTS", root.display().to_string())
+        .current_dir(&temp)
+        .output()
+        .expect("run complete paths delimiter-aware");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("cd-extras"));
+    assert!(stdout.contains("cd-editor"));
+
+    let _ = fs::remove_dir_all(temp);
+}
+
+#[test]
+fn complete_paths_returns_doubled_period_matches() {
+    let temp = make_temp_dir("paths-gap-aware");
+    let root = temp.join("root");
+    fs::create_dir_all(root.join("PowerShell")).expect("create powershell");
+
+    let output = Command::new(dx_bin())
+        .args(["complete", "paths", "p..shell"])
+        .env("DX_SEARCH_ROOTS", root.display().to_string())
+        .env("DX_CASE_SENSITIVE", "false")
+        .current_dir(&temp)
+        .output()
+        .expect("run complete paths gap-aware");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PowerShell"));
+
+    let _ = fs::remove_dir_all(temp);
+}

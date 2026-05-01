@@ -10,7 +10,7 @@ pub fn generate(command_not_found: bool, menu: bool) -> String {
 end
 
 function __dx_is_path_like --argument __dx_cmd
-  if string match -rq -- '.*/|^\.|^~|^\.{3,}$' "$__dx_cmd"
+  if string match -rq -- '.*/|^\.|^~|^\.{3,}$|.*-|.*_|.*\.\..*' "$__dx_cmd"
     return 0
   end
   return 1

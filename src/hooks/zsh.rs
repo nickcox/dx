@@ -12,7 +12,7 @@ fi
 
 __dx_is_path_like() {
   local __dx_cmd="$1"
-  [[ "$__dx_cmd" == */* || "$__dx_cmd" == .* || "$__dx_cmd" == ~* || "$__dx_cmd" == ...* ]]
+  [[ "$__dx_cmd" == */* || "$__dx_cmd" == .* || "$__dx_cmd" == ~* || "$__dx_cmd" == ...* || "$__dx_cmd" == *-* || "$__dx_cmd" == *_* || "$__dx_cmd" == *..* ]]
 }
 
 __dx_push_pwd() {

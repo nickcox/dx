@@ -17,7 +17,7 @@ Remove-Item Alias:cd -ErrorAction SilentlyContinue
 
 function __dx_is_path_like {
     param([string]$Cmd)
-    return $Cmd -match '(/|^\.|^~|^\.{3,}$)'
+    return $Cmd -match '(/|^\.|^~|^\.{3,}$|-|_|\.\.)'
 }
 
 function __dx_push_pwd {
