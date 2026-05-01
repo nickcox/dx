@@ -58,6 +58,21 @@ pub fn write_atomic_replace(temp: &Path, target: &Path, payload: &[u8]) -> Resul
     }
 }
 
+pub fn map_atomic_write_error<T, FWrite, FReplace>(
+    err: AtomicWriteError,
+    map_write: FWrite,
+    map_replace: FReplace,
+) -> T
+where
+    FWrite: FnOnce(io::Error) -> T,
+    FReplace: FnOnce(io::Error) -> T,
+{
+    match err {
+        AtomicWriteError::Write(source) => map_write(source),
+        AtomicWriteError::Replace(source) => map_replace(source),
+    }
+}
+
 fn replace_file(from: &Path, to: &Path) -> io::Result<()> {
     #[cfg(test)]
     {
@@ -72,6 +87,30 @@ fn replace_file(from: &Path, to: &Path) -> io::Result<()> {
 #[cfg(test)]
 pub(crate) fn with_replace_failure_injection_for_tests<T>(operation: impl FnOnce() -> T) -> T {
     test_replace_seam::with_replace_failure(operation)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use super::{AtomicWriteError, map_atomic_write_error};
+
+    #[test]
+    fn atomic_write_error_mapping_dispatches_to_correct_closure() {
+        let write_mapped = map_atomic_write_error(
+            AtomicWriteError::Write(io::Error::other("write")),
+            |source| format!("write:{}", source),
+            |source| format!("replace:{}", source),
+        );
+        assert_eq!(write_mapped, "write:write");
+
+        let replace_mapped = map_atomic_write_error(
+            AtomicWriteError::Replace(io::Error::other("replace")),
+            |source| format!("write:{}", source),
+            |source| format!("replace:{}", source),
+        );
+        assert_eq!(replace_mapped, "replace:replace");
+    }
 }
 
 #[cfg(test)]

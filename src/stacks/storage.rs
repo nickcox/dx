@@ -3,11 +3,12 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::fs::DirEntry;
 
 use thiserror::Error;
 
 use super::SessionStack;
-use crate::common::{self, AtomicWriteError};
+use crate::common;
 
 pub const DEFAULT_STALE_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
@@ -51,12 +52,18 @@ pub fn read_session(dir: &Path, session_id: &str) -> Result<SessionStack, Storag
     cleanup_stale(dir, DEFAULT_STALE_TTL);
     let path = session_file_path(dir, session_id)?;
 
-    let raw = match fs::read_to_string(&path) {
+    read_session_file(&path)
+}
+
+fn read_session_file(path: &Path) -> Result<SessionStack, StorageError> {
+    let path_text = path.display().to_string();
+
+    let raw = match fs::read_to_string(path) {
         Ok(value) => value,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(SessionStack::default()),
         Err(source) => {
             return Err(StorageError::ReadSession {
-                path: path.display().to_string(),
+                path: path_text,
                 source,
             })
         }
@@ -85,16 +92,19 @@ pub fn write_session(
     let temp = temp_session_path(dir, session_id);
     let payload = serde_json::to_vec(stack).map_err(StorageError::SerializeSession)?;
 
-    common::write_atomic_replace(&temp, &target, &payload).map_err(|err| match err {
-        AtomicWriteError::Write(source) => StorageError::WriteSession {
-            path: temp.display().to_string(),
-            source,
-        },
-        AtomicWriteError::Replace(source) => StorageError::ReplaceSession {
-            from: temp.display().to_string(),
-            to: target.display().to_string(),
-            source,
-        },
+    common::write_atomic_replace(&temp, &target, &payload).map_err(|err| {
+        common::map_atomic_write_error(
+            err,
+            |source| StorageError::WriteSession {
+                path: temp.display().to_string(),
+                source,
+            },
+            |source| StorageError::ReplaceSession {
+                from: temp.display().to_string(),
+                to: target.display().to_string(),
+                source,
+            },
+        )
     })
 }
 
@@ -105,36 +115,36 @@ pub fn cleanup_stale(dir: &Path, ttl: Duration) {
     };
 
     let now = SystemTime::now();
-    for entry_result in entries {
-        let entry = match entry_result {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
+    for path in stale_session_paths(entries, now, ttl) {
+        let _ = fs::remove_file(path);
+    }
+}
 
-        let path = entry.path();
-        if !is_session_file(&path) {
-            continue;
-        }
+fn stale_session_paths(
+    entries: fs::ReadDir,
+    now: SystemTime,
+    ttl: Duration,
+) -> Vec<PathBuf> {
+    let mut stale = Vec::new();
 
-        let metadata = match entry.metadata() {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-
-        let modified = match metadata.modified() {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-
-        let age = match now.duration_since(modified) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-
-        if age > ttl {
-            let _ = fs::remove_file(path);
+    for entry in entries.flatten() {
+        if let Some(path) = stale_session_path(entry, now, ttl) {
+            stale.push(path);
         }
     }
+
+    stale
+}
+
+fn stale_session_path(entry: DirEntry, now: SystemTime, ttl: Duration) -> Option<PathBuf> {
+    let path = entry.path();
+    if !is_session_file(&path) {
+        return None;
+    }
+
+    let modified = entry.metadata().ok()?.modified().ok()?;
+    let age = now.duration_since(modified).ok()?;
+    (age > ttl).then_some(path)
 }
 
 fn session_file_path(dir: &Path, session_id: &str) -> Result<PathBuf, StorageError> {

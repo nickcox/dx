@@ -89,6 +89,13 @@ impl BookmarkStore {
             .map(|(name, path)| (name.clone(), path.clone()))
             .collect()
     }
+
+    pub(crate) fn to_serializable_map(&self) -> BTreeMap<String, String> {
+        self.bookmarks
+            .iter()
+            .map(|(name, path)| (name.clone(), path.display().to_string()))
+            .collect()
+    }
 }
 
 pub fn validate_name(name: &str) -> Result<(), BookmarkError> {

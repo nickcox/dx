@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::BookmarkStore;
-use crate::common::{self, AtomicWriteError};
+use crate::common;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -41,25 +41,10 @@ pub struct BookmarkFile {
 }
 
 pub fn bookmark_file_path() -> PathBuf {
-    if let Ok(value) = env::var("DX_BOOKMARKS_FILE") {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
-    }
-
-    if let Ok(value) = env::var("XDG_DATA_HOME") {
-        let trimmed = value.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed).join("dx").join("bookmarks.toml");
-        }
-    }
-
-    if let Some(path) = dirs::data_dir() {
-        return path.join("dx").join("bookmarks.toml");
-    }
-
-    env::temp_dir().join("dx").join("bookmarks.toml")
+    bookmark_override_path()
+        .or_else(bookmark_xdg_data_home_path)
+        .or_else(bookmark_data_dir_path)
+        .unwrap_or_else(|| env::temp_dir().join("dx").join("bookmarks.toml"))
 }
 
 pub fn read_store() -> Result<BookmarkStore, StorageError> {
@@ -103,26 +88,43 @@ pub fn write_store(store: &BookmarkStore) -> Result<(), StorageError> {
     }
 
     let payload = BookmarkFile {
-        bookmarks: store
-            .list()
-            .into_iter()
-            .map(|(name, path)| (name, path.display().to_string()))
-            .collect::<BTreeMap<_, _>>(),
+        bookmarks: store.to_serializable_map(),
     };
     let raw = toml::to_string(&payload).map_err(StorageError::SerializeStore)?;
 
     let temp = temp_store_path(&target);
-    common::write_atomic_replace(&temp, &target, raw.as_bytes()).map_err(|err| match err {
-        AtomicWriteError::Write(source) => StorageError::WriteStore {
-            path: temp.display().to_string(),
-            source,
-        },
-        AtomicWriteError::Replace(source) => StorageError::ReplaceStore {
-            from: temp.display().to_string(),
-            to: target.display().to_string(),
-            source,
-        },
+    common::write_atomic_replace(&temp, &target, raw.as_bytes()).map_err(|err| {
+        common::map_atomic_write_error(
+            err,
+            |source| StorageError::WriteStore {
+                path: temp.display().to_string(),
+                source,
+            },
+            |source| StorageError::ReplaceStore {
+                from: temp.display().to_string(),
+                to: target.display().to_string(),
+                source,
+            },
+        )
     })
+}
+
+fn non_empty_env_path(name: &str) -> Option<PathBuf> {
+    let value = env::var(name).ok()?;
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+}
+
+fn bookmark_override_path() -> Option<PathBuf> {
+    non_empty_env_path("DX_BOOKMARKS_FILE")
+}
+
+fn bookmark_xdg_data_home_path() -> Option<PathBuf> {
+    non_empty_env_path("XDG_DATA_HOME").map(|path| path.join("dx").join("bookmarks.toml"))
+}
+
+fn bookmark_data_dir_path() -> Option<PathBuf> {
+    dirs::data_dir().map(|path| path.join("dx").join("bookmarks.toml"))
 }
 
 fn temp_store_path(target: &Path) -> PathBuf {
