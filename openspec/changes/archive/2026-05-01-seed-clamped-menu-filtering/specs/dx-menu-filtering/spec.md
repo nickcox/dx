@@ -1,20 +1,4 @@
-## Purpose
-Define expected behavior for live filtering inside `dx menu`, including incremental query updates, filter editing, exit actions, and filtered selection semantics.
-
-## Requirements
-
-### Requirement: In-Menu Incremental Filter Input
-When `dx menu` is open with multiple candidates, the menu runtime SHALL accept printable key input as an incremental filter string and SHALL update visible candidates after each keystroke.
-
-Filter matching SHALL be implemented by re-invoking the same completion pipeline as `dx complete <mode>` with the updated filter query on each keystroke — not by in-memory string matching against already-sourced candidates. This ensures path-prefix queries (`~/D`, `/Users/nick/D`), abbreviation expansion, and all resolver logic work identically inside the menu as in `dx complete`.
-
-#### Scenario: Typing narrows visible list
-- **WHEN** the menu opens for `cd D` with visible candidates `Desktop`, `Documents`, `Downloads`, and `Dropbox`, and the user types `o`
-- **THEN** the visible list SHALL update to `Documents` and `Downloads`
-
-#### Scenario: Case-insensitive prefix filter
-- **WHEN** the menu has candidates `Documents` and `Downloads`, and the user types `do`
-- **THEN** both candidates SHALL remain visible regardless of whether input is `do`, `Do`, or `DO`
+## MODIFIED Requirements
 
 ### Requirement: Filter Editing and Empty Results Handling
 The menu runtime SHALL support filter editing with Backspace, but interactive editing SHALL be clamped to the initial query derived when the menu opens.
@@ -62,18 +46,3 @@ If the final active query is identical to the initial query, cancel SHALL return
 #### Scenario: Cancel without typing remains noop
 - **WHEN** the menu opens and the user presses Esc without modifying filter text
 - **THEN** `dx menu` SHALL return `{ "action": "noop" }`
-
-### Requirement: Selection Semantics Over Filtered Candidates
-Navigation keys (arrow keys and Tab/Shift+Tab) SHALL operate over the currently filtered candidate list.
-
-Printable character keys, including `j` and `k`, SHALL be treated as filter input rather than navigation commands.
-
-On Enter with a selected filtered candidate, `dx menu` SHALL return a `replace` action for that selected candidate using existing replacement-range semantics.
-
-#### Scenario: Enter applies selected filtered candidate
-- **WHEN** the user filters to `Documents` and `Downloads`, moves selection to `Downloads`, and presses Enter
-- **THEN** `dx menu` SHALL return `{"action":"replace", ... "value":"<downloads-path>"}` for the selected item
-
-#### Scenario: j and k extend the filter query
-- **WHEN** the menu is open and the user presses `j` or `k`
-- **THEN** the menu SHALL append that character to the active filter query instead of treating it as a navigation command

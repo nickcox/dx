@@ -118,6 +118,38 @@ mod imp {
     /// Re-query callback type: given a query string, returns fresh candidates.
     pub type QueryFn<'a> = Box<dyn Fn(&str) -> CompletionCandidates + 'a>;
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct FilterState {
+        // Interactive edits can only refine the initial query; they never broaden it.
+        initial_query: String,
+        typed_refinement: String,
+    }
+
+    impl FilterState {
+        fn new(initial_query: &str) -> Self {
+            Self {
+                initial_query: initial_query.to_string(),
+                typed_refinement: String::new(),
+            }
+        }
+
+        fn effective_query(&self) -> String {
+            format!("{}{}", self.initial_query, self.typed_refinement)
+        }
+
+        fn changed_query(&self) -> bool {
+            !self.typed_refinement.is_empty()
+        }
+
+        fn push(&mut self, ch: char) {
+            self.typed_refinement.push(ch);
+        }
+
+        fn backspace(&mut self) -> bool {
+            self.typed_refinement.pop().is_some()
+        }
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum MenuKeyAction {
         Submit,
@@ -153,6 +185,46 @@ mod imp {
             }
             _ => MenuKeyAction::Ignore,
         }
+    }
+
+    fn selected_result(filter_state: &FilterState, value: PathBuf) -> MenuResult {
+        MenuResult::Selected {
+            value,
+            filter_query: filter_state.effective_query(),
+            changed_query: filter_state.changed_query(),
+        }
+    }
+
+    fn cancelled_result(filter_state: &FilterState) -> MenuResult {
+        MenuResult::Cancelled {
+            filter_query: filter_state.effective_query(),
+            changed_query: filter_state.changed_query(),
+        }
+    }
+
+    fn apply_filter_edit(
+        filter_state: &mut FilterState,
+        completion: &mut CompletionCandidates,
+        list_state: &mut ListState,
+        action: MenuKeyAction,
+        query_fn: &QueryFn<'_>,
+    ) {
+        let query_changed = match action {
+            MenuKeyAction::Backspace => filter_state.backspace(),
+            MenuKeyAction::InputChar(ch) => {
+                filter_state.push(ch);
+                true
+            }
+            _ => return,
+        };
+
+        if !query_changed {
+            return;
+        }
+
+        let query = filter_state.effective_query();
+        *completion = query_fn(&query);
+        reset_selection(list_state, completion.paths.len());
     }
 
     /// Compute a compact display label for a path:
@@ -316,7 +388,7 @@ mod imp {
         )
         .ok()?;
 
-        let mut filter_query = initial_query.to_string();
+        let mut filter_state = FilterState::new(initial_query);
         let mut completion = initial_candidates;
         let mut list_state = ListState::default();
         if completion.paths.is_empty() {
@@ -336,10 +408,11 @@ mod imp {
 
             let overflow = overflow_note(completion.paths.len(), completion.has_more);
 
+            let filter_query = filter_state.effective_query();
             let filter_label = if filter_query.is_empty() {
                 "(empty)".to_string()
             } else {
-                filter_query.clone()
+                filter_query
             };
 
             terminal
@@ -512,23 +585,18 @@ mod imp {
                 let columns = layout.metrics.columns;
                 let use_grid = layout.metrics.use_grid;
 
-                match map_key_event(key, use_grid) {
+                let action = map_key_event(key, use_grid);
+
+                match action {
                     MenuKeyAction::Submit => {
                         if let Some(idx) = list_state.selected()
                             && let Some(value) = completion.paths.get(idx).cloned()
                         {
-                            return Some(MenuResult::Selected {
-                                value,
-                                filter_query: filter_query.clone(),
-                                changed_query: filter_query != initial_query,
-                            });
+                            return Some(selected_result(&filter_state, value));
                         }
                     }
                     MenuKeyAction::Cancel => {
-                        return Some(MenuResult::Cancelled {
-                            filter_query: filter_query.clone(),
-                            changed_query: filter_query != initial_query,
-                        });
+                        return Some(cancelled_result(&filter_state));
                     }
                     MenuKeyAction::MoveLinear(delta) => {
                         move_selection(&mut list_state, len, delta);
@@ -536,16 +604,13 @@ mod imp {
                     MenuKeyAction::MoveGridVertical(direction) => {
                         move_selection_grid_vertical(&mut list_state, len, columns, direction);
                     }
-                    MenuKeyAction::Backspace => {
-                        filter_query.pop();
-                        completion = query_fn(&filter_query);
-                        reset_selection(&mut list_state, completion.paths.len());
-                    }
-                    MenuKeyAction::InputChar(ch) => {
-                        filter_query.push(ch);
-                        completion = query_fn(&filter_query);
-                        reset_selection(&mut list_state, completion.paths.len());
-                    }
+                    MenuKeyAction::Backspace | MenuKeyAction::InputChar(_) => apply_filter_edit(
+                        &mut filter_state,
+                        &mut completion,
+                        &mut list_state,
+                        action,
+                        query_fn,
+                    ),
                     MenuKeyAction::Ignore => {}
                 }
             }
@@ -936,8 +1001,9 @@ mod imp {
     }
 
     #[cfg(test)]
-    mod tests {
-        use super::*;
+        mod tests {
+            use super::*;
+            use std::cell::RefCell;
 
         #[test]
         fn display_label_relative_under_cwd() {
@@ -1184,6 +1250,115 @@ mod imp {
             let backtab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
             assert_eq!(map_key_event(tab, false), MenuKeyAction::MoveLinear(1));
             assert_eq!(map_key_event(backtab, false), MenuKeyAction::MoveLinear(-1));
+        }
+
+        #[test]
+        fn filter_state_clamps_backspace_to_initial_query() {
+            let mut filter = FilterState::new("Do");
+            assert!(!filter.backspace());
+            assert_eq!(filter.effective_query(), "Do");
+
+            filter.push('w');
+            assert_eq!(filter.effective_query(), "Dow");
+            assert!(filter.backspace());
+            assert_eq!(filter.effective_query(), "Do");
+            assert!(!filter.changed_query());
+        }
+
+        #[test]
+        fn filter_state_empty_seed_can_return_to_empty() {
+            let mut filter = FilterState::new("");
+            filter.push('a');
+            assert_eq!(filter.effective_query(), "a");
+            assert!(filter.changed_query());
+
+            assert!(filter.backspace());
+            assert_eq!(filter.effective_query(), "");
+            assert!(!filter.changed_query());
+            assert!(!filter.backspace());
+        }
+
+        #[test]
+        fn cancel_result_is_noop_after_net_zero_edits() {
+            let mut filter = FilterState::new("Do");
+            filter.push('w');
+            assert!(filter.backspace());
+
+            assert_eq!(
+                cancelled_result(&filter),
+                MenuResult::Cancelled {
+                    filter_query: "Do".to_string(),
+                    changed_query: false,
+                }
+            );
+        }
+
+        #[test]
+        fn apply_filter_edit_backspace_at_seed_does_not_requery() {
+            let calls = RefCell::new(Vec::new());
+            let query_fn: QueryFn<'_> = Box::new(|query| {
+                calls.borrow_mut().push(query.to_string());
+                CompletionCandidates {
+                    paths: Vec::new(),
+                    has_more: false,
+                }
+            });
+            let mut filter = FilterState::new("Do");
+            let mut completion = CompletionCandidates {
+                paths: vec![PathBuf::from("/tmp/Do")],
+                has_more: false,
+            };
+            let mut list_state = ListState::default();
+            list_state.select(Some(0));
+
+            apply_filter_edit(
+                &mut filter,
+                &mut completion,
+                &mut list_state,
+                MenuKeyAction::Backspace,
+                &query_fn,
+            );
+
+            assert!(calls.borrow().is_empty());
+            assert_eq!(filter.effective_query(), "Do");
+            assert_eq!(completion.paths, vec![PathBuf::from("/tmp/Do")]);
+            assert_eq!(list_state.selected(), Some(0));
+        }
+
+        #[test]
+        fn apply_filter_edit_requeries_with_seed_plus_typed_refinement() {
+            let calls = RefCell::new(Vec::new());
+            let query_fn: QueryFn<'_> = Box::new(|query| {
+                calls.borrow_mut().push(query.to_string());
+                CompletionCandidates {
+                    paths: if query == "Doz" {
+                        Vec::new()
+                    } else {
+                        vec![PathBuf::from(format!("/tmp/{query}"))]
+                    },
+                    has_more: false,
+                }
+            });
+            let mut filter = FilterState::new("Do");
+            let mut completion = CompletionCandidates {
+                paths: vec![PathBuf::from("/tmp/Do")],
+                has_more: false,
+            };
+            let mut list_state = ListState::default();
+            list_state.select(Some(0));
+
+            apply_filter_edit(
+                &mut filter,
+                &mut completion,
+                &mut list_state,
+                MenuKeyAction::InputChar('z'),
+                &query_fn,
+            );
+
+            assert_eq!(calls.borrow().as_slice(), ["Doz"]);
+            assert_eq!(filter.effective_query(), "Doz");
+            assert!(completion.paths.is_empty());
+            assert_eq!(list_state.selected(), None);
         }
     }
 }
