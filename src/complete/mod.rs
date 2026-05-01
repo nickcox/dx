@@ -62,6 +62,16 @@ struct JsonCandidate {
     rank: usize,
 }
 
+impl From<Candidate> for JsonCandidate {
+    fn from(candidate: Candidate) -> Self {
+        Self {
+            path: candidate.path.display().to_string(),
+            label: candidate.label,
+            rank: candidate.rank,
+        }
+    }
+}
+
 pub fn complete_frecents(provider: &dyn FrecencyProvider, query: Option<&str>) -> Vec<PathBuf> {
     if !provider.is_available() {
         return Vec::new();
@@ -109,12 +119,7 @@ pub fn select_candidate(
         return Ok(candidates[0].clone());
     };
 
-    if selector
-        .as_bytes()
-        .iter()
-        .all(|value| value.is_ascii_digit())
-    {
-        let index = selector.parse::<usize>().unwrap_or(0);
+    if let Ok(index) = selector.parse::<usize>() {
         if index == 0 || index > candidates.len() {
             return Err(SelectorError::OutOfRange {
                 index,
@@ -122,6 +127,13 @@ pub fn select_candidate(
             });
         }
         return Ok(candidates[index - 1].clone());
+    }
+
+    if selector.as_bytes().iter().all(|value| value.is_ascii_digit()) {
+        return Err(SelectorError::OutOfRange {
+            index: 0,
+            total: candidates.len(),
+        });
     }
 
     let filtered = filter::filter_candidates(candidates, selector);
@@ -133,25 +145,23 @@ pub fn select_candidate(
 
 pub fn format_plain(paths: &[PathBuf]) -> String {
     if paths.is_empty() {
-        return String::new();
+        String::new()
+    } else {
+        format!(
+            "{}\n",
+            paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
     }
-
-    let mut output = String::new();
-    for path in paths {
-        output.push_str(&path.display().to_string());
-        output.push('\n');
-    }
-    output
 }
 
 pub fn format_json(paths: &[PathBuf]) -> Result<String, serde_json::Error> {
     let payload = to_candidates(paths)
         .into_iter()
-        .map(|candidate| JsonCandidate {
-            path: candidate.path.display().to_string(),
-            label: candidate.label,
-            rank: candidate.rank,
-        })
+        .map(JsonCandidate::from)
         .collect::<Vec<_>>();
 
     serde_json::to_string(&payload)
@@ -280,6 +290,13 @@ mod tests {
         ];
         let selected = select_candidate(&candidates, Some("code")).expect("select");
         assert_eq!(selected, PathBuf::from("/home/user/code"));
+    }
+
+    #[test]
+    fn selector_with_digit_prefixed_text_still_uses_text_matching() {
+        let candidates = vec![PathBuf::from("/tmp/2alpha"), PathBuf::from("/tmp/beta")];
+        let selected = select_candidate(&candidates, Some("2al")).expect("select");
+        assert_eq!(selected, PathBuf::from("/tmp/2alpha"));
     }
 
     #[test]

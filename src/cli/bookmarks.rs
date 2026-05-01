@@ -1,10 +1,9 @@
-use std::collections::BTreeMap;
 use std::env;
 use std::path::PathBuf;
 
 use clap::Subcommand;
 
-use crate::bookmarks::{storage, BookmarkError};
+use crate::bookmarks::{storage, BookmarkError, BookmarkStore};
 
 #[derive(Debug, Subcommand)]
 pub enum BookmarksCommand {
@@ -38,32 +37,14 @@ pub fn run_bookmarks(command: Option<BookmarksCommand>, json: bool) -> i32 {
 }
 
 fn run_add(name: &str, path: Option<&str>) -> i32 {
-    let mut store = match storage::read_store() {
+    let mut store = match read_store_or_exit() {
         Ok(value) => value,
-        Err(err) => return storage_error(err),
+        Err(code) => return code,
     };
 
-    let raw_path = match path {
-        Some(value) => PathBuf::from(value),
-        None => match env::current_dir() {
-            Ok(value) => value,
-            Err(err) => {
-                eprintln!("dx bookmarks: failed to read current directory: {err}");
-                return 1;
-            }
-        },
-    };
-
-    let resolved = if raw_path.is_absolute() {
-        raw_path
-    } else {
-        match env::current_dir() {
-            Ok(cwd) => cwd.join(raw_path),
-            Err(err) => {
-                eprintln!("dx bookmarks: failed to read current directory: {err}");
-                return 1;
-            }
-        }
+    let resolved = match resolve_bookmark_path(path) {
+        Ok(value) => value,
+        Err(code) => return code,
     };
 
     match store.set(name, &resolved) {
@@ -79,9 +60,9 @@ fn run_add(name: &str, path: Option<&str>) -> i32 {
 }
 
 fn run_remove(name: &str) -> i32 {
-    let mut store = match storage::read_store() {
+    let mut store = match read_store_or_exit() {
         Ok(value) => value,
-        Err(err) => return storage_error(err),
+        Err(code) => return code,
     };
 
     if let Err(err) = store.remove(name) {
@@ -96,30 +77,57 @@ fn run_remove(name: &str) -> i32 {
 }
 
 fn run_list(json: bool) -> i32 {
-    let store = match storage::read_store() {
+    let store = match read_store_or_exit() {
         Ok(value) => value,
-        Err(err) => return storage_error(err),
+        Err(code) => return code,
     };
 
     if json {
-        let payload = store
-            .list()
-            .into_iter()
-            .map(|(name, path)| (name, path.display().to_string()))
-            .collect::<BTreeMap<_, _>>();
-
-        match serde_json::to_string(&payload) {
-            Ok(output) => {
-                println!("{output}");
-                return 0;
-            }
-            Err(err) => {
-                eprintln!("dx bookmarks: failed to serialize json: {err}");
-                return 1;
-            }
-        }
+        return print_bookmarks_json(&store);
     }
 
+    print_bookmarks_plain(&store)
+}
+
+fn read_store_or_exit() -> Result<BookmarkStore, i32> {
+    storage::read_store().map_err(storage_error)
+}
+
+fn current_dir_or_exit() -> Result<PathBuf, i32> {
+    env::current_dir().map_err(|err| {
+        eprintln!("dx bookmarks: failed to read current directory: {err}");
+        1
+    })
+}
+
+fn resolve_bookmark_path(path: Option<&str>) -> Result<PathBuf, i32> {
+    match path {
+        Some(value) => {
+            let path = PathBuf::from(value);
+            if path.is_absolute() {
+                Ok(path)
+            } else {
+                current_dir_or_exit().map(|cwd| cwd.join(path))
+            }
+        }
+        None => current_dir_or_exit(),
+    }
+}
+
+fn print_bookmarks_json(store: &BookmarkStore) -> i32 {
+    match serde_json::to_string(&store.to_serializable_map()) {
+        Ok(output) => {
+            println!("{output}");
+            0
+        }
+        Err(err) => {
+            eprintln!("dx bookmarks: failed to serialize json: {err}");
+            1
+        }
+    }
+}
+
+fn print_bookmarks_plain(store: &BookmarkStore) -> i32 {
     for (name, path) in store.list() {
         println!("{name} = {}", path.display());
     }
