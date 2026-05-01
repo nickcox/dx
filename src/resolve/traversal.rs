@@ -42,13 +42,13 @@ pub fn normalize_path(path: &Path) -> PathBuf {
     }
 }
 
-pub fn traverse_segment_paths<F>(
+pub fn traverse_segment_paths<S, F>(
     bases: Vec<PathBuf>,
-    segments: &[&str],
+    segments: &[S],
     matches_segment: F,
 ) -> Vec<PathBuf>
 where
-    F: Fn(&str, &str) -> bool,
+    F: Fn(&str, &S) -> bool,
 {
     let mut current = bases;
 

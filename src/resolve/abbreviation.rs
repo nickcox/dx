@@ -7,98 +7,132 @@ pub fn resolve_abbreviation(roots: &[PathBuf], query: &str, case_sensitive: bool
         return Vec::new();
     }
 
-    let segments = query
-        .split('/')
-        .filter(|segment| !segment.is_empty())
-        .collect::<Vec<_>>();
+    let segments = parse_query_segments(query, case_sensitive);
 
     if segments.is_empty() {
         return Vec::new();
     }
 
-    let mut matches = Vec::new();
-
-    for root in roots {
-        if !root.is_dir() {
-            continue;
-        }
-
-        let current =
+    roots
+        .iter()
+        .filter(|root| root.is_dir())
+        .flat_map(|root| {
             traversal::traverse_segment_paths(vec![root.clone()], &segments, |name, segment| {
-                matches_segment(name, segment, case_sensitive)
-            });
-
-        matches.extend(current);
-    }
-
-    matches
+                segment.matches(name)
+            })
+        })
+        .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SegmentToken<'a> {
-    Literal(&'a str),
+fn parse_query_segments(query: &str, case_sensitive: bool) -> Vec<ParsedSegment> {
+    query
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| ParsedSegment::new(segment, case_sensitive))
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedSegment {
+    normalized: String,
+    tokens: Vec<SegmentToken>,
+    operator_aware: bool,
+    case_sensitive: bool,
+}
+
+impl ParsedSegment {
+    fn new(segment: &str, case_sensitive: bool) -> Self {
+        let normalized = normalize_for_matching(segment, case_sensitive);
+        let operator_aware = contains_shortening_operator(&normalized);
+        let tokens = if operator_aware {
+            tokenize_segment(&normalized)
+        } else {
+            Vec::new()
+        };
+
+        Self {
+            normalized,
+            tokens,
+            operator_aware,
+            case_sensitive,
+        }
+    }
+
+    fn matches(&self, name: &str) -> bool {
+        if self.normalized.is_empty() {
+            return false;
+        }
+
+        if !self.operator_aware {
+            return if self.case_sensitive {
+                name.starts_with(&self.normalized)
+            } else {
+                name.to_ascii_lowercase().starts_with(&self.normalized)
+            };
+        }
+
+        if !self
+            .tokens
+            .iter()
+            .any(|token| matches!(token, SegmentToken::Literal(_)))
+        {
+            return false;
+        }
+
+        let candidate = normalize_for_matching(name, self.case_sensitive);
+        self.matches_operator_tokens(&candidate)
+    }
+
+    fn matches_operator_tokens(&self, candidate: &str) -> bool {
+        let mut cursor = 0;
+        let mut search_literal = false;
+
+        for (idx, token) in self.tokens.iter().enumerate() {
+            match token {
+                SegmentToken::Literal(fragment) => {
+                    if idx == 0 && !search_literal {
+                        if !candidate[cursor..].starts_with(fragment) {
+                            return false;
+                        }
+                        cursor += fragment.len();
+                    } else if let Some(offset) = candidate[cursor..].find(fragment) {
+                        cursor += offset + fragment.len();
+                    } else {
+                        return false;
+                    }
+                    search_literal = false;
+                }
+                SegmentToken::Delimiter(delimiter) => {
+                    if let Some(offset) = candidate[cursor..]
+                        .as_bytes()
+                        .iter()
+                        .position(|byte| *byte == *delimiter as u8)
+                    {
+                        cursor += offset + 1;
+                        search_literal = true;
+                    } else {
+                        return false;
+                    }
+                }
+                SegmentToken::Gap => {
+                    search_literal = true;
+                }
+            }
+        }
+
+        true
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SegmentToken {
+    Literal(String),
     Delimiter(char),
     Gap,
 }
 
 pub fn matches_segment(name: &str, segment: &str, case_sensitive: bool) -> bool {
-    if segment.is_empty() {
-        return false;
-    }
-
-    if !contains_shortening_operator(segment) {
-        return if case_sensitive {
-            name.starts_with(segment)
-        } else {
-            name.to_ascii_lowercase()
-                .starts_with(&segment.to_ascii_lowercase())
-        };
-    }
-
-    let candidate = normalize_for_matching(name, case_sensitive);
-    let query = normalize_for_matching(segment, case_sensitive);
-    let tokens = tokenize_segment(&query);
-    if !tokens.iter().any(|token| matches!(token, SegmentToken::Literal(_))) {
-        return false;
-    }
-
-    let mut cursor = 0;
-    let mut search_literal = false;
-
-    for (idx, token) in tokens.iter().enumerate() {
-        match token {
-            SegmentToken::Literal(fragment) => {
-                if idx == 0 && !search_literal {
-                    if !candidate[cursor..].starts_with(fragment) {
-                        return false;
-                    }
-                    cursor += fragment.len();
-                } else if let Some(offset) = candidate[cursor..].find(fragment) {
-                    cursor += offset + fragment.len();
-                } else {
-                    return false;
-                }
-                search_literal = false;
-            }
-            SegmentToken::Delimiter(delimiter) => {
-                if let Some(offset) = candidate[cursor..]
-                    .as_bytes()
-                    .iter()
-                    .position(|byte| *byte == *delimiter as u8)
-                {
-                    cursor += offset + 1;
-                    search_literal = true;
-                } else {
-                    return false;
-                }
-            }
-            SegmentToken::Gap => {
-                search_literal = true;
-            }
-        }
-    }
-
-    true
+    ParsedSegment::new(segment, case_sensitive).matches(name)
 }
 
 fn contains_shortening_operator(segment: &str) -> bool {
@@ -115,7 +149,7 @@ fn normalize_for_matching(input: &str, case_sensitive: bool) -> String {
     }
 }
 
-fn tokenize_segment(segment: &str) -> Vec<SegmentToken<'_>> {
+fn tokenize_segment(segment: &str) -> Vec<SegmentToken> {
     let bytes = segment.as_bytes();
     let mut tokens = Vec::new();
     let mut literal_start = 0;
@@ -124,7 +158,7 @@ fn tokenize_segment(segment: &str) -> Vec<SegmentToken<'_>> {
     while idx < bytes.len() {
         if bytes[idx] == b'.' && idx + 1 < bytes.len() && bytes[idx + 1] == b'.' {
             if literal_start < idx {
-                tokens.push(SegmentToken::Literal(&segment[literal_start..idx]));
+                tokens.push(SegmentToken::Literal(segment[literal_start..idx].to_string()));
             }
             tokens.push(SegmentToken::Gap);
             idx += 2;
@@ -134,7 +168,7 @@ fn tokenize_segment(segment: &str) -> Vec<SegmentToken<'_>> {
 
         if matches!(bytes[idx], b'.' | b'_' | b'-') {
             if literal_start < idx {
-                tokens.push(SegmentToken::Literal(&segment[literal_start..idx]));
+                tokens.push(SegmentToken::Literal(segment[literal_start..idx].to_string()));
             }
             tokens.push(SegmentToken::Delimiter(bytes[idx] as char));
             idx += 1;
@@ -146,7 +180,7 @@ fn tokenize_segment(segment: &str) -> Vec<SegmentToken<'_>> {
     }
 
     if literal_start < segment.len() {
-        tokens.push(SegmentToken::Literal(&segment[literal_start..]));
+        tokens.push(SegmentToken::Literal(segment[literal_start..].to_string()));
     }
 
     tokens
@@ -254,13 +288,26 @@ mod tests {
         assert_eq!(
             tokenize_segment("a..b.c"),
             vec![
-                SegmentToken::Literal("a"),
+                SegmentToken::Literal("a".to_string()),
                 SegmentToken::Gap,
-                SegmentToken::Literal("b"),
+                SegmentToken::Literal("b".to_string()),
                 SegmentToken::Delimiter('.'),
-                SegmentToken::Literal("c"),
+                SegmentToken::Literal("c".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn parsed_segment_separates_prefix_and_operator_matching() {
+        let prefix = ParsedSegment::new("pro", true);
+        assert!(prefix.matches("project"));
+        assert!(!prefix.matches("my-project"));
+
+        let operator = ParsedSegment::new("p..shell", false);
+        assert!(operator.matches("PowerShell"));
+
+        let operator_only = ParsedSegment::new("..", true);
+        assert!(!operator_only.matches("project"));
     }
 
     #[test]
