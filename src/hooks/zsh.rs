@@ -221,7 +221,7 @@ __dx_menu_widget() {
   __dx_json="$(dx menu --buffer "$BUFFER" --cursor $CURSOR --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
   local __dx_exit=$?
 
-  # On cancel (noop) or error, leave the buffer unchanged and fall back
+  # On runtime failure, leave the buffer unchanged and fall back
   # to native completion-equivalent behavior.
   if [[ $__dx_exit -ne 0 ]]; then
     zle expand-or-complete
@@ -232,6 +232,11 @@ __dx_menu_widget() {
   [[ "$__dx_json" == *$__dx_action_marker* ]] || { zle expand-or-complete; return }
   local __dx_action_rest="${__dx_json#*$__dx_action_marker}"
   local __dx_action="${__dx_action_rest%%\"*}"
+  if [[ "$__dx_action" == "cancel" ]]; then
+    CURSOR=${#BUFFER}
+    zle reset-prompt
+    return
+  fi
   [[ "$__dx_action" == "replace" ]] || { zle expand-or-complete; return }
 
   local __dx_rs_marker='"replaceStart":'

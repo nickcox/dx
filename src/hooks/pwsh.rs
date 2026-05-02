@@ -282,6 +282,12 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
             $result = $json | ConvertFrom-Json
         } catch { }
 
+        if ($result -and $result.action -eq 'cancel') {
+            [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)
+            [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+            return
+        }
+
         if (-not $result -or $result.action -ne 'replace') {
             [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)
             return

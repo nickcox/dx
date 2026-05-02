@@ -14,6 +14,7 @@ The system SHALL provide a `dx menu` subcommand for interactive, context-aware s
 
 The command SHALL output JSON to stdout with one of:
 - `{ "action": "replace", "replaceStart": <int>, "replaceEnd": <int>, "value": <string> }`
+- `{ "action": "cancel" }`
 - `{ "action": "noop" }`
 
 If `--cursor` exceeds the buffer length, the command SHALL clamp it to the end of the provided buffer before parsing command context.
@@ -22,9 +23,9 @@ If `--cursor` exceeds the buffer length, the command SHALL clamp it to the end o
 - **WHEN** `dx menu` is invoked with valid `--buffer`, `--cursor`, `--cwd`, and `--session`, and the user selects a candidate
 - **THEN** stdout SHALL contain a JSON object with `action=replace`, replacement bounds, and replacement value, and exit code SHALL be 0
 
-#### Scenario: Noop action on cancel without query edits
-- **WHEN** `dx menu` is invoked with valid inputs, the user does not change the active query, and the user cancels the menu
-- **THEN** stdout SHALL contain `{ "action": "noop" }` and exit code SHALL be 0
+#### Scenario: Cancel action returned on explicit cancellation
+- **WHEN** `dx menu` is invoked with valid inputs and the user explicitly cancels the interactive menu
+- **THEN** stdout SHALL contain `{ "action": "cancel" }` and exit code SHALL be 0
 
 #### Scenario: Out-of-range cursor is clamped
 - **WHEN** `dx menu --buffer "cd proj" --cursor 999` is invoked

@@ -236,12 +236,12 @@ function __dx_menu_complete
     return
   end
 
-  if not string match -q '*"action":"replace"*' -- "$json"
-    commandline -f complete
+  set -l action (string replace -r '.*"action":"([^"]+)".*' '$1' -- "$json")
+  if test "$action" = "cancel"
+    commandline -C (string length -- "$buf")
+    commandline -f repaint
     return
   end
-
-  set -l action (string replace -r '.*"action":"([^"]+)".*' '$1' -- "$json")
   if test "$action" != "replace"
     commandline -f complete
     return

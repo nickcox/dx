@@ -620,6 +620,14 @@ fn hook_scripts_contain_fallback_on_noop() {
         ),
         "zsh menu widget should fall back when action is not replace"
     );
+    assert!(
+        zsh_out.contains("if [[ \"$__dx_action\" == \"cancel\" ]]; then"),
+        "zsh menu widget should treat cancel as handled without native fallback"
+    );
+    assert!(
+        zsh_out.contains("CURSOR=${#BUFFER}"),
+        "zsh cancel path should restore cursor to end of buffer"
+    );
 
     let fish = dx().args(["init", "fish", "--menu"]).output().unwrap();
     let fish_out = String::from_utf8_lossy(&fish.stdout);
@@ -628,6 +636,14 @@ fn hook_scripts_contain_fallback_on_noop() {
         fish_out.contains("commandline -f complete"),
         "fish menu should fall back to commandline -f complete"
     );
+    assert!(
+        fish_out.contains("if test \"$action\" = \"cancel\""),
+        "fish menu should treat cancel as handled without native fallback"
+    );
+    assert!(
+        fish_out.contains("commandline -C (string length -- \"$buf\")"),
+        "fish cancel path should restore cursor to end of buffer"
+    );
 
     let pwsh = dx().args(["init", "pwsh", "--menu"]).output().unwrap();
     let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);
@@ -635,6 +651,14 @@ fn hook_scripts_contain_fallback_on_noop() {
     assert!(
         pwsh_out.contains("TabCompleteNext"),
         "pwsh menu should fall back to TabCompleteNext"
+    );
+    assert!(
+        pwsh_out.contains("if ($result -and $result.action -eq 'cancel')"),
+        "pwsh menu should treat cancel as handled without native fallback"
+    );
+    assert!(
+        pwsh_out.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"),
+        "pwsh cancel path should restore cursor to end of buffer"
     );
 }
 
@@ -718,6 +742,7 @@ fn hook_scripts_apply_replace_action_contract() {
     assert!(bash_out.contains("__dx_json_extract_string()"));
     assert!(bash_out.contains("__dx_json_extract_uint()"));
     assert!(bash_out.contains("__dx_action=\"$(__dx_json_extract_string action \"$__dx_json\")\""));
+    assert!(bash_out.contains("[[ \"$__dx_action\" == \"cancel\" ]] && return 0"));
     assert!(bash_out.contains("(( __dx_re >= __dx_rs )) || return 1"));
 
     let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
@@ -725,6 +750,8 @@ fn hook_scripts_apply_replace_action_contract() {
     assert!(zsh_out.contains("replaceStart"));
     assert!(zsh_out.contains("replaceEnd"));
     assert!(zsh_out.contains("__dx_value"));
+    assert!(zsh_out.contains("if [[ \"$__dx_action\" == \"cancel\" ]]; then"));
+    assert!(zsh_out.contains("CURSOR=${#BUFFER}"));
     assert!(zsh_out
         .contains("[[ \"$__dx_action\" == \"replace\" ]] || { zle expand-or-complete; return }"));
     assert!(zsh_out.contains("(( __dx_re >= __dx_rs )) || { zle expand-or-complete; return }"));
@@ -733,12 +760,16 @@ fn hook_scripts_apply_replace_action_contract() {
     let fish_out = String::from_utf8_lossy(&fish.stdout);
     assert!(fish_out.contains("replaceStart"));
     assert!(fish_out.contains("replaceEnd"));
+    assert!(fish_out.contains("if test \"$action\" = \"cancel\""));
+    assert!(fish_out.contains("commandline -C (string length -- \"$buf\")"));
     assert!(fish_out.contains(r#"commandline -r -- "$prefix$value$suffix""#));
     assert!(fish_out.contains("string match -r '.*\"value\":\"((\\\\.|[^\"])*)\".*'"));
     assert!(fish_out.contains("if test $re -lt $rs"));
 
     let pwsh = dx().args(["init", "pwsh", "--menu"]).output().unwrap();
     let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);
+    assert!(pwsh_out.contains("if ($result -and $result.action -eq 'cancel')"));
+    assert!(pwsh_out.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"));
     assert!(pwsh_out.contains("$result.action -ne 'replace'"));
     assert!(pwsh_out.contains("PSConsoleReadLine]::Replace("));
 }

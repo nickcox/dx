@@ -274,6 +274,7 @@ __dx_try_menu() {
 
   local __dx_action
   __dx_action="$(__dx_json_extract_string action "$__dx_json")" || return 1
+  [[ "$__dx_action" == "cancel" ]] && return 0
   [[ "$__dx_action" == "replace" ]] || return 1
 
   local __dx_rs __dx_re

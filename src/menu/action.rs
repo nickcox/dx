@@ -13,6 +13,9 @@ pub enum MenuAction {
         replace_end: usize,
         value: String,
     },
+    /// Explicit user cancellation after an interactive menu session.
+    #[serde(rename = "cancel")]
+    Cancel,
     /// No operation — the buffer should remain unchanged.
     #[serde(rename = "noop")]
     Noop,
@@ -31,6 +34,10 @@ impl MenuAction {
         MenuAction::Noop
     }
 
+    pub fn cancel() -> Self {
+        MenuAction::Cancel
+    }
+
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).expect("MenuAction serialization cannot fail")
     }
@@ -44,6 +51,12 @@ mod tests {
     fn noop_serializes_correctly() {
         let action = MenuAction::noop();
         assert_eq!(action.to_json(), r#"{"action":"noop"}"#);
+    }
+
+    #[test]
+    fn cancel_serializes_correctly() {
+        let action = MenuAction::cancel();
+        assert_eq!(action.to_json(), r#"{"action":"cancel"}"#);
     }
 
     #[test]

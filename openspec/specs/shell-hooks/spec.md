@@ -123,7 +123,9 @@ Shells with direct buffer-editing APIs (Zsh, Fish, and PowerShell) SHALL apply `
 
 Bash SHALL validate the replace payload fields, but MAY rely on Readline completion semantics to insert `value` rather than directly applying `replaceStart` and `replaceEnd` itself.
 
-`noop`, invalid payloads, non-replace actions where replacement is required, command failure, no candidates, and non-interactive execution paths SHALL all fall back to native completion behavior for the current shell.
+Explicit `cancel` actions SHALL leave the shell buffer unchanged and SHALL NOT trigger native completion fallback.
+
+`noop`, invalid payloads, non-replace actions where replacement is required other than explicit cancel, command failure, no candidates, and non-interactive execution paths SHALL all fall back to native completion behavior for the current shell.
 
 POSIX hooks SHALL keep deterministic dependency-free payload validation. PowerShell SHALL continue structured parsing via `ConvertFrom-Json` and native completion fallback via `TabCompleteNext`.
 
@@ -135,20 +137,16 @@ POSIX hooks SHALL keep deterministic dependency-free payload validation. PowerSh
 - **WHEN** Bash receives a valid `replace` action from `dx menu`
 - **THEN** the hook SHALL validate the returned range fields and use the returned `value` as the completion insertion payload, relying on Readline to perform the replacement
 
-#### Scenario: Cancelled menu may still return replace after typed edits
-- **WHEN** `dx menu` returns a `replace` action after the user types filter text and then cancels
-- **THEN** the hook SHALL still apply the returned replacement using that shell's normal `replace` handling path
+#### Scenario: Cancel leaves shell buffer unchanged without native fallback
+- **WHEN** `dx menu` returns `{ "action": "cancel" }`
+- **THEN** the hook SHALL leave the current buffer content unchanged and SHALL NOT invoke native completion fallback
 
 #### Scenario: Noop or invalid payload falls back natively
 - **WHEN** `dx menu` returns `noop`, invalid payload data, or exits non-zero
 - **THEN** the hook SHALL invoke the shell's native completion fallback instead of applying a replacement
 
-#### Scenario: Noop leaves menu payload unapplied
-- **WHEN** `dx menu` returns `{ "action": "noop" }`
-- **THEN** the hook SHALL avoid mutating the shell buffer from the menu payload and SHALL continue with native fallback behavior
-
-#### Scenario: PowerShell menu fallback remains PSReadLine-native
-- **WHEN** menu-enabled PowerShell hook execution receives `noop`, invalid JSON, missing JSON, or a non-`replace` action
+#### Scenario: PowerShell menu fallback remains PSReadLine-native for noop/error paths
+- **WHEN** menu-enabled PowerShell hook execution receives `noop`, invalid JSON, missing JSON, or a non-`replace` action other than explicit `cancel`
 - **THEN** the hook SHALL parse payloads with `ConvertFrom-Json` when present and SHALL fall back via `TabCompleteNext`
 
 ### Requirement: PowerShell PSReadLine Parsing Boundaries

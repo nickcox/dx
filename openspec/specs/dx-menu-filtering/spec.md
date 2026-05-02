@@ -56,22 +56,24 @@ During filtering, the menu runtime SHALL reduce visible menu body height as the 
 ### Requirement: Exit Actions Preserve Typed Refinement
 On menu exit, `dx menu` SHALL emit a single final JSON action.
 
-If the final active query differs from the initial query, cancellation SHALL preserve that final refinement in the shell buffer through a `replace` action even when no candidate is selected.
+If the user accepts a candidate selection, `dx menu` SHALL return a `replace` action for the selected value.
 
-If the final active query is identical to the initial query, cancel SHALL return `{ "action": "noop" }`.
+If the user explicitly cancels the menu, `dx menu` SHALL discard any typed in-menu refinement and return `{ "action": "cancel" }`.
 
-#### Scenario: Cancel after typing commits typed filter text
+Fallback `noop` outcomes SHALL be reserved for non-interactive, unavailable, or runtime-failure paths where the menu does not complete a normal interactive accept/cancel session.
+
+#### Scenario: Cancel after typing restores original prompt state
 - **WHEN** the menu opens for `cd D`, the user types `o`, and then presses Esc
-- **THEN** `dx menu` SHALL return a `replace` action that updates only the active query token to `Do`
+- **THEN** `dx menu` SHALL return `{ "action": "cancel" }` rather than committing `Do` into the shell buffer
 
-#### Scenario: Cancel after net-zero edits remains noop
+#### Scenario: Cancel after net-zero edits returns cancel
 - **WHEN** the menu opens for `cd Do`
 - **AND** the user types `w` and then presses Backspace to return to `Do`
-- **THEN** `dx menu` SHALL return `{ "action": "noop" }`
+- **THEN** `dx menu` SHALL return `{ "action": "cancel" }`
 
-#### Scenario: Cancel without typing remains noop
+#### Scenario: Cancel without typing returns cancel
 - **WHEN** the menu opens and the user presses Esc without modifying filter text
-- **THEN** `dx menu` SHALL return `{ "action": "noop" }`
+- **THEN** `dx menu` SHALL return `{ "action": "cancel" }`
 
 ### Requirement: Selection Semantics Over Filtered Candidates
 Navigation keys (arrow keys and Tab/Shift+Tab) SHALL operate over the currently filtered candidate list.

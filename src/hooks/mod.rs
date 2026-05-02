@@ -373,6 +373,7 @@ mod tests {
     fn all_shells_freeze_menu_fallback_contract_markers() {
         let bash = generate(Shell::Bash, false, true);
         assert!(bash.contains("__dx_json=\"$(dx menu --buffer \"$COMP_LINE\" --cursor \"$COMP_POINT\" --cwd \"$PWD\" --session \"${DX_SESSION:-}\" </dev/tty 2>/dev/tty)\" || return 1"));
+        assert!(bash.contains("[[ \"$__dx_action\" == \"cancel\" ]] && return 0"));
         assert!(bash.contains("[[ \"$__dx_action\" == \"replace\" ]] || return 1"));
         assert!(bash.contains("(( __dx_re >= __dx_rs )) || return 1"));
         assert!(bash.contains("[[ -t 1 ]] && printf '\\r' >/dev/tty"));
@@ -385,6 +386,9 @@ mod tests {
         assert!(
             zsh.contains("if [[ $__dx_exit -ne 0 ]]; then\n    zle expand-or-complete\n    return")
         );
+        assert!(zsh.contains("if [[ \"$__dx_action\" == \"cancel\" ]]; then"));
+        assert!(zsh.contains("CURSOR=${#BUFFER}"));
+        assert!(zsh.contains("zle reset-prompt"));
         assert!(zsh.contains(
             "[[ \"$__dx_action\" == \"replace\" ]] || { zle expand-or-complete; return }"
         ));
@@ -395,7 +399,8 @@ mod tests {
         let fish = generate(Shell::Fish, false, true);
         assert!(fish.contains("set -l json (dx menu --buffer \"$buf\" --cursor $cur --cwd \"$PWD\" --session \"$DX_SESSION\" </dev/tty 2>/dev/tty)"));
         assert!(fish.contains("if test $status -ne 0\n    commandline -f complete\n    return"));
-        assert!(fish.contains("if not string match -q '*\"action\":\"replace\"*' -- \"$json\""));
+        assert!(fish.contains("if test \"$action\" = \"cancel\""));
+        assert!(fish.contains("commandline -C (string length -- \"$buf\")"));
         assert!(fish.contains("if test \"$action\" != \"replace\""));
         assert!(fish.contains("if test (count $value_match) -lt 2"));
         assert!(fish.contains("if test $re -lt $rs"));
@@ -406,6 +411,8 @@ mod tests {
         assert!(pwsh.contains("if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or $first -notin $dxCmds)"));
         assert!(pwsh.contains("if ($LASTEXITCODE -ne 0 -or -not $json)"));
         assert!(pwsh.contains("$result = $json | ConvertFrom-Json"));
+        assert!(pwsh.contains("if ($result -and $result.action -eq 'cancel')"));
+        assert!(pwsh.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"));
         assert!(pwsh.contains("if (-not $result -or $result.action -ne 'replace')"));
         assert!(pwsh.contains("PSConsoleReadLine]::InvokePrompt()"));
         assert!(

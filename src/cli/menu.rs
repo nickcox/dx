@@ -222,20 +222,9 @@ fn menu_result_to_action(
             MenuAction::replace(parsed.replace_start, parsed.replace_end, replacement)
         }
         Some(MenuResult::Cancelled {
-            filter_query,
-            changed_query,
-        }) => {
-            if changed_query {
-                let replacement = if parsed.needs_space_prefix {
-                    format!(" {filter_query}")
-                } else {
-                    filter_query
-                };
-                MenuAction::replace(parsed.replace_start, parsed.replace_end, replacement)
-            } else {
-                MenuAction::noop()
-            }
-        }
+            filter_query: _,
+            changed_query: _,
+        }) => MenuAction::cancel(),
         None => MenuAction::noop(),
     }
 }
@@ -372,9 +361,15 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
                     }
                     Some(MenuResult::Cancelled { changed_query: true, .. }) => {
                         eprintln!(
-                            "[dx-menu-debug] cancel with changed query -> action=replace value={:?}",
+                            "[dx-menu-debug] explicit cancel after query edits -> action=cancel value={:?}",
                             action.to_json()
                         );
+                    }
+                    Some(MenuResult::Cancelled {
+                        changed_query: false,
+                        ..
+                    }) => {
+                        eprintln!("[dx-menu-debug] explicit cancel -> action=cancel");
                     }
                     _ => {}
                 }
@@ -385,9 +380,6 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         MenuAction::Noop => {
             if debug {
                 match menu_result {
-                    Some(MenuResult::Cancelled { .. }) => {
-                        eprintln!("[dx-menu-debug] cancel without query change -> noop");
-                    }
                     None => {
                         eprintln!("[dx-menu-debug] tui unavailable -> noop");
                     }
@@ -395,6 +387,13 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
                 }
             }
             println!("{}", MenuAction::noop().to_json());
+            0
+        }
+        MenuAction::Cancel => {
+            if debug {
+                eprintln!("[dx-menu-debug] action=cancel");
+            }
+            println!("{}", MenuAction::cancel().to_json());
             0
         }
     }
@@ -437,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn menu_result_to_action_preserves_cancel_replace_semantics() {
+    fn menu_result_to_action_maps_cancel_to_explicit_cancel_action() {
         let parsed = menu::ParsedBuffer {
             mode: CompletionMode::Paths,
             query: Some("D".to_string()),
@@ -457,7 +456,7 @@ mod tests {
             true,
         );
 
-        assert_eq!(action, MenuAction::replace(3, 4, "Do".to_string()));
+        assert_eq!(action, MenuAction::Cancel);
     }
 
     #[test]
