@@ -192,6 +192,79 @@ fn init_pwsh_with_menu_flag_includes_psreadline_handler() {
     );
 }
 
+#[test]
+fn init_with_invalid_menu_mappings_fails_when_menu_enabled() {
+    let output = dx()
+        .args(["init", "bash", "--menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry")
+        .output()
+        .expect("dx init bash --menu should run");
+
+    assert!(!output.status.success(), "invalid mappings should fail init");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid DX_MENU_COMMAND_MAPPINGS"));
+}
+
+#[test]
+fn init_bash_menu_with_mappings_emits_explicit_mode_bindings() {
+    let output = dx()
+        .args(["init", "bash", "--menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "ls=path,cat=file")
+        .output()
+        .expect("dx init bash --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("complete -F _dx_menu_wrapper ls"));
+    assert!(stdout.contains("complete -F _dx_menu_wrapper cat"));
+    assert!(stdout.contains("ls) __dx_menu_mode=\"path\" ;;&"));
+    assert!(stdout.contains("cat) __dx_menu_mode=\"file\" ;;&"));
+    assert!(stdout.contains("dx menu --mode \"$__dx_mode_override\" --buffer \"$COMP_LINE\""));
+}
+
+#[test]
+fn init_zsh_menu_with_mappings_emits_shared_widget_mode_routing() {
+    let output = dx()
+        .args(["init", "zsh", "--menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "open=path")
+        .output()
+        .expect("dx init zsh --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("open) __dx_menu_mode=\"path\" ;;"));
+    assert!(stdout.contains("dx menu --mode \"$__dx_menu_mode\" --buffer \"$BUFFER\""));
+}
+
+#[test]
+fn init_fish_menu_with_mappings_emits_shared_helper_mode_routing() {
+    let output = dx()
+        .args(["init", "fish", "--menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "ls=path")
+        .output()
+        .expect("dx init fish --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("case ls\n      set -l dx_menu_mode path"));
+    assert!(stdout.contains("dx menu --mode \"$dx_menu_mode\" --buffer \"$buf\""));
+}
+
+#[test]
+fn init_pwsh_menu_with_mappings_emits_shared_handler_mode_routing() {
+    let output = dx()
+        .args(["init", "pwsh", "--menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "cat=file")
+        .output()
+        .expect("dx init pwsh --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("$dxMapped = @('cat=file')"));
+    assert!(stdout.contains("($first -notin $dxCmds -and -not $dxMenuMode)"));
+    assert!(stdout.contains("dx menu --mode $dxMenuMode --buffer $line --cursor $cursor"));
+}
+
 // --- 4.3 Regression: menu disabled leaves existing behavior unchanged ---
 
 #[test]
@@ -495,6 +568,100 @@ fn menu_paths_mode_parent_relative_query_preserves_parent_prefix_replacement() {
     assert_eq!(value, "../sibling/");
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn mapped_path_mode_returns_single_file_candidate_replace() {
+    let explicit_cwd = make_temp_dir("mapped-path-file");
+    let file = explicit_cwd.join("alpha.txt");
+    fs::write(&file, "hello").expect("create file candidate");
+
+    let output = dx()
+        .args([
+            "menu",
+            "--mode",
+            "path",
+            "--buffer",
+            "cat a",
+            "--cursor",
+            "5",
+            "--cwd",
+            explicit_cwd.to_str().expect("cwd utf-8"),
+        ])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["value"], "./alpha.txt");
+
+    let _ = fs::remove_dir_all(explicit_cwd);
+}
+
+#[test]
+fn mapped_directory_mode_excludes_files() {
+    let explicit_cwd = make_temp_dir("mapped-directory-filter");
+    let dir = explicit_cwd.join("alpha-dir");
+    let file = explicit_cwd.join("alpha.txt");
+    fs::create_dir_all(&dir).expect("create dir candidate");
+    fs::write(&file, "hello").expect("create file candidate");
+
+    let output = dx()
+        .args([
+            "menu",
+            "--mode",
+            "directory",
+            "--buffer",
+            "open alpha",
+            "--cursor",
+            "10",
+            "--cwd",
+            explicit_cwd.to_str().expect("cwd utf-8"),
+        ])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["value"], "./alpha-dir/");
+
+    let _ = fs::remove_dir_all(explicit_cwd);
+}
+
+#[test]
+fn mapped_file_mode_excludes_directories() {
+    let explicit_cwd = make_temp_dir("mapped-file-filter");
+    let dir = explicit_cwd.join("alpha-dir");
+    let file = explicit_cwd.join("alpha.txt");
+    fs::create_dir_all(&dir).expect("create dir candidate");
+    fs::write(&file, "hello").expect("create file candidate");
+
+    let output = dx()
+        .args([
+            "menu",
+            "--mode",
+            "file",
+            "--buffer",
+            "cat alpha",
+            "--cursor",
+            "9",
+            "--cwd",
+            explicit_cwd.to_str().expect("cwd utf-8"),
+        ])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["value"], "./alpha.txt");
+
+    let _ = fs::remove_dir_all(explicit_cwd);
 }
 
 #[test]

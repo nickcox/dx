@@ -1,9 +1,18 @@
 use super::common::{
     apply_template_replacements, pwsh_quoted_words, render_pwsh_completion_bindings,
-    MENU_ELIGIBLE_COMMANDS,
+    render_pwsh_menu_mapping_list, MENU_ELIGIBLE_COMMANDS,
 };
+use super::MenuCommandMapping;
 
 pub fn generate(command_not_found: bool, menu: bool) -> String {
+    generate_with_mappings(command_not_found, menu, &[])
+}
+
+pub fn generate_with_mappings(
+    command_not_found: bool,
+    menu: bool,
+    _mappings: &[MenuCommandMapping],
+) -> String {
     let mut script = String::from(
         r#"if (-not $env:DX_SESSION) {
     $env:DX_SESSION = [string]$PID
@@ -256,9 +265,19 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         } catch {}
 
         $dxCmds = @(__DX_MENU_ELIGIBLE_COMMANDS__)
+        $dxMapped = @(__DX_MENU_MAPPINGS__)
         $first = ($line -split '\s+', 2)[0]
+        $dxMenuMode = $null
 
-        if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or $first -notin $dxCmds) {
+        foreach ($entry in $dxMapped) {
+            $parts = $entry -split '=', 2
+            if ($parts.Count -eq 2 -and $parts[0] -eq $first) {
+                $dxMenuMode = $parts[1]
+                break
+            }
+        }
+
+        if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or ($first -notin $dxCmds -and -not $dxMenuMode)) {
             [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)
             return
         }
@@ -266,9 +285,17 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         $json = $null
         try {
             if ($null -ne $promptRow) {
-                $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow --psreadline-mode)
+                if ($dxMenuMode) {
+                    $json = (dx menu --mode $dxMenuMode --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow --psreadline-mode)
+                } else {
+                    $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow --psreadline-mode)
+                }
             } else {
-                $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --psreadline-mode)
+                if ($dxMenuMode) {
+                    $json = (dx menu --mode $dxMenuMode --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --psreadline-mode)
+                } else {
+                    $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --psreadline-mode)
+                }
             }
         } catch { }
 
@@ -341,6 +368,10 @@ if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandN
             (
                 "__DX_MENU_ELIGIBLE_COMMANDS__",
                 pwsh_quoted_words(MENU_ELIGIBLE_COMMANDS),
+            ),
+            (
+                "__DX_MENU_MAPPINGS__",
+                render_pwsh_menu_mapping_list(_mappings),
             ),
             (
                 "__DX_PWSH_COMPLETION_BINDINGS__",

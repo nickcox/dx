@@ -75,6 +75,18 @@ Notes:
   - Truthy values (`1`, `true`, `yes`, `on`) enable the border.
   - Unset/empty/`0`/`false`/`no`/`off` keeps border off (default).
 - `DX_MENU_DEBUG`: set to `1` to print menu debug diagnostics to stderr.
+- `DX_MENU_COMMAND_MAPPINGS`: comma-separated command-to-mode mappings used by
+  `dx init <shell> --menu` to generate menu-backed completion for external
+  commands.
+  - Grammar: `<command>=<mode>,...`
+  - Valid modes: `path`, `directory`, `file`.
+  - Example: `DX_MENU_COMMAND_MAPPINGS="ls=path,open=path,cat=file"`.
+  - `path` includes files and directories, `directory` includes only
+    directories, and `file` includes only regular files.
+  - Mappings are captured when hook output is generated. After changing this
+    variable, re-run `dx init <shell> --menu` and reload the regenerated hooks.
+  - Invalid entries cause init generation to fail rather than emitting partial
+    mapped-command registrations.
 
 ## Command-level Overrides
 

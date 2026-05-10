@@ -1,9 +1,19 @@
 use super::common::{
     apply_template_replacements, fish_case_words, render_fish_completion_bindings,
-    render_fish_dx_root_completion_bindings, MENU_ELIGIBLE_COMMANDS,
+    render_fish_dx_root_completion_bindings, render_fish_menu_mapping_cases,
+    MENU_ELIGIBLE_COMMANDS,
 };
+use super::MenuCommandMapping;
 
 pub fn generate(command_not_found: bool, menu: bool) -> String {
+    generate_with_mappings(command_not_found, menu, &[])
+}
+
+pub fn generate_with_mappings(
+    command_not_found: bool,
+    menu: bool,
+    _mappings: &[MenuCommandMapping],
+) -> String {
     let mut script = String::from(
         r#"if not set -q DX_SESSION
   set -gx DX_SESSION $fish_pid
@@ -221,8 +231,10 @@ function __dx_menu_complete
   set -l buf (commandline)
   set -l cur (commandline -C)
   set -l first (string split ' ' -- "$buf")[1]
+  set -l dx_menu_mode
 
   switch "$first"
+__DX_FISH_MENU_MAPPING_CASES__
     case __DX_FISH_MENU_CASE_WORDS__
       # dx navigation command — try menu
     case '*'
@@ -230,7 +242,11 @@ function __dx_menu_complete
       return
   end
 
-  set -l json (dx menu --buffer "$buf" --cursor $cur --cwd "$PWD" --session "$DX_SESSION" </dev/tty 2>/dev/tty)
+  if test -n "$dx_menu_mode"
+    set -l json (dx menu --mode "$dx_menu_mode" --buffer "$buf" --cursor $cur --cwd "$PWD" --session "$DX_SESSION" </dev/tty 2>/dev/tty)
+  else
+    set -l json (dx menu --buffer "$buf" --cursor $cur --cwd "$PWD" --session "$DX_SESSION" </dev/tty 2>/dev/tty)
+  end
   if test $status -ne 0
     commandline -f complete
     return
@@ -354,6 +370,10 @@ end
             (
                 "__DX_FISH_MENU_CASE_WORDS__",
                 fish_case_words(MENU_ELIGIBLE_COMMANDS),
+            ),
+            (
+                "__DX_FISH_MENU_MAPPING_CASES__",
+                render_fish_menu_mapping_cases(_mappings),
             ),
         ],
     )

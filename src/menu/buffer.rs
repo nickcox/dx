@@ -1,10 +1,11 @@
 use crate::complete::{CompletionMode, StackDirection};
+use crate::menu::MenuMode;
 
 /// Parsed context extracted from a command-line buffer at a given cursor position.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedBuffer {
     /// The completion mode determined by the command token.
-    pub mode: CompletionMode,
+    pub mode: MenuMode,
     /// The query string typed after the command, if any.
     pub query: Option<String>,
     /// Byte offset where the replacement region starts
@@ -92,6 +93,15 @@ fn command_to_mode(command: &str) -> Option<CompletionMode> {
     }
 }
 
+fn mapped_mode_to_menu_mode(mode: &str) -> Option<MenuMode> {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "path" => Some(MenuMode::Path),
+        "directory" => Some(MenuMode::Directory),
+        "file" => Some(MenuMode::File),
+        _ => None,
+    }
+}
+
 /// Parses a command-line buffer at the given cursor byte position to extract
 /// the completion mode, query string, and replacement byte range.
 ///
@@ -99,6 +109,19 @@ fn command_to_mode(command: &str) -> Option<CompletionMode> {
 /// command token, or the command token is not a recognized navigation command.
 pub fn parse_buffer(buffer: &str, cursor: usize) -> Option<ParsedBuffer> {
     parse_buffer_with_mode(buffer, cursor, false)
+}
+
+pub fn parse_buffer_with_override_mode(
+    buffer: &str,
+    cursor: usize,
+    psreadline_mode: bool,
+    override_mode: Option<&str>,
+) -> Option<ParsedBuffer> {
+    if let Some(mode) = override_mode {
+        return parse_buffer_for_mapped_mode(buffer, cursor, mapped_mode_to_menu_mode(mode)?);
+    }
+
+    parse_buffer_with_mode(buffer, cursor, psreadline_mode)
 }
 
 /// Parses a command-line buffer with optional shell-mode behavior toggles.
@@ -128,7 +151,7 @@ pub fn parse_buffer_with_mode(
         .find(|c: char| c.is_whitespace())
         .unwrap_or(trimmed.len());
     let command = &trimmed[..cmd_len];
-    let mode = command_to_mode(command)?;
+    let mode = MenuMode::completion(command_to_mode(command)?);
 
     let cmd_end_byte = leading_ws + cmd_len;
 
@@ -169,6 +192,57 @@ pub fn parse_buffer_with_mode(
         // the `/` we appended for Tab-ability.  A bare trailing `/` typed by the user
         // (e.g. `cd /` or `cd /usr/`) is meaningful and must be preserved so that
         // `expand_filesystem_prefix` lists the directory's children.
+        let unquoted = unquote_shell_quoted(query_text);
+        if unquoted.is_empty() {
+            None
+        } else {
+            Some(unquoted)
+        }
+    };
+
+    Some(ParsedBuffer {
+        mode,
+        query,
+        replace_start: query_start,
+        replace_end: cursor,
+        needs_space_prefix: false,
+    })
+}
+
+fn parse_buffer_for_mapped_mode(buffer: &str, cursor: usize, mode: MenuMode) -> Option<ParsedBuffer> {
+    let cursor = cursor.min(buffer.len());
+    let visible = &buffer[..cursor];
+    let trimmed = visible.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let leading_ws = visible.len() - trimmed.len();
+    let cmd_len = trimmed
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(trimmed.len());
+    let cmd_end_byte = leading_ws + cmd_len;
+
+    if cursor <= cmd_end_byte {
+        if cursor < cmd_end_byte {
+            return None;
+        }
+        return Some(ParsedBuffer {
+            mode,
+            query: None,
+            replace_start: cursor,
+            replace_end: cursor,
+            needs_space_prefix: true,
+        });
+    }
+
+    let after_cmd = &buffer[cmd_end_byte..cursor];
+    let ws_len = after_cmd.len() - after_cmd.trim_start().len();
+    let query_start = cmd_end_byte + ws_len;
+    let query_text = &buffer[query_start..cursor];
+    let query = if query_text.is_empty() {
+        None
+    } else {
         let unquoted = unquote_shell_quoted(query_text);
         if unquoted.is_empty() {
             None
@@ -235,6 +309,10 @@ mod tests {
     use super::*;
     use crate::complete::{CompletionMode, StackDirection};
 
+    fn builtin(mode: CompletionMode) -> MenuMode {
+        MenuMode::Completion(mode)
+    }
+
     fn parse_psreadline(buffer: &str) -> Option<ParsedBuffer> {
         parse_buffer_with_mode(buffer, buffer.len(), true)
     }
@@ -242,7 +320,7 @@ mod tests {
     #[test]
     fn cd_with_query() {
         let p = parse_buffer("cd foo", 6).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Paths);
+        assert_eq!(p.mode, builtin(CompletionMode::Paths));
         assert_eq!(p.query.as_deref(), Some("foo"));
         assert_eq!(p.replace_start, 3);
         assert_eq!(p.replace_end, 6);
@@ -252,7 +330,7 @@ mod tests {
     #[test]
     fn cd_with_trailing_space_no_query() {
         let p = parse_buffer("cd ", 3).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Paths);
+        assert_eq!(p.mode, builtin(CompletionMode::Paths));
         assert_eq!(p.query, None);
         assert_eq!(p.replace_start, 3);
         assert_eq!(p.replace_end, 3);
@@ -262,7 +340,7 @@ mod tests {
     #[test]
     fn cd_no_space_needs_prefix() {
         let p = parse_buffer("cd", 2).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Paths);
+        assert_eq!(p.mode, builtin(CompletionMode::Paths));
         assert_eq!(p.query, None);
         assert_eq!(p.replace_start, 2);
         assert_eq!(p.replace_end, 2);
@@ -272,51 +350,51 @@ mod tests {
     #[test]
     fn up_maps_to_ancestors() {
         let p = parse_buffer("up", 2).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Ancestors);
+        assert_eq!(p.mode, builtin(CompletionMode::Ancestors));
     }
 
     #[test]
     fn cdf_maps_to_frecents() {
         let p = parse_buffer("cdf proj", 8).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Frecents);
+        assert_eq!(p.mode, builtin(CompletionMode::Frecents));
         assert_eq!(p.query.as_deref(), Some("proj"));
     }
 
     #[test]
     fn z_maps_to_frecents() {
         let p = parse_buffer("z work", 6).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Frecents);
+        assert_eq!(p.mode, builtin(CompletionMode::Frecents));
         assert_eq!(p.query.as_deref(), Some("work"));
     }
 
     #[test]
     fn cdr_maps_to_recents() {
         let p = parse_buffer("cdr", 3).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Recents);
+        assert_eq!(p.mode, builtin(CompletionMode::Recents));
     }
 
     #[test]
     fn back_maps_to_stack_back() {
         let p = parse_buffer("back", 4).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Stack(StackDirection::Back));
+        assert_eq!(p.mode, builtin(CompletionMode::Stack(StackDirection::Back)));
     }
 
     #[test]
     fn cd_minus_maps_to_stack_back() {
         let p = parse_buffer("cd- ", 4).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Stack(StackDirection::Back));
+        assert_eq!(p.mode, builtin(CompletionMode::Stack(StackDirection::Back)));
     }
 
     #[test]
     fn forward_maps_to_stack_forward() {
         let p = parse_buffer("forward", 7).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Stack(StackDirection::Forward));
+        assert_eq!(p.mode, builtin(CompletionMode::Stack(StackDirection::Forward)));
     }
 
     #[test]
     fn cd_plus_maps_to_stack_forward() {
         let p = parse_buffer("cd+ ", 4).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Stack(StackDirection::Forward));
+        assert_eq!(p.mode, builtin(CompletionMode::Stack(StackDirection::Forward)));
     }
 
     #[test]
@@ -342,7 +420,7 @@ mod tests {
     #[test]
     fn leading_whitespace_is_handled() {
         let p = parse_buffer("  cd foo", 8).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Paths);
+        assert_eq!(p.mode, builtin(CompletionMode::Paths));
         assert_eq!(p.query.as_deref(), Some("foo"));
         assert_eq!(p.replace_start, 5);
         assert_eq!(p.replace_end, 8);
@@ -415,7 +493,7 @@ mod tests {
         // so that expand_filesystem_prefix lists the directory's children.
         let buf = "cd '/Library/Application Support'/";
         let p = parse_buffer(buf, buf.len()).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Paths);
+        assert_eq!(p.mode, builtin(CompletionMode::Paths));
         assert_eq!(p.query.as_deref(), Some("/Library/Application Support/"));
         assert_eq!(p.replace_start, 3);
         assert_eq!(p.replace_end, buf.len());
@@ -440,7 +518,7 @@ mod tests {
     #[test]
     fn cd_flagged_forms_isolate_path_token() {
         let p = parse_buffer("cd -P foo", "cd -P foo".len()).expect("should parse");
-        assert_eq!(p.mode, CompletionMode::Paths);
+        assert_eq!(p.mode, builtin(CompletionMode::Paths));
         assert_eq!(p.query.as_deref(), Some("foo"));
         assert_eq!(p.replace_start, 6);
         assert_eq!(p.replace_end, 9);

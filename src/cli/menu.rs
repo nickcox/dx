@@ -1,10 +1,29 @@
 use std::path::{Path, PathBuf};
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 
 use crate::complete::CompletionMode;
-use crate::menu::{self, parse_buffer_with_mode, tui::QueryFn, MenuAction, MenuResult};
+use crate::menu::{
+    self, parse_buffer_with_override_mode, tui::QueryFn, MenuAction, MenuMode, MenuResult,
+};
 use crate::resolve::Resolver;
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum MenuModeArg {
+    Path,
+    Directory,
+    File,
+}
+
+impl MenuModeArg {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Path => "path",
+            Self::Directory => "directory",
+            Self::File => "file",
+        }
+    }
+}
 
 #[derive(Debug, Args)]
 pub struct MenuCommand {
@@ -31,6 +50,10 @@ pub struct MenuCommand {
     /// Internal compatibility mode for PowerShell PSReadLine menu integration
     #[arg(long, hide = true)]
     pub psreadline_mode: bool,
+
+    /// Explicit mapped-command menu mode for init-generated external command hooks
+    #[arg(long, value_enum)]
+    pub mode: Option<MenuModeArg>,
 }
 
 /// Format a resolved path for insertion into the shell buffer.
@@ -49,7 +72,7 @@ pub struct MenuCommand {
 /// Examples (Paths mode):
 ///   /Users/nick/Downloads          → Downloads/
 ///   /Users/nick/Dropbox (Maestral) → 'Dropbox (Maestral)'/
-fn format_selected_path(path: &str, mode: &CompletionMode) -> String {
+fn format_selected_path(path: &str, mode: MenuMode) -> String {
     let formatted = if needs_shell_quoting(path) {
         let escaped = path.replace('\'', "'\\''");
         format!("'{escaped}'")
@@ -58,7 +81,9 @@ fn format_selected_path(path: &str, mode: &CompletionMode) -> String {
     };
 
     match mode {
-        CompletionMode::Paths => format!("{formatted}/"),
+        MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory => {
+            format!("{formatted}/")
+        }
         // Stack, ancestors, frecents, recents — no trailing slash needed.
         _ => formatted,
     }
@@ -81,12 +106,17 @@ fn sanitize_relative_components(path: &Path) -> PathBuf {
 
 fn format_selected_path_for_query_style(
     selected: &Path,
-    mode: &CompletionMode,
+    mode: MenuMode,
     cwd: &Path,
     prefer_relative_paths: bool,
 ) -> String {
     match mode {
-        CompletionMode::Paths if prefer_relative_paths => {
+        MenuMode::Completion(CompletionMode::Paths)
+        | MenuMode::Path
+        | MenuMode::Directory
+        | MenuMode::File
+            if prefer_relative_paths =>
+        {
             let selected_str = selected.display().to_string();
             if let Ok(rel) = selected.strip_prefix(cwd) {
                 use std::path::Component;
@@ -115,8 +145,8 @@ fn format_selected_path_for_query_style(
     }
 }
 
-fn has_explicit_absolute_input(query: Option<&str>, mode: &CompletionMode) -> bool {
-    matches!(mode, CompletionMode::Paths) && query.is_some_and(|q| q.starts_with('/'))
+fn has_explicit_absolute_input(query: Option<&str>, mode: MenuMode) -> bool {
+    mode.prefers_query_relative_rendering() && query.is_some_and(|q| q.starts_with('/'))
 }
 
 /// Returns true if the string contains characters that require shell quoting.
@@ -202,7 +232,7 @@ fn parse_menu_max_results() -> usize {
 fn menu_result_to_action(
     result: Option<MenuResult>,
     parsed: &menu::ParsedBuffer,
-    mode: &CompletionMode,
+    mode: MenuMode,
     cwd: &Path,
     prefer_relative_paths: bool,
 ) -> MenuAction {
@@ -240,7 +270,13 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         );
     }
 
-    let parsed = match parse_buffer_with_mode(&cmd.buffer, cmd.cursor, cmd.psreadline_mode) {
+    let override_mode = cmd.mode.map(MenuModeArg::as_str);
+    let parsed = match parse_buffer_with_override_mode(
+        &cmd.buffer,
+        cmd.cursor,
+        cmd.psreadline_mode,
+        override_mode,
+    ) {
         Some(parsed) => parsed,
         None => {
             if debug {
@@ -270,7 +306,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
 
     // For Paths mode, an empty/absent query means "list children of cwd".
     // Substitute "./" so expand_filesystem_prefix enumerates the current directory.
-    let is_paths = matches!(parsed.mode, CompletionMode::Paths);
+    let is_paths = matches!(parsed.mode, MenuMode::Completion(CompletionMode::Paths));
     let query_is_empty = parsed.query.is_none() || parsed.query.as_deref() == Some("");
     let initial_query_str: &str = if is_paths && query_is_empty {
         "./"
@@ -309,10 +345,12 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     }
 
     let initial_query = parsed.query.clone().unwrap_or_default();
-    let prefer_relative_paths = !has_explicit_absolute_input(parsed.query.as_deref(), &parsed.mode);
+    let prefer_relative_paths = !has_explicit_absolute_input(parsed.query.as_deref(), parsed.mode);
 
     let query_fn: QueryFn<'_> = Box::new(|q: &str| {
-        let resolved_q = if q.is_empty() && matches!(parsed.mode, CompletionMode::Paths) {
+        let resolved_q = if q.is_empty()
+            && matches!(parsed.mode, MenuMode::Completion(CompletionMode::Paths))
+        {
             Some("./")
         } else if q.is_empty() {
             None
@@ -349,7 +387,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     match menu_result_to_action(
         menu_result.clone(),
         &parsed,
-        &parsed.mode,
+        parsed.mode,
         &cwd,
         prefer_relative_paths,
     ) {
@@ -409,7 +447,10 @@ mod tests {
     #[test]
     fn paths_mode_simple_path_gets_trailing_slash() {
         assert_eq!(
-            format_selected_path("/Users/nick/Downloads", &CompletionMode::Paths),
+            format_selected_path(
+                "/Users/nick/Downloads",
+                MenuMode::Completion(CompletionMode::Paths),
+            ),
             "/Users/nick/Downloads/"
         );
     }
@@ -417,7 +458,7 @@ mod tests {
     #[test]
     fn menu_result_to_action_returns_noop_for_tui_resize_failure() {
         let parsed = menu::ParsedBuffer {
-            mode: CompletionMode::Paths,
+            mode: MenuMode::Completion(CompletionMode::Paths),
             query: Some("foo".to_string()),
             replace_start: 3,
             replace_end: 6,
@@ -427,7 +468,7 @@ mod tests {
         let action = menu_result_to_action(
             None,
             &parsed,
-            &parsed.mode,
+            parsed.mode,
             Path::new("/tmp"),
             true,
         );
@@ -438,7 +479,7 @@ mod tests {
     #[test]
     fn menu_result_to_action_maps_cancel_to_explicit_cancel_action() {
         let parsed = menu::ParsedBuffer {
-            mode: CompletionMode::Paths,
+            mode: MenuMode::Completion(CompletionMode::Paths),
             query: Some("D".to_string()),
             replace_start: 3,
             replace_end: 4,
@@ -451,7 +492,7 @@ mod tests {
                 changed_query: true,
             }),
             &parsed,
-            &parsed.mode,
+            parsed.mode,
             Path::new("/tmp"),
             true,
         );
@@ -462,7 +503,10 @@ mod tests {
     #[test]
     fn paths_mode_path_with_spaces_is_quoted_with_trailing_slash_outside() {
         assert_eq!(
-            format_selected_path("/Users/nick/Dropbox (Maestral)", &CompletionMode::Paths),
+            format_selected_path(
+                "/Users/nick/Dropbox (Maestral)",
+                MenuMode::Completion(CompletionMode::Paths),
+            ),
             "'/Users/nick/Dropbox (Maestral)'/"
         );
     }
@@ -470,14 +514,20 @@ mod tests {
     #[test]
     fn paths_mode_path_with_embedded_single_quote_is_escaped() {
         assert_eq!(
-            format_selected_path("/tmp/it's here", &CompletionMode::Paths),
+            format_selected_path(
+                "/tmp/it's here",
+                MenuMode::Completion(CompletionMode::Paths),
+            ),
             "'/tmp/it'\\''s here'/"
         );
     }
 
     #[test]
     fn paths_mode_path_without_special_chars_is_not_quoted() {
-        let result = format_selected_path("/usr/local/bin", &CompletionMode::Paths);
+        let result = format_selected_path(
+            "/usr/local/bin",
+            MenuMode::Completion(CompletionMode::Paths),
+        );
         assert!(result.starts_with("/usr/local/bin/"));
         assert!(!result.contains('\''));
     }
@@ -486,7 +536,7 @@ mod tests {
     fn stack_mode_returns_raw_path_no_slash() {
         let result = format_selected_path(
             "/Users/nick/code",
-            &CompletionMode::Stack(StackDirection::Back),
+            MenuMode::Completion(CompletionMode::Stack(StackDirection::Back)),
         );
         assert_eq!(result, "/Users/nick/code");
     }
@@ -495,20 +545,26 @@ mod tests {
     fn stack_mode_path_with_spaces_is_quoted() {
         let result = format_selected_path(
             "/Users/nick/My Project",
-            &CompletionMode::Stack(StackDirection::Back),
+            MenuMode::Completion(CompletionMode::Stack(StackDirection::Back)),
         );
         assert_eq!(result, "'/Users/nick/My Project'");
     }
 
     #[test]
     fn ancestors_mode_returns_raw_path_no_slash() {
-        let result = format_selected_path("/Users/nick", &CompletionMode::Ancestors);
+        let result = format_selected_path(
+            "/Users/nick",
+            MenuMode::Completion(CompletionMode::Ancestors),
+        );
         assert_eq!(result, "/Users/nick");
     }
 
     #[test]
     fn frecents_mode_returns_raw_path_no_slash() {
-        let result = format_selected_path("/Users/nick/projects", &CompletionMode::Frecents);
+        let result = format_selected_path(
+            "/Users/nick/projects",
+            MenuMode::Completion(CompletionMode::Frecents),
+        );
         assert_eq!(result, "/Users/nick/projects");
     }
 
@@ -516,14 +572,17 @@ mod tests {
     fn frecents_mode_path_with_spaces_is_quoted_no_slash() {
         let result = format_selected_path(
             "/Users/nick/Dropbox (Maestral)/Obsidian/Notes",
-            &CompletionMode::Frecents,
+            MenuMode::Completion(CompletionMode::Frecents),
         );
         assert_eq!(result, "'/Users/nick/Dropbox (Maestral)/Obsidian/Notes'");
     }
 
     #[test]
     fn recents_mode_returns_raw_path_no_slash() {
-        let result = format_selected_path("/tmp/work", &CompletionMode::Recents);
+        let result = format_selected_path(
+            "/tmp/work",
+            MenuMode::Completion(CompletionMode::Recents),
+        );
         assert_eq!(result, "/tmp/work");
     }
 
@@ -532,7 +591,12 @@ mod tests {
         let cwd = Path::new("/tmp/work");
         let selected = Path::new("/tmp/work/./benches");
         let result =
-            format_selected_path_for_query_style(selected, &CompletionMode::Paths, cwd, true);
+            format_selected_path_for_query_style(
+                selected,
+                MenuMode::Completion(CompletionMode::Paths),
+                cwd,
+                true,
+            );
         assert_eq!(result, "./benches/");
     }
 
@@ -541,7 +605,12 @@ mod tests {
         let cwd = Path::new("/tmp/work");
         let selected = Path::new("/tmp/work/../sibling");
         let result =
-            format_selected_path_for_query_style(selected, &CompletionMode::Paths, cwd, true);
+            format_selected_path_for_query_style(
+                selected,
+                MenuMode::Completion(CompletionMode::Paths),
+                cwd,
+                true,
+            );
         assert_eq!(result, "../sibling/");
     }
 
@@ -550,7 +619,12 @@ mod tests {
         let cwd = Path::new("/tmp/work");
         let selected = Path::new("/tmp/work/../../outer");
         let result =
-            format_selected_path_for_query_style(selected, &CompletionMode::Paths, cwd, true);
+            format_selected_path_for_query_style(
+                selected,
+                MenuMode::Completion(CompletionMode::Paths),
+                cwd,
+                true,
+            );
         assert_eq!(result, "../../outer/");
     }
 
@@ -559,7 +633,12 @@ mod tests {
         let cwd = Path::new("/tmp/work");
         let selected = Path::new("/tmp/work/./benches");
         let result =
-            format_selected_path_for_query_style(selected, &CompletionMode::Paths, cwd, false);
+            format_selected_path_for_query_style(
+                selected,
+                MenuMode::Completion(CompletionMode::Paths),
+                cwd,
+                false,
+            );
         assert_eq!(result, "/tmp/work/./benches/");
     }
 

@@ -7,6 +7,8 @@
 - [Quickstart](./docs/quickstart.md)
 - [Shell Setup](./docs/shell-setup.md)
 
+Shell setup can also enable opt-in menu completion for mapped external commands such as `ls`, `open`, and `cat` with `DX_MENU_COMMAND_MAPPINGS`.
+
 Nix users can run `dx` directly from the flake:
 
 ```bash

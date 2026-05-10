@@ -2,6 +2,8 @@
 //! Shell-specific parsing and control flow remain in
 //! `bash.rs`, `zsh.rs`, `fish.rs`, and `pwsh.rs`.
 
+use super::MenuCommandMapping;
+
 pub const DX_TOP_LEVEL_SUBCOMMANDS: &[&str] = &[
     "resolve",
     "complete",
@@ -235,6 +237,53 @@ pub fn render_bash_menu_fallback_case() -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+pub fn render_bash_menu_mapping_case(mappings: &[MenuCommandMapping]) -> String {
+    mappings
+        .iter()
+        .map(|mapping| {
+            format!(
+                "    {}) __dx_menu_mode=\"{}\" ;;&",
+                bash_case_pattern(&[mapping.command.as_str()]),
+                mapping.mode.as_cli_arg()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn render_zsh_menu_mapping_case(mappings: &[MenuCommandMapping]) -> String {
+    mappings
+        .iter()
+        .map(|mapping| {
+            let command = quote_if_special(&mapping.command);
+            format!("    {command}) __dx_menu_mode=\"{}\" ;;", mapping.mode.as_cli_arg())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn render_fish_menu_mapping_cases(mappings: &[MenuCommandMapping]) -> String {
+    mappings
+        .iter()
+        .map(|mapping| {
+            let command = quote_if_special(&mapping.command);
+            format!(
+                "    case {command}\n      set -l dx_menu_mode {}",
+                mapping.mode.as_cli_arg()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn render_pwsh_menu_mapping_list(mappings: &[MenuCommandMapping]) -> String {
+    mappings
+        .iter()
+        .map(|mapping| format!("'{}={}'", mapping.command, mapping.mode.as_cli_arg()))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub fn render_posix_wrapper_declarations() -> String {

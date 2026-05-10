@@ -1,10 +1,20 @@
 use super::common::{
     apply_template_replacements, render_posix_menu_eligible_case_pattern,
     render_posix_wrapper_declarations, render_zsh_completion_bindings,
-    render_zsh_completion_functions, shell_words, DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS,
+    render_zsh_completion_functions, render_zsh_menu_mapping_case, shell_words,
+    DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS,
 };
+use super::MenuCommandMapping;
 
 pub fn generate(command_not_found: bool, menu: bool) -> String {
+    generate_with_mappings(command_not_found, menu, &[])
+}
+
+pub fn generate_with_mappings(
+    command_not_found: bool,
+    menu: bool,
+    _mappings: &[MenuCommandMapping],
+) -> String {
     let mut script = String::from(
         r#"if [[ -z "${DX_SESSION:-}" ]]; then
   export DX_SESSION="$$"
@@ -209,7 +219,9 @@ __dx_menu_widget() {
   fi
 
   local __dx_first="${BUFFER%% *}"
+  local __dx_menu_mode=""
   case "$__dx_first" in
+    __DX_ZSH_MENU_MAPPING_CASE__
     __DX_ZSH_MENU_CASE__ ) ;;
     *)
       zle expand-or-complete
@@ -218,7 +230,11 @@ __dx_menu_widget() {
   esac
 
   local __dx_json
-  __dx_json="$(dx menu --buffer "$BUFFER" --cursor $CURSOR --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
+  if [[ -n "$__dx_menu_mode" ]]; then
+    __dx_json="$(dx menu --mode "$__dx_menu_mode" --buffer "$BUFFER" --cursor $CURSOR --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
+  else
+    __dx_json="$(dx menu --buffer "$BUFFER" --cursor $CURSOR --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
+  fi
   local __dx_exit=$?
 
   # On runtime failure, leave the buffer unchanged and fall back
@@ -363,6 +379,10 @@ command_not_found_handler() {
             (
                 "__DX_ZSH_MENU_CASE__",
                 render_posix_menu_eligible_case_pattern(),
+            ),
+            (
+                "__DX_ZSH_MENU_MAPPING_CASE__",
+                render_zsh_menu_mapping_case(_mappings),
             ),
         ],
     )

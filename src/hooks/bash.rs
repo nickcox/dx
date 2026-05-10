@@ -1,10 +1,19 @@
 use super::common::{
     apply_template_replacements, render_bash_completion_bindings, render_bash_completion_functions,
-    render_bash_menu_fallback_case, render_posix_wrapper_declarations, shell_words,
-    DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS,
+    render_bash_menu_fallback_case, render_bash_menu_mapping_case,
+    render_posix_wrapper_declarations, shell_words, DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS,
 };
+use super::MenuCommandMapping;
 
 pub fn generate(command_not_found: bool, menu: bool) -> String {
+    generate_with_mappings(command_not_found, menu, &[])
+}
+
+pub fn generate_with_mappings(
+    command_not_found: bool,
+    menu: bool,
+    _mappings: &[MenuCommandMapping],
+) -> String {
     let mut script = String::from(
         r#"if [[ -z "${DX_SESSION:-}" ]]; then
   export DX_SESSION="$$"
@@ -211,6 +220,7 @@ __DX_BASH_COMPLETION_BINDINGS__
         script.push_str(
             r#"
 __dx_try_menu() {
+  local __dx_mode_override="${1:-}"
   [[ "${DX_MENU:-}" == "0" ]] && return 1
   command -v dx >/dev/null 2>&1 || return 1
 
@@ -270,7 +280,11 @@ __dx_try_menu() {
   }
 
   local __dx_json
-  __dx_json="$(dx menu --buffer "$COMP_LINE" --cursor "$COMP_POINT" --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)" || return 1
+  if [[ -n "$__dx_mode_override" ]]; then
+    __dx_json="$(dx menu --mode "$__dx_mode_override" --buffer "$COMP_LINE" --cursor "$COMP_POINT" --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)" || return 1
+  else
+    __dx_json="$(dx menu --buffer "$COMP_LINE" --cursor "$COMP_POINT" --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)" || return 1
+  fi
 
   local __dx_action
   __dx_action="$(__dx_json_extract_string action "$__dx_json")" || return 1
@@ -291,11 +305,22 @@ __dx_try_menu() {
 }
 
 _dx_menu_wrapper() {
+  local __dx_cmd="${COMP_WORDS[0]:-${COMP_LINE%% *}}"
+  local __dx_menu_mode=""
+  case "$__dx_cmd" in
+__DX_BASH_MENU_MAPPING_CASE__
+  esac
+
+  if [[ -n "$__dx_menu_mode" ]]; then
+    if __dx_try_menu "$__dx_menu_mode"; then
+      [[ -t 1 ]] && printf '\r' >/dev/tty
+      return 0
+    fi
+  fi
   if __dx_try_menu; then
     [[ -t 1 ]] && printf '\r' >/dev/tty
     return 0
   fi
-  local __dx_cmd="${COMP_LINE%% *}"
   case "$__dx_cmd" in
 __DX_BASH_MENU_FALLBACK_CASE__
   esac
@@ -310,6 +335,7 @@ complete -F _dx_menu_wrapper back
 complete -F _dx_menu_wrapper cd-
 complete -F _dx_menu_wrapper forward
 complete -F _dx_menu_wrapper cd+
+__DX_BASH_MAPPED_MENU_BINDINGS__
 "#,
         );
     }
@@ -373,6 +399,23 @@ command_not_found_handle() {
             (
                 "__DX_BASH_MENU_FALLBACK_CASE__",
                 render_bash_menu_fallback_case(),
+            ),
+            (
+                "__DX_BASH_MENU_MAPPING_CASE__",
+                render_bash_menu_mapping_case(_mappings),
+            ),
+            (
+                "__DX_BASH_MAPPED_MENU_BINDINGS__",
+                _mappings
+                    .iter()
+                    .map(|mapping| {
+                        format!(
+                            "complete -F _dx_menu_wrapper {}",
+                            mapping.command
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             ),
         ],
     )

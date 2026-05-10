@@ -1,9 +1,10 @@
 pub mod action;
 pub mod buffer;
+pub mod mode;
 pub mod tui;
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::complete::{
     self, ancestors, recents as recents_mode, stack as stack_mode,
@@ -14,15 +15,15 @@ use crate::frecency::ZoxideProvider;
 use crate::resolve::{CompletionCandidates, Resolver};
 
 pub use action::MenuAction;
-pub use buffer::{parse_buffer, parse_buffer_with_mode, ParsedBuffer};
+pub use buffer::{parse_buffer, parse_buffer_with_mode, parse_buffer_with_override_mode, ParsedBuffer};
+pub use mode::MenuMode;
 pub use tui::MenuResult;
 
-/// Source completion candidates for the given mode and query,
-/// reusing the same pipelines as `dx complete`.
+/// Source completion candidates for the given mode and query.
+/// Built-in dx modes reuse the same pipelines as `dx complete`; mapped
+/// filesystem modes use an explicit file-aware directory scan.
 /// Duplicates are removed for all modes.
-/// The cwd itself is filtered out for non-`Paths` modes only; `Paths` mode
-/// intentionally keeps cwd-targeted results because listing cwd children is a
-/// primary navigation use case.
+/// The cwd itself is filtered out for non-path-selection modes only.
 pub fn source_candidates(
     resolver: &Resolver,
     mode: CompletionMode,
@@ -32,7 +33,7 @@ pub fn source_candidates(
 ) -> Vec<PathBuf> {
     source_candidates_with_meta(
         resolver,
-        mode,
+        MenuMode::Completion(mode),
         query,
         session,
         cwd,
@@ -43,35 +44,38 @@ pub fn source_candidates(
 
 pub fn source_candidates_with_meta(
     resolver: &Resolver,
-    mode: CompletionMode,
+    mode: MenuMode,
     query: Option<&str>,
     session: Option<&str>,
     cwd: Option<&std::path::Path>,
     limit: Option<usize>,
 ) -> CompletionCandidates {
     let raw_meta = match mode {
-        CompletionMode::Paths => resolver.collect_completion_candidates_with_limit_and_cwd(
-            query.unwrap_or(""),
-            limit,
-            cwd,
-        ),
-        CompletionMode::Ancestors => {
+        MenuMode::Completion(CompletionMode::Paths) => resolver
+            .collect_completion_candidates_with_limit_and_cwd(query.unwrap_or(""), limit, cwd),
+        MenuMode::Completion(CompletionMode::Ancestors) => {
             apply_limit_with_has_more(ancestors::complete(query), limit)
         }
-        CompletionMode::Frecents => {
+        MenuMode::Completion(CompletionMode::Frecents) => {
             let provider = ZoxideProvider::default();
             apply_limit_with_has_more(complete::complete_frecents(&provider, query), limit)
         }
-        CompletionMode::Recents => {
+        MenuMode::Completion(CompletionMode::Recents) => {
             apply_limit_with_has_more(recents_mode::complete(session, query), limit)
         }
-        CompletionMode::Stack(direction) => {
+        MenuMode::Completion(CompletionMode::Stack(direction)) => {
             apply_limit_with_has_more(stack_mode::complete(session, direction, query), limit)
+        }
+        MenuMode::Path | MenuMode::Directory | MenuMode::File => {
+            source_mapped_filesystem_candidates(resolver, query, cwd, limit, mode)
         }
     };
 
     let canonical_cwd = match mode {
-        CompletionMode::Paths => None,
+        MenuMode::Completion(CompletionMode::Paths)
+        | MenuMode::Path
+        | MenuMode::Directory
+        | MenuMode::File => None,
         _ => cwd.and_then(|p| std::fs::canonicalize(p).ok()),
     };
 
@@ -93,6 +97,162 @@ pub fn source_candidates_with_meta(
     CompletionCandidates {
         paths: filtered,
         has_more: raw_meta.has_more,
+    }
+}
+
+fn source_mapped_filesystem_candidates(
+    resolver: &Resolver,
+    query: Option<&str>,
+    cwd: Option<&Path>,
+    limit: Option<usize>,
+    mode: MenuMode,
+) -> CompletionCandidates {
+    let cwd = match cwd {
+        Some(path) => path.to_path_buf(),
+        None => match std::env::current_dir() {
+            Ok(value) => value,
+            Err(_) => return CompletionCandidates::empty(),
+        },
+    };
+
+    let raw_query = query.unwrap_or("").trim();
+    let mut combined = Vec::new();
+    let mut seen = HashSet::new();
+
+    if !raw_query.is_empty() && matches!(mode, MenuMode::Path | MenuMode::Directory) {
+        let smart_dirs = resolver.collect_completion_candidates_with_limit_and_cwd(
+            raw_query,
+            None,
+            Some(cwd.as_path()),
+        );
+
+        for path in smart_dirs.paths {
+            if mode == MenuMode::Directory && !path.is_dir() {
+                continue;
+            }
+            push_unique_path(&mut combined, &mut seen, path);
+        }
+    }
+
+    let (parents, leaf_prefix) = mapped_parent_directories(resolver, &cwd, raw_query);
+    for parent in parents {
+        for child in list_filesystem_children(&parent, &leaf_prefix, mode) {
+            push_unique_path(&mut combined, &mut seen, child);
+        }
+    }
+
+    apply_limit_with_has_more(combined, limit)
+}
+
+fn mapped_parent_directories(
+    resolver: &Resolver,
+    cwd: &Path,
+    query: &str,
+) -> (Vec<PathBuf>, String) {
+    if query.is_empty() {
+        return (vec![cwd.to_path_buf()], String::new());
+    }
+
+    let (parent_query, leaf_prefix) = if query.ends_with('/') {
+        (query.trim_end_matches('/'), "")
+    } else if let Some((parent, leaf)) = query.rsplit_once('/') {
+        (parent, leaf)
+    } else {
+        return (vec![cwd.to_path_buf()], query.to_string());
+    };
+
+    if parent_query.is_empty() {
+        return (vec![cwd.to_path_buf()], leaf_prefix.to_string());
+    }
+
+    let smart_dirs = resolver.collect_completion_candidates_with_limit_and_cwd(
+        parent_query,
+        None,
+        Some(cwd),
+    );
+    if !smart_dirs.paths.is_empty() {
+        return (smart_dirs.paths, leaf_prefix.to_string());
+    }
+
+    let fallback = expand_query_path(cwd, parent_query)
+        .filter(|path| path.is_dir())
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    (fallback, leaf_prefix.to_string())
+}
+
+fn list_filesystem_children(parent: &Path, leaf_prefix: &str, mode: MenuMode) -> Vec<PathBuf> {
+    let entries = match std::fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let prefix_lower = leaf_prefix.to_ascii_lowercase();
+    let mut results = Vec::new();
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !leaf_prefix.is_empty() && !name.to_ascii_lowercase().starts_with(&prefix_lower) {
+            continue;
+        }
+
+        let path = entry.path();
+        let keep = match mode {
+            MenuMode::Path => true,
+            MenuMode::Directory => path.is_dir(),
+            MenuMode::File => path.is_file(),
+            MenuMode::Completion(_) => true,
+        };
+        if keep {
+            results.push(path);
+        }
+    }
+
+    sort_filesystem_candidates_by_basename(&mut results);
+    results
+}
+
+fn expand_query_path(cwd: &Path, query: &str) -> Option<PathBuf> {
+    let expanded = if query == "~" {
+        std::env::var("HOME").ok()?
+    } else if let Some(rest) = query.strip_prefix("~/") {
+        format!("{}/{rest}", std::env::var("HOME").ok()?)
+    } else {
+        query.to_string()
+    };
+
+    Some(if expanded.starts_with('/') {
+        PathBuf::from(expanded)
+    } else {
+        cwd.join(expanded)
+    })
+}
+
+fn sort_filesystem_candidates_by_basename(results: &mut [PathBuf]) {
+    results.sort_by(|left, right| {
+        let left_name = left
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_else(|| left.as_os_str().to_string_lossy());
+        let right_name = right
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_else(|| right.as_os_str().to_string_lossy());
+
+        left_name
+            .to_ascii_lowercase()
+            .cmp(&right_name.to_ascii_lowercase())
+            .then_with(|| left_name.cmp(&right_name))
+            .then_with(|| left.as_os_str().cmp(right.as_os_str()))
+    });
+}
+
+fn push_unique_path(output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
+    let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+    if seen.insert(canonical) {
+        output.push(path);
     }
 }
 

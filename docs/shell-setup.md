@@ -26,6 +26,51 @@ Add `dx` init output to your Fish config, then restart your terminal or reload t
 
 Add `dx` init output to your PowerShell profile, then restart your terminal or reload the profile.
 
+## Optional menu-backed command mappings
+
+`dx init <shell> --menu` can also generate menu-backed completion for external commands. Configure mappings with `DX_MENU_COMMAND_MAPPINGS` before generating hook output.
+
+Mapping format:
+
+```text
+<command>=<mode>,...
+```
+
+Modes:
+- `path`: files and directories
+- `directory`: directories only
+- `file`: regular files only
+
+Example mappings:
+
+```text
+ls=path,open=path,cat=file
+```
+
+Bash or Zsh:
+
+```sh
+export DX_MENU_COMMAND_MAPPINGS="ls=path,open=path,cat=file"
+eval "$(dx init zsh --menu)"
+# or: eval "$(dx init bash --menu)"
+```
+
+Fish:
+
+```fish
+set -gx DX_MENU_COMMAND_MAPPINGS "ls=path,open=path,cat=file"
+dx init fish --menu | source
+```
+
+PowerShell:
+
+```powershell
+$env:DX_MENU_COMMAND_MAPPINGS = "ls=path,open=path,cat=file"
+Invoke-Expression ((& dx init pwsh --menu | Out-String))
+```
+
+Mappings only apply to hooks generated with `--menu`. After changing `DX_MENU_COMMAND_MAPPINGS`, re-run `dx init <shell> --menu` and reload the regenerated hooks. Invalid mapping entries cause init generation to fail instead of installing partial registrations.
+
 ## Verify setup
 
 Run:

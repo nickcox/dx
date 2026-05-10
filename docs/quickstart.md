@@ -70,6 +70,17 @@ Shortening rules:
 
 If a command fails, revisit shell setup and confirm your shell initialization loaded successfully.
 
+## Optional: enable menu completion for external commands
+
+If you initialize with `dx init <shell> --menu`, you can map external commands to `dx`'s menu completion with `DX_MENU_COMMAND_MAPPINGS`:
+
+```sh
+export DX_MENU_COMMAND_MAPPINGS="ls=path,open=path,cat=file"
+eval "$(dx init zsh --menu)"
+```
+
+The mapping format is `<command>=<mode>,...`. Valid modes are `path` for files and directories, `directory` for directories only, and `file` for regular files only. Re-run `dx init <shell> --menu` after changing mappings so regenerated hooks capture the new command set.
+
 ## What to read next
 
 - Project overview: [README](../README.md)

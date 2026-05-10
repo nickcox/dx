@@ -1,8 +1,13 @@
 mod bash;
 mod common;
 mod fish;
+mod mappings;
 mod pwsh;
 mod zsh;
+
+pub use mappings::{
+    parse_menu_command_mappings, MenuCommandMapping, MenuCommandMappingError, MenuMappingMode,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shell {
@@ -29,11 +34,20 @@ impl Shell {
 }
 
 pub fn generate(shell: Shell, command_not_found: bool, menu: bool) -> String {
+    generate_with_mappings(shell, command_not_found, menu, &[])
+}
+
+pub fn generate_with_mappings(
+    shell: Shell,
+    command_not_found: bool,
+    menu: bool,
+    mappings: &[MenuCommandMapping],
+) -> String {
     match shell {
-        Shell::Bash => bash::generate(command_not_found, menu),
-        Shell::Zsh => zsh::generate(command_not_found, menu),
-        Shell::Fish => fish::generate(command_not_found, menu),
-        Shell::Pwsh => pwsh::generate(command_not_found, menu),
+        Shell::Bash => bash::generate_with_mappings(command_not_found, menu, mappings),
+        Shell::Zsh => zsh::generate_with_mappings(command_not_found, menu, mappings),
+        Shell::Fish => fish::generate_with_mappings(command_not_found, menu, mappings),
+        Shell::Pwsh => pwsh::generate_with_mappings(command_not_found, menu, mappings),
     }
 }
 

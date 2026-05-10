@@ -84,7 +84,9 @@ When menu mode is enabled, pressing Tab on a dx navigation command (`cd`, `up`, 
 - **Cancel after typing**: preserves typed filter refinement by applying a final `replace` action
 - **Cancel without typing**: falls back to native completion / noop semantics
 
-For non-dx commands, Tab behaves normally (native completion).
+For unmapped non-dx commands, Tab behaves normally (native completion). If `DX_MENU_COMMAND_MAPPINGS` is set before `dx init <shell> --menu` runs, generated hooks can route mapped external commands through the same menu path with an explicit `dx menu --mode <mode>` invocation. Mapped modes are `path` for files and directories, `directory` for directories only, and `file` for regular files only.
+
+Mapped command registrations are captured in generated hook output. After changing `DX_MENU_COMMAND_MAPPINGS`, re-run `dx init <shell> --menu` and reload the regenerated hooks. Noop, error, invalid payload, no candidate, or runtime-disabled paths still fall back to native shell completion behavior.
 
 ### Runtime Disable
 
