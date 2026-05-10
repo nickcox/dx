@@ -422,9 +422,18 @@ mod tests {
         assert!(bash.contains("[[ \"$__dx_action\" == \"cancel\" ]] && return 0"));
         assert!(bash.contains("[[ \"$__dx_action\" == \"replace\" ]] || return 1"));
         assert!(bash.contains("(( __dx_re >= __dx_rs )) || return 1"));
-        assert!(bash.contains("[[ -t 1 ]] && printf '\\r' >/dev/tty"));
         assert!(bash.contains(
-            "if __dx_try_menu; then\n    [[ -t 1 ]] && printf '\\r' >/dev/tty\n    return 0\n  fi"
+            "__dx_terminal=\"$(__dx_json_extract_string terminal \"$__dx_json\")\" || return 1"
+        ));
+        assert!(bash.contains(
+            "[[ \"$__dx_terminal\" == \"clean\" || \"$__dx_terminal\" == \"dirty\" ]] || return 1"
+        ));
+        assert!(bash.contains("__dx_menu_terminal=\"$__dx_terminal\""));
+        assert!(bash.contains(
+            "[[ \"$__dx_menu_terminal\" == \"dirty\" && -t 1 ]] && printf '\\r' >/dev/tty"
+        ));
+        assert!(bash.contains(
+            "if __dx_try_menu; then\n    [[ \"$__dx_menu_terminal\" == \"dirty\" && -t 1 ]] && printf '\\r' >/dev/tty\n    return 0\n  fi"
         ));
         assert!(bash.contains("case \"$__dx_cmd\" in"));
 
@@ -441,6 +450,11 @@ mod tests {
         assert!(zsh.contains("(( __dx_re >= __dx_rs )) || { zle expand-or-complete; return }"));
         assert!(zsh.contains("(( __dx_closed )) || { zle expand-or-complete; return }"));
         assert!(zsh.contains("[[ -n \"$__dx_value\" ]] || { zle expand-or-complete; return }"));
+        assert!(zsh.contains("local __dx_terminal_marker=\"\\\"terminal\\\":\\\"\""));
+        assert!(zsh.contains(
+            "[[ \"$__dx_terminal\" == \"clean\" || \"$__dx_terminal\" == \"dirty\" ]] || { zle expand-or-complete; return }"
+        ));
+        assert!(zsh.contains("[[ \"$__dx_terminal\" == \"dirty\" ]] && zle reset-prompt"));
 
         let fish = generate(Shell::Fish, false, true);
         assert!(fish.contains("set -l json (dx menu --buffer \"$buf\" --cursor $cur --cwd \"$PWD\" --session \"$DX_SESSION\" </dev/tty 2>/dev/tty)"));
@@ -449,9 +463,11 @@ mod tests {
         assert!(fish.contains("commandline -C (string length -- \"$buf\")"));
         assert!(fish.contains("if test \"$action\" != \"replace\""));
         assert!(fish.contains("if test (count $value_match) -lt 2"));
+        assert!(fish.contains("set -l terminal (string replace -r '.*\\\"terminal\\\":\\\"([^\\\"[:space:]]+)\\\".*' '$1' -- \"$json\")"));
+        assert!(fish.contains("if test \"$terminal\" != \"clean\" -a \"$terminal\" != \"dirty\""));
         assert!(fish.contains("if test $re -lt $rs"));
         assert!(fish.contains("if test $rs -gt $buflen; or test $re -gt $buflen"));
-        assert!(fish.contains("commandline -f repaint"));
+        assert!(fish.contains("if test \"$terminal\" = \"dirty\"\n    commandline -f repaint"));
 
         let pwsh = generate(Shell::Pwsh, false, true);
         assert!(pwsh.contains("$dxNewMenuKey = 'Tab'"));
@@ -462,7 +478,8 @@ mod tests {
         assert!(pwsh.contains(
             "$previousHandler.Description -eq $Global:__dx_pwsh_menu_handler_description"
         ));
-        assert!(pwsh.contains("Remove-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key"));
+        assert!(pwsh.contains("$dxPreviousMenuKeyVariable = Get-Variable -Name __dx_pwsh_menu_key -Scope Global -ErrorAction SilentlyContinue"));
+        assert!(pwsh.contains("Remove-PSReadLineKeyHandler -Chord $dxPreviousMenuKey"));
         assert!(pwsh.contains("Set-PSReadLineKeyHandler -Key 'Tab'"));
         assert!(pwsh.contains(
             "-BriefDescription 'dx menu' -Description $Global:__dx_pwsh_menu_handler_description"
@@ -482,6 +499,8 @@ mod tests {
             )
         );
         assert!(pwsh.contains("if (-not $result -or $result.action -ne 'replace')"));
+        assert!(pwsh.contains("if (-not $result.terminal -or ($result.terminal -ne 'clean' -and $result.terminal -ne 'dirty'))"));
+        assert!(pwsh.contains("if ($result.terminal -eq 'dirty')"));
         assert!(pwsh.contains("PSConsoleReadLine]::InvokePrompt()"));
         assert!(pwsh.contains("__dx_pwsh_menu_fallback $key $arg"));
         assert!(pwsh.contains("default { [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg); return }"));
@@ -607,5 +626,38 @@ mod tests {
             );
             assert_no_unresolved_internal_placeholders(&script);
         }
+    }
+
+    #[test]
+    fn zsh_menu_parses_terminal_and_conditionally_resets_prompt() {
+        let script = generate(Shell::Zsh, false, true);
+        assert!(script.contains(r#"__dx_terminal_marker="\"terminal\":\"""#));
+        assert!(script.contains("__dx_terminal"));
+        assert!(
+            script.contains(r#"[[ "$__dx_terminal" == "clean" || "$__dx_terminal" == "dirty" ]]"#)
+        );
+        assert!(script.contains(r#"[[ "$__dx_terminal" == "dirty" ]] && zle reset-prompt"#));
+    }
+
+    #[test]
+    fn fish_menu_parses_terminal_and_conditionally_repaints() {
+        let script = generate(Shell::Fish, false, true);
+        assert!(script.contains(r#"\"terminal\":\""#));
+        assert!(script.contains("terminal"));
+        assert!(script.contains(r#"test "$terminal" != "clean" -a "$terminal" != "dirty""#));
+        assert!(script.contains(r#"if test "$terminal" = "dirty""#));
+        assert!(
+            script.contains("commandline -f repaint"),
+            "repaint should still be present"
+        );
+    }
+
+    #[test]
+    fn pwsh_menu_checks_terminal_field_and_conditionally_invokes_prompt() {
+        let script = generate(Shell::Pwsh, false, true);
+        assert!(script.contains(r#"$result.terminal"#));
+        assert!(script.contains(r#"-ne 'clean' -and $result.terminal -ne 'dirty'"#));
+        assert!(script.contains(r#"if ($result.terminal -eq 'dirty')"#));
+        assert!(script.contains("InvokePrompt()"));
     }
 }

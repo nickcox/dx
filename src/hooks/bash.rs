@@ -301,6 +301,11 @@ __dx_try_menu() {
   __dx_value="$(__dx_json_extract_string value "$__dx_json")" || return 1
   [[ -n "$__dx_value" ]] || return 1
 
+  local __dx_terminal
+  __dx_terminal="$(__dx_json_extract_string terminal "$__dx_json")" || return 1
+  [[ "$__dx_terminal" == "clean" || "$__dx_terminal" == "dirty" ]] || return 1
+  __dx_menu_terminal="$__dx_terminal"
+
   COMPREPLY=("$__dx_value")
   return 0
 }
@@ -308,18 +313,19 @@ __dx_try_menu() {
 _dx_menu_wrapper() {
   local __dx_cmd="${COMP_WORDS[0]:-${COMP_LINE%% *}}"
   local __dx_menu_mode=""
+  __dx_menu_terminal=""
   case "$__dx_cmd" in
 __DX_BASH_MENU_MAPPING_CASE__
   esac
 
   if [[ -n "$__dx_menu_mode" ]]; then
     if __dx_try_menu "$__dx_menu_mode"; then
-      [[ -t 1 ]] && printf '\r' >/dev/tty
+      [[ "$__dx_menu_terminal" == "dirty" && -t 1 ]] && printf '\r' >/dev/tty
       return 0
     fi
   fi
   if __dx_try_menu; then
-    [[ -t 1 ]] && printf '\r' >/dev/tty
+    [[ "$__dx_menu_terminal" == "dirty" && -t 1 ]] && printf '\r' >/dev/tty
     return 0
   fi
   case "$__dx_cmd" in

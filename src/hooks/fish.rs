@@ -303,11 +303,19 @@ __DX_FISH_MENU_MAPPING_CASES__
     return
   end
 
+  set -l terminal (string replace -r '.*\"terminal\":\"([^\"[:space:]]+)\".*' '$1' -- "$json")
+  if test "$terminal" != "clean" -a "$terminal" != "dirty"
+    commandline -f complete
+    return
+  end
+
   set -l prefix (string sub -l $rs -- "$buf")
   set -l suffix (string sub -s (math $re + 1) -- "$buf")
   commandline -r -- "$prefix$value$suffix"
   commandline -C (math $rs + (string length "$value"))
-  commandline -f repaint
+  if test "$terminal" = "dirty"
+    commandline -f repaint
+  end
 end
 
 bind \t __dx_menu_complete

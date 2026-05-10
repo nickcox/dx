@@ -282,38 +282,48 @@ __DX_PWSH_COMPLETION_BINDINGS__
 if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
     $Global:__dx_pwsh_menu_handler_description = 'dx menu handler'
     $dxNewMenuKey = '__DX_PWSH_MENU_KEY__'
+    $dxPreviousMenuKey = $null
+    $dxPreviousMenuKeyVariable = Get-Variable -Name __dx_pwsh_menu_key -Scope Global -ErrorAction SilentlyContinue
+    if ($dxPreviousMenuKeyVariable) {
+        $dxPreviousMenuKey = $dxPreviousMenuKeyVariable.Value
+    }
 
-    if ($Global:__dx_pwsh_menu_key -and $Global:__dx_pwsh_menu_key -ne $dxNewMenuKey) {
+    if ($dxPreviousMenuKey -and $dxPreviousMenuKey -ne $dxNewMenuKey) {
         try {
-            $oldHandler = Get-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key -ErrorAction SilentlyContinue
+            $oldHandler = Get-PSReadLineKeyHandler -Chord $dxPreviousMenuKey -ErrorAction SilentlyContinue
             if ($oldHandler -and $oldHandler.Description -eq $Global:__dx_pwsh_menu_handler_description) {
-                switch ($Global:__dx_pwsh_menu_previous_function) {
-                    'AcceptAndGetNext' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function AcceptAndGetNext; break }
-                    'AcceptLine' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function AcceptLine; break }
-                    'AcceptNextSuggestionWord' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function AcceptNextSuggestionWord; break }
-                    'AcceptSuggestion' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function AcceptSuggestion; break }
-                    'BeginningOfHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function BeginningOfHistory; break }
-                    'ClearHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ClearHistory; break }
-                    'Complete' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function Complete; break }
-                    'EndOfHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function EndOfHistory; break }
-                    'ForwardSearchHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ForwardSearchHistory; break }
-                    'HistorySearchBackward' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function HistorySearchBackward; break }
-                    'HistorySearchForward' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function HistorySearchForward; break }
-                    'MenuComplete' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function MenuComplete; break }
-                    'NextHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function NextHistory; break }
-                    'PossibleCompletions' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function PossibleCompletions; break }
-                    'PrependAndAccept' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function PrependAndAccept; break }
-                    'PreviousHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function PreviousHistory; break }
-                    'ReverseSearchHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ReverseSearchHistory; break }
-                    'TabCompleteNext' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function TabCompleteNext; break }
-                    'TabCompletePrevious' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function TabCompletePrevious; break }
-                    'ValidateAndAcceptLine' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ValidateAndAcceptLine; break }
-                    'ViAcceptLine' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViAcceptLine; break }
-                    'ViAcceptLineOrExit' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViAcceptLineOrExit; break }
-                    'ViSearchHistoryBackward' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViSearchHistoryBackward; break }
-                    'ViTabCompleteNext' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViTabCompleteNext; break }
-                    'ViTabCompletePrevious' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViTabCompletePrevious; break }
-                    default { Remove-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key -ErrorAction SilentlyContinue }
+                $dxPreviousFunction = $null
+                $dxPreviousFunctionVariable = Get-Variable -Name __dx_pwsh_menu_previous_function -Scope Global -ErrorAction SilentlyContinue
+                if ($dxPreviousFunctionVariable) {
+                    $dxPreviousFunction = $dxPreviousFunctionVariable.Value
+                }
+                switch ($dxPreviousFunction) {
+                    'AcceptAndGetNext' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function AcceptAndGetNext; break }
+                    'AcceptLine' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function AcceptLine; break }
+                    'AcceptNextSuggestionWord' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function AcceptNextSuggestionWord; break }
+                    'AcceptSuggestion' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function AcceptSuggestion; break }
+                    'BeginningOfHistory' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function BeginningOfHistory; break }
+                    'ClearHistory' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function ClearHistory; break }
+                    'Complete' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function Complete; break }
+                    'EndOfHistory' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function EndOfHistory; break }
+                    'ForwardSearchHistory' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function ForwardSearchHistory; break }
+                    'HistorySearchBackward' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function HistorySearchBackward; break }
+                    'HistorySearchForward' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function HistorySearchForward; break }
+                    'MenuComplete' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function MenuComplete; break }
+                    'NextHistory' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function NextHistory; break }
+                    'PossibleCompletions' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function PossibleCompletions; break }
+                    'PrependAndAccept' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function PrependAndAccept; break }
+                    'PreviousHistory' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function PreviousHistory; break }
+                    'ReverseSearchHistory' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function ReverseSearchHistory; break }
+                    'TabCompleteNext' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function TabCompleteNext; break }
+                    'TabCompletePrevious' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function TabCompletePrevious; break }
+                    'ValidateAndAcceptLine' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function ValidateAndAcceptLine; break }
+                    'ViAcceptLine' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function ViAcceptLine; break }
+                    'ViAcceptLineOrExit' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function ViAcceptLineOrExit; break }
+                    'ViSearchHistoryBackward' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function ViSearchHistoryBackward; break }
+                    'ViTabCompleteNext' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function ViTabCompleteNext; break }
+                    'ViTabCompletePrevious' { Set-PSReadLineKeyHandler -Key $dxPreviousMenuKey -Function ViTabCompletePrevious; break }
+                    default { Remove-PSReadLineKeyHandler -Chord $dxPreviousMenuKey -ErrorAction SilentlyContinue }
                 }
             }
         } catch { }
@@ -444,9 +454,16 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
             return
         }
 
+        if (-not $result.terminal -or ($result.terminal -ne 'clean' -and $result.terminal -ne 'dirty')) {
+            __dx_pwsh_menu_fallback $key $arg
+            return
+        }
+
         [Microsoft.PowerShell.PSConsoleReadLine]::Replace($result.replaceStart, $result.replaceEnd - $result.replaceStart, $result.value)
         [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($result.replaceStart + $result.value.Length)
-        [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+        if ($result.terminal -eq 'dirty') {
+            [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+        }
     }
 }
 "#,

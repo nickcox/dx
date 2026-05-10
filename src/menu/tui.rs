@@ -12,6 +12,7 @@ pub enum MenuResult {
         filter_query: String,
         changed_query: bool,
         value: std::path::PathBuf,
+        terminal: crate::menu::action::TerminalState,
     },
     Cancelled {
         filter_query: String,
@@ -193,6 +194,7 @@ mod imp {
             value,
             filter_query: filter_state.effective_query(),
             changed_query: filter_state.changed_query(),
+            terminal: crate::menu::action::TerminalState::Dirty,
         }
     }
 
@@ -311,6 +313,7 @@ mod imp {
                 value: initial_candidates.paths.into_iter().next().unwrap(),
                 filter_query: initial_query.to_string(),
                 changed_query: false,
+                terminal: crate::menu::action::TerminalState::Clean,
             });
         }
 

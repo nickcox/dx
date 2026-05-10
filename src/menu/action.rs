@@ -12,6 +12,7 @@ pub enum MenuAction {
         #[serde(rename = "replaceEnd")]
         replace_end: usize,
         value: String,
+        terminal: TerminalState,
     },
     /// Explicit user cancellation after an interactive menu session.
     #[serde(rename = "cancel")]
@@ -21,12 +22,25 @@ pub enum MenuAction {
     Noop,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalState {
+    Clean,
+    Dirty,
+}
+
 impl MenuAction {
-    pub fn replace(replace_start: usize, replace_end: usize, value: String) -> Self {
+    pub fn replace(
+        replace_start: usize,
+        replace_end: usize,
+        value: String,
+        terminal: TerminalState,
+    ) -> Self {
         MenuAction::Replace {
             replace_start,
             replace_end,
             value,
+            terminal,
         }
     }
 
@@ -61,22 +75,24 @@ mod tests {
 
     #[test]
     fn replace_serializes_with_camel_case_fields() {
-        let action = MenuAction::replace(3, 6, "/home/user/bar".to_string());
+        let action = MenuAction::replace(3, 6, "/home/user/bar".to_string(), TerminalState::Clean);
         let json = action.to_json();
         assert!(json.contains(r#""action":"replace""#));
         assert!(json.contains(r#""replaceStart":3"#));
         assert!(json.contains(r#""replaceEnd":6"#));
         assert!(json.contains(r#""value":"/home/user/bar""#));
+        assert!(json.contains(r#""terminal":"clean""#));
     }
 
     #[test]
     fn replace_roundtrips_through_json() {
-        let action = MenuAction::replace(0, 10, "/tmp".to_string());
+        let action = MenuAction::replace(0, 10, "/tmp".to_string(), TerminalState::Dirty);
         let json = action.to_json();
         let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
         assert_eq!(parsed["action"], "replace");
         assert_eq!(parsed["replaceStart"], 0);
         assert_eq!(parsed["replaceEnd"], 10);
         assert_eq!(parsed["value"], "/tmp");
+        assert_eq!(parsed["terminal"], "dirty");
     }
 }

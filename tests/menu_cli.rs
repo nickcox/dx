@@ -96,6 +96,7 @@ fn menu_noop_json_has_only_action_field() {
     assert!(parsed.get("replaceStart").is_none());
     assert!(parsed.get("replaceEnd").is_none());
     assert!(parsed.get("value").is_none());
+    assert!(parsed.get("terminal").is_none());
 }
 
 // --- 4.2 Shell hook invocation / action application contracts ---
@@ -287,7 +288,8 @@ fn init_pwsh_menu_emits_previous_function_fallback_and_custom_action_warning() {
     assert!(stdout.contains("Get-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key"));
     assert!(stdout.contains("function global:__dx_pwsh_menu_fallback"));
     assert!(stdout.contains("$Global:__dx_pwsh_menu_handler_description = 'dx menu handler'"));
-    assert!(stdout.contains("Remove-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key"));
+    assert!(stdout.contains("$dxPreviousMenuKeyVariable = Get-Variable -Name __dx_pwsh_menu_key -Scope Global -ErrorAction SilentlyContinue"));
+    assert!(stdout.contains("Remove-PSReadLineKeyHandler -Chord $dxPreviousMenuKey"));
     assert!(
         stdout.contains(
             "$previousHandler.Description -eq $Global:__dx_pwsh_menu_handler_description"
@@ -303,6 +305,32 @@ fn init_pwsh_menu_emits_previous_function_fallback_and_custom_action_warning() {
     assert!(stdout.contains(
         "dx init: warning: PSReadLine key '$Global:__dx_pwsh_menu_key' was bound to a CustomAction"
     ));
+}
+
+#[test]
+fn init_pwsh_menu_loads_under_strict_mode() {
+    if !pwsh_available() {
+        eprintln!("skipping PowerShell evaluation test: pwsh not available");
+        return;
+    }
+
+    let output = Command::new("pwsh")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Import-Module PSReadLine; Set-StrictMode -Version Latest; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String))",
+        ])
+        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .output()
+        .expect("pwsh should run");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -653,6 +681,10 @@ fn menu_paths_mode_honors_explicit_cwd() {
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["replaceStart"], 3);
     assert_eq!(parsed["replaceEnd"], 4);
+    assert_eq!(
+        parsed["terminal"], "clean",
+        "single-candidate fast path should emit terminal=clean"
+    );
 
     let value = parsed["value"]
         .as_str()
@@ -711,6 +743,7 @@ fn menu_paths_mode_relative_query_uses_dot_slash_replacement() {
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["replaceStart"], 3);
     assert_eq!(parsed["replaceEnd"], 4);
+    assert_eq!(parsed["terminal"], "clean");
 
     let value = parsed["value"]
         .as_str()
@@ -750,6 +783,7 @@ fn menu_paths_mode_explicit_absolute_query_preserves_absolute_replacement() {
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["replaceStart"], 3);
     assert_eq!(parsed["replaceEnd"], buffer.len());
+    assert_eq!(parsed["terminal"], "clean");
 
     let value = parsed["value"]
         .as_str()
@@ -791,6 +825,7 @@ fn menu_paths_mode_parent_relative_query_preserves_parent_prefix_replacement() {
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["replaceStart"], 3);
     assert_eq!(parsed["replaceEnd"], buffer.len());
+    assert_eq!(parsed["terminal"], "clean");
 
     let value = parsed["value"]
         .as_str()
@@ -826,6 +861,7 @@ fn mapped_path_mode_returns_single_file_candidate_replace() {
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json");
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["value"], "./alpha.txt");
+    assert_eq!(parsed["terminal"], "clean");
 
     let _ = fs::remove_dir_all(explicit_cwd);
 }
@@ -858,6 +894,7 @@ fn mapped_directory_mode_excludes_files() {
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json");
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["value"], "./alpha-dir/");
+    assert_eq!(parsed["terminal"], "clean");
 
     let _ = fs::remove_dir_all(explicit_cwd);
 }
@@ -890,6 +927,7 @@ fn mapped_file_mode_excludes_directories() {
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json");
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["value"], "./alpha.txt");
+    assert_eq!(parsed["terminal"], "clean");
 
     let _ = fs::remove_dir_all(explicit_cwd);
 }
@@ -923,6 +961,7 @@ fn menu_flagged_cd_replace_span_starts_at_path_token() {
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["replaceStart"], 6);
     assert_eq!(parsed["replaceEnd"], 7);
+    assert_eq!(parsed["terminal"], "clean");
 
     let value = parsed["value"]
         .as_str()
@@ -1000,9 +1039,7 @@ fn hook_scripts_contain_fallback_on_noop() {
     let bash_out = String::from_utf8_lossy(&bash.stdout);
     // Bash: _dx_menu_wrapper calls original completion when __dx_try_menu fails
     assert!(
-        bash_out.contains(
-            "if __dx_try_menu; then\n    [[ -t 1 ]] && printf '\\r' >/dev/tty\n    return 0\n  fi"
-        ),
+        bash_out.contains("if __dx_try_menu; then\n    [[ \"$__dx_menu_terminal\" == \"dirty\" && -t 1 ]] && printf '\\r' >/dev/tty\n    return 0\n  fi"),
         "bash menu wrapper should fall back to original completion"
     );
 
@@ -1142,14 +1179,28 @@ fn hook_scripts_apply_replace_action_contract() {
     assert!(bash_out.contains("__dx_json_extract_string()"));
     assert!(bash_out.contains("__dx_json_extract_uint()"));
     assert!(bash_out.contains("__dx_action=\"$(__dx_json_extract_string action \"$__dx_json\")\""));
+    assert!(
+        bash_out.contains("__dx_terminal=\"$(__dx_json_extract_string terminal \"$__dx_json\")\"")
+    );
+    assert!(bash_out.contains(
+        "[[ \"$__dx_terminal\" == \"clean\" || \"$__dx_terminal\" == \"dirty\" ]] || return 1"
+    ));
     assert!(bash_out.contains("[[ \"$__dx_action\" == \"cancel\" ]] && return 0"));
     assert!(bash_out.contains("(( __dx_re >= __dx_rs )) || return 1"));
+    assert!(
+        bash_out.contains(
+            "[[ \"$__dx_menu_terminal\" == \"dirty\" && -t 1 ]] && printf '\\r' >/dev/tty"
+        )
+    );
 
     let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
     let zsh_out = String::from_utf8_lossy(&zsh.stdout);
     assert!(zsh_out.contains("replaceStart"));
     assert!(zsh_out.contains("replaceEnd"));
     assert!(zsh_out.contains("__dx_value"));
+    assert!(zsh_out.contains("__dx_terminal_marker=\"\\\"terminal\\\":\\\"\""));
+    assert!(zsh_out.contains("[[ \"$__dx_terminal\" == \"clean\" || \"$__dx_terminal\" == \"dirty\" ]] || { zle expand-or-complete; return }"));
+    assert!(zsh_out.contains("[[ \"$__dx_terminal\" == \"dirty\" ]] && zle reset-prompt"));
     assert!(zsh_out.contains("if [[ \"$__dx_action\" == \"cancel\" ]]; then"));
     assert!(zsh_out.contains("CURSOR=${#BUFFER}"));
     assert!(
@@ -1163,6 +1214,9 @@ fn hook_scripts_apply_replace_action_contract() {
     let fish_out = String::from_utf8_lossy(&fish.stdout);
     assert!(fish_out.contains("replaceStart"));
     assert!(fish_out.contains("replaceEnd"));
+    assert!(fish_out.contains("set -l terminal (string replace -r '.*\\\"terminal\\\":\\\"([^\\\"[:space:]]+)\\\".*' '$1' -- \"$json\")"));
+    assert!(fish_out.contains("if test \"$terminal\" != \"clean\" -a \"$terminal\" != \"dirty\""));
+    assert!(fish_out.contains("if test \"$terminal\" = \"dirty\""));
     assert!(fish_out.contains("if test \"$action\" = \"cancel\""));
     assert!(fish_out.contains("commandline -C (string length -- \"$buf\")"));
     assert!(fish_out.contains(r#"commandline -r -- "$prefix$value$suffix""#));
@@ -1177,6 +1231,8 @@ fn hook_scripts_apply_replace_action_contract() {
             .contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)")
     );
     assert!(pwsh_out.contains("$result.action -ne 'replace'"));
+    assert!(pwsh_out.contains("$result.terminal -ne 'clean' -and $result.terminal -ne 'dirty'"));
+    assert!(pwsh_out.contains("if ($result.terminal -eq 'dirty')"));
     assert!(pwsh_out.contains("PSConsoleReadLine]::Replace("));
 }
 

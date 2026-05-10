@@ -237,7 +237,9 @@ fn menu_result_to_action(
     prefer_relative_paths: bool,
 ) -> MenuAction {
     match result {
-        Some(MenuResult::Selected { value, .. }) => {
+        Some(MenuResult::Selected {
+            value, terminal, ..
+        }) => {
             let formatted =
                 format_selected_path_for_query_style(&value, mode, cwd, prefer_relative_paths);
             let replacement = if parsed.needs_space_prefix {
@@ -245,7 +247,12 @@ fn menu_result_to_action(
             } else {
                 formatted
             };
-            MenuAction::replace(parsed.replace_start, parsed.replace_end, replacement)
+            MenuAction::replace(
+                parsed.replace_start,
+                parsed.replace_end,
+                replacement,
+                terminal,
+            )
         }
         Some(MenuResult::Cancelled {
             filter_query: _,
@@ -441,9 +448,60 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
 #[cfg(test)]
 mod tests {
     use crate::complete::StackDirection;
+    use crate::menu::action::TerminalState;
     use crate::test_support::env_lock;
 
     use super::*;
+
+    #[test]
+    fn menu_result_to_action_passes_terminal_state_through() {
+        let parsed = menu::ParsedBuffer {
+            mode: MenuMode::Completion(CompletionMode::Paths),
+            query: Some("foo".to_string()),
+            replace_start: 3,
+            replace_end: 6,
+            needs_space_prefix: false,
+        };
+
+        let clean_action = menu_result_to_action(
+            Some(MenuResult::Selected {
+                value: PathBuf::from("/tmp/bar"),
+                filter_query: "fo".to_string(),
+                changed_query: true,
+                terminal: TerminalState::Clean,
+            }),
+            &parsed,
+            parsed.mode,
+            Path::new("/tmp"),
+            true,
+        );
+        assert_eq!(
+            clean_action,
+            MenuAction::Replace {
+                replace_start: 3,
+                replace_end: 6,
+                value: "./bar/".to_string(),
+                terminal: TerminalState::Clean,
+            }
+        );
+
+        let dirty_action = menu_result_to_action(
+            Some(MenuResult::Selected {
+                value: PathBuf::from("/tmp/baz"),
+                filter_query: "fo".to_string(),
+                changed_query: true,
+                terminal: TerminalState::Dirty,
+            }),
+            &parsed,
+            parsed.mode,
+            Path::new("/tmp"),
+            true,
+        );
+        let MenuAction::Replace { terminal, .. } = dirty_action else {
+            panic!("expected Replace");
+        };
+        assert_eq!(terminal, TerminalState::Dirty);
+    }
 
     #[test]
     fn paths_mode_simple_path_gets_trailing_slash() {

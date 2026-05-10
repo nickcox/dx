@@ -309,9 +309,15 @@ __dx_menu_widget() {
   (( __dx_closed )) || { zle expand-or-complete; return }
   [[ -n "$__dx_value" ]] || { zle expand-or-complete; return }
 
+  local __dx_terminal_marker="\"terminal\":\""
+  [[ "$__dx_json" == *$__dx_terminal_marker* ]] || { zle expand-or-complete; return }
+  local __dx_term_rest="${__dx_json#*$__dx_terminal_marker}"
+  local __dx_terminal="${__dx_term_rest%%\"*}"
+  [[ "$__dx_terminal" == "clean" || "$__dx_terminal" == "dirty" ]] || { zle expand-or-complete; return }
+
   BUFFER="${BUFFER[1,$__dx_rs]}${__dx_value}${BUFFER[$((${__dx_re}+1)),-1]}"
   CURSOR=$(( __dx_rs + ${#__dx_value} ))
-  zle reset-prompt
+  [[ "$__dx_terminal" == "dirty" ]] && zle reset-prompt
 }
 
 zle -N __dx_menu_widget
