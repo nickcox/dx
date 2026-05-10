@@ -81,6 +81,8 @@ eval "$(dx init zsh --menu)"
 
 The mapping format is `<command>=<mode>,...`. Valid modes are `path` for files and directories, `directory` for directories only, and `file` for regular files only. Re-run `dx init <shell> --menu` after changing mappings so regenerated hooks capture the new command set.
 
+In PowerShell, dx menu mode binds `Tab` by default. Set `DX_PWSH_MENU_KEY` before `dx init pwsh --menu` to use a different PSReadLine key, for example `F12`. PowerShell fallback attempts to preserve the key's previous PSReadLine function; previous custom scriptblock handlers produce a warning because they cannot be replayed.
+
 ## What to read next
 
 - Project overview: [README](../README.md)

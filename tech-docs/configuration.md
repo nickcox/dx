@@ -87,6 +87,18 @@ Notes:
     variable, re-run `dx init <shell> --menu` and reload the regenerated hooks.
   - Invalid entries cause init generation to fail rather than emitting partial
     mapped-command registrations.
+- `DX_PWSH_MENU_KEY`: PowerShell-only PSReadLine key name used by
+  `dx init pwsh --menu` for the interactive menu handler.
+  - Default: `Tab`.
+  - Example: `DX_PWSH_MENU_KEY=F12`.
+  - The configured key is captured when hook output is generated. After
+    changing this variable, re-run `dx init pwsh --menu` and reload the
+    regenerated hooks.
+  - On native fallback paths, generated hooks attempt to invoke the key's
+    previous PSReadLine function (for example `MenuComplete` or
+    `TabCompleteNext`). If the previous binding was a `CustomAction`, dx emits
+    a warning during hook evaluation because PowerShell does not expose the
+    original scriptblock for replay; fallback uses `TabCompleteNext`.
 
 ## Command-level Overrides
 

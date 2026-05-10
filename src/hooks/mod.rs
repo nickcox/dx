@@ -8,6 +8,7 @@ mod zsh;
 pub use mappings::{
     parse_menu_command_mappings, MenuCommandMapping, MenuCommandMappingError, MenuMappingMode,
 };
+pub use pwsh::{parse_pwsh_menu_key, PwshMenuKeyError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shell {
@@ -34,7 +35,7 @@ impl Shell {
 }
 
 pub fn generate(shell: Shell, command_not_found: bool, menu: bool) -> String {
-    generate_with_mappings(shell, command_not_found, menu, &[])
+    generate_with_mappings_and_pwsh_key(shell, command_not_found, menu, &[], "Tab")
 }
 
 pub fn generate_with_mappings(
@@ -43,17 +44,32 @@ pub fn generate_with_mappings(
     menu: bool,
     mappings: &[MenuCommandMapping],
 ) -> String {
+    generate_with_mappings_and_pwsh_key(shell, command_not_found, menu, mappings, "Tab")
+}
+
+pub fn generate_with_mappings_and_pwsh_key(
+    shell: Shell,
+    command_not_found: bool,
+    menu: bool,
+    mappings: &[MenuCommandMapping],
+    pwsh_menu_key: &str,
+) -> String {
     match shell {
         Shell::Bash => bash::generate_with_mappings(command_not_found, menu, mappings),
         Shell::Zsh => zsh::generate_with_mappings(command_not_found, menu, mappings),
         Shell::Fish => fish::generate_with_mappings(command_not_found, menu, mappings),
-        Shell::Pwsh => pwsh::generate_with_mappings(command_not_found, menu, mappings),
+        Shell::Pwsh => pwsh::generate_with_mappings_and_menu_key(
+            command_not_found,
+            menu,
+            mappings,
+            pwsh_menu_key,
+        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{generate, Shell};
+    use super::{generate, generate_with_mappings_and_pwsh_key, parse_pwsh_menu_key, Shell};
 
     fn count_unescaped(script: &str, needle: char) -> usize {
         let mut escaped = false;
@@ -163,6 +179,22 @@ mod tests {
             "__dx_emit_completion @('paths', 'ancestors', 'frecents', 'recents', 'stack')"
         ));
         assert!(!section.contains("'stack' {"));
+    }
+
+    #[test]
+    fn pwsh_menu_key_parser_defaults_and_trims() {
+        assert_eq!(parse_pwsh_menu_key("Tab").expect("valid key"), "Tab");
+        assert_eq!(parse_pwsh_menu_key("  F12  ").expect("valid key"), "F12");
+        assert_eq!(parse_pwsh_menu_key("").expect("empty defaults"), "Tab");
+        assert_eq!(parse_pwsh_menu_key("   ").expect("empty defaults"), "Tab");
+    }
+
+    #[test]
+    fn pwsh_menu_key_parser_rejects_unsafe_characters() {
+        assert!(parse_pwsh_menu_key("Bad'Key").is_err());
+        assert!(parse_pwsh_menu_key("Bad\"Key").is_err());
+        assert!(parse_pwsh_menu_key("Bad\nKey").is_err());
+        assert!(parse_pwsh_menu_key("Bad\rKey").is_err());
     }
 
     fn assert_no_unresolved_internal_placeholders(script: &str) {
@@ -422,16 +454,49 @@ mod tests {
         assert!(fish.contains("commandline -f repaint"));
 
         let pwsh = generate(Shell::Pwsh, false, true);
-        assert!(pwsh.contains("if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or $first -notin $dxCmds)"));
+        assert!(pwsh.contains("$dxNewMenuKey = 'Tab'"));
+        assert!(pwsh.contains("$Global:__dx_pwsh_menu_key = $dxNewMenuKey"));
+        assert!(pwsh.contains("Get-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key"));
+        assert!(pwsh.contains("$Global:__dx_pwsh_menu_handler_description = 'dx menu handler'"));
+        assert!(pwsh.contains("function global:__dx_pwsh_menu_fallback"));
+        assert!(pwsh.contains(
+            "$previousHandler.Description -eq $Global:__dx_pwsh_menu_handler_description"
+        ));
+        assert!(pwsh.contains("Remove-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key"));
+        assert!(pwsh.contains("Set-PSReadLineKeyHandler -Key 'Tab'"));
+        assert!(pwsh.contains(
+            "-BriefDescription 'dx menu' -Description $Global:__dx_pwsh_menu_handler_description"
+        ));
+        assert!(pwsh.contains("'MenuComplete' { [Microsoft.PowerShell.PSConsoleReadLine]::MenuComplete($key, $arg); return }"));
+        assert!(pwsh.contains("$Global:__dx_pwsh_menu_previous_function -eq 'CustomAction'"));
+        assert!(pwsh.contains("dx init: warning: PSReadLine key '$Global:__dx_pwsh_menu_key' was bound to a CustomAction"));
+        assert!(pwsh.contains("Set-PSReadLineKeyHandler -Key 'Tab'"));
+        assert!(pwsh.contains("-ScriptBlock"));
+        assert!(pwsh.contains("if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or ($first -notin $dxCmds -and -not $dxMenuMode))"));
         assert!(pwsh.contains("if ($LASTEXITCODE -ne 0 -or -not $json)"));
         assert!(pwsh.contains("$result = $json | ConvertFrom-Json"));
         assert!(pwsh.contains("if ($result -and $result.action -eq 'cancel')"));
-        assert!(pwsh.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"));
+        assert!(pwsh
+            .contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"));
         assert!(pwsh.contains("if (-not $result -or $result.action -ne 'replace')"));
         assert!(pwsh.contains("PSConsoleReadLine]::InvokePrompt()"));
-        assert!(
-            pwsh.contains("[Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)")
-        );
+        assert!(pwsh.contains("__dx_pwsh_menu_fallback $key $arg"));
+        assert!(pwsh.contains("default { [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg); return }"));
+    }
+
+    #[test]
+    fn pwsh_menu_key_can_be_customized_in_generated_output() {
+        let pwsh = generate_with_mappings_and_pwsh_key(Shell::Pwsh, false, true, &[], "F12");
+        assert!(pwsh.contains("$dxNewMenuKey = 'F12'"));
+        assert!(pwsh.contains("$Global:__dx_pwsh_menu_key = $dxNewMenuKey"));
+        assert!(pwsh.contains("Set-PSReadLineKeyHandler -Key 'F12'"));
+        assert!(pwsh.contains("-ScriptBlock"));
+    }
+
+    #[test]
+    fn pwsh_menu_key_is_ignored_by_non_pwsh_shells() {
+        let bash = generate_with_mappings_and_pwsh_key(Shell::Bash, false, true, &[], "F12");
+        assert!(!bash.contains("F12"));
     }
 
     #[test]

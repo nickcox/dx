@@ -40,7 +40,9 @@ pub enum MenuCommandMappingError {
     InvalidEntry(String),
     #[error("mapping command cannot be empty in entry '{0}'")]
     EmptyCommand(String),
-    #[error("invalid mapping mode '{mode}' in entry '{entry}' (expected path, directory, or file)")]
+    #[error(
+        "invalid mapping mode '{mode}' in entry '{entry}' (expected path, directory, or file)"
+    )]
     InvalidMode { entry: String, mode: String },
     #[error("duplicate mapping for command '{0}'")]
     DuplicateCommand(String),
@@ -80,7 +82,9 @@ pub fn parse_menu_command_mappings(
         };
 
         if !seen.insert(command.to_string()) {
-            return Err(MenuCommandMappingError::DuplicateCommand(command.to_string()));
+            return Err(MenuCommandMappingError::DuplicateCommand(
+                command.to_string(),
+            ));
         }
 
         mappings.push(MenuCommandMapping {
@@ -95,8 +99,7 @@ pub fn parse_menu_command_mappings(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_menu_command_mappings, MenuCommandMapping, MenuCommandMappingError,
-        MenuMappingMode,
+        parse_menu_command_mappings, MenuCommandMapping, MenuCommandMappingError, MenuMappingMode,
     };
 
     #[test]
@@ -133,13 +136,19 @@ mod tests {
     #[test]
     fn missing_equals_is_invalid() {
         let err = parse_menu_command_mappings("ls=path,badentry").expect_err("must fail");
-        assert_eq!(err, MenuCommandMappingError::InvalidEntry("badentry".to_string()));
+        assert_eq!(
+            err,
+            MenuCommandMappingError::InvalidEntry("badentry".to_string())
+        );
     }
 
     #[test]
     fn empty_command_is_invalid() {
         let err = parse_menu_command_mappings("=path").expect_err("must fail");
-        assert_eq!(err, MenuCommandMappingError::EmptyCommand("=path".to_string()));
+        assert_eq!(
+            err,
+            MenuCommandMappingError::EmptyCommand("=path".to_string())
+        );
     }
 
     #[test]
@@ -157,6 +166,9 @@ mod tests {
     #[test]
     fn duplicate_command_is_invalid() {
         let err = parse_menu_command_mappings("ls=path,ls=file").expect_err("must fail");
-        assert_eq!(err, MenuCommandMappingError::DuplicateCommand("ls".to_string()));
+        assert_eq!(
+            err,
+            MenuCommandMappingError::DuplicateCommand("ls".to_string())
+        );
     }
 }

@@ -1,4 +1,4 @@
-use crate::hooks::{self, parse_menu_command_mappings, Shell};
+use crate::hooks::{self, parse_menu_command_mappings, parse_pwsh_menu_key, Shell};
 
 pub fn run_init(shell: &str, command_not_found: bool, menu: bool) -> i32 {
     let Some(shell) = Shell::parse(shell) else {
@@ -24,7 +24,28 @@ pub fn run_init(shell: &str, command_not_found: bool, menu: bool) -> i32 {
         Vec::new()
     };
 
-    let script = hooks::generate_with_mappings(shell, command_not_found, menu, &mappings);
+    let pwsh_menu_key = if menu && shell == Shell::Pwsh {
+        match std::env::var("DX_PWSH_MENU_KEY") {
+            Ok(raw) => match parse_pwsh_menu_key(&raw) {
+                Ok(key) => key,
+                Err(err) => {
+                    eprintln!("dx init: invalid DX_PWSH_MENU_KEY: {err}");
+                    return 1;
+                }
+            },
+            Err(_) => "Tab".to_string(),
+        }
+    } else {
+        "Tab".to_string()
+    };
+
+    let script = hooks::generate_with_mappings_and_pwsh_key(
+        shell,
+        command_not_found,
+        menu,
+        &mappings,
+        &pwsh_menu_key,
+    );
     print!("{script}");
     0
 }

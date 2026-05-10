@@ -69,6 +69,15 @@ $env:DX_MENU_COMMAND_MAPPINGS = "ls=path,open=path,cat=file"
 Invoke-Expression ((& dx init pwsh --menu | Out-String))
 ```
 
+PowerShell uses `Tab` for menu mode by default. To bind dx's menu handler to a different PSReadLine key, set `DX_PWSH_MENU_KEY` before generating hooks:
+
+```powershell
+$env:DX_PWSH_MENU_KEY = "F12"
+Invoke-Expression ((& dx init pwsh --menu | Out-String))
+```
+
+When dx declines to handle the keypress, the generated PowerShell hook tries to preserve the key's previous PSReadLine function, such as `MenuComplete` or `TabCompleteNext`. If the previous binding was a custom scriptblock (`CustomAction`), hook loading prints a warning because dx cannot replay that handler and fallback uses `TabCompleteNext`.
+
 Mappings only apply to hooks generated with `--menu`. After changing `DX_MENU_COMMAND_MAPPINGS`, re-run `dx init <shell> --menu` and reload the regenerated hooks. Invalid mapping entries cause init generation to fail instead of installing partial registrations.
 
 ## Verify setup

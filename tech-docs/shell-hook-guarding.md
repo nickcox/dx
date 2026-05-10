@@ -88,6 +88,8 @@ For unmapped non-dx commands, Tab behaves normally (native completion). If `DX_M
 
 Mapped command registrations are captured in generated hook output. After changing `DX_MENU_COMMAND_MAPPINGS`, re-run `dx init <shell> --menu` and reload the regenerated hooks. Noop, error, invalid payload, no candidate, or runtime-disabled paths still fall back to native shell completion behavior.
 
+PowerShell menu mode binds `Tab` by default. `DX_PWSH_MENU_KEY` can be set before `dx init pwsh --menu` to bind a different PSReadLine key. Generated PowerShell hooks capture the configured key's previous PSReadLine function before installing dx's handler and use that previous function for fallback when it can be replayed safely. If the previous function is `CustomAction`, hook evaluation prints a stderr warning because PSReadLine does not expose the original scriptblock for replay; fallback uses `TabCompleteNext`.
+
 ### Runtime Disable
 
 Set `DX_MENU=0` to disable the menu at runtime without regenerating hooks:
@@ -111,7 +113,7 @@ Current runtime behavior:
 - **No candidates**: `dx menu` returns noop and hooks follow fallback behavior.
 - **No TTY / degraded path**: `dx menu` returns noop and hooks follow fallback behavior.
 - **Non-Unix builds**: the inline `dx menu` TUI is currently Unix-only; on Windows/non-Unix builds, `dx menu` preserves the noop/fallback contract instead of opening the inline menu.
-- **Noop/error/non-replace fallback**: Bash and Fish use their native completion fallback; Zsh uses `zle expand-or-complete` (native completion-equivalent); PowerShell falls back to `TabCompleteNext`.
+- **Noop/error/non-replace fallback**: Bash and Fish use their native completion fallback; Zsh uses `zle expand-or-complete` (native completion-equivalent); PowerShell attempts to invoke the configured key's previous PSReadLine function and falls back to `TabCompleteNext` if that function cannot be replayed.
 - **dx not found or invalid JSON**: hooks follow fallback behavior.
 - **POSIX payload parsing hardening**: Bash/Zsh/Fish wrappers deterministically extract and validate `action`, `replaceStart`, `replaceEnd`, and escaped `value`; invalid payloads (including non-replace actions when replace is required) take native completion fallback paths.
 - **PowerShell payload parsing**: remains structured JSON parsing via `ConvertFrom-Json`.

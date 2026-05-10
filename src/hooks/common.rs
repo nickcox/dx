@@ -164,9 +164,7 @@ fn unique_completion_handlers(
 
 fn dx_complete_command(mode: &str, stack_direction: Option<&str>, current_word: &str) -> String {
     if let Some(direction) = stack_direction {
-        format!(
-            "dx complete {mode} --direction {direction} \"{current_word}\" 2>/dev/null"
-        )
+        format!("dx complete {mode} --direction {direction} \"{current_word}\" 2>/dev/null")
     } else {
         format!("dx complete {mode} \"{current_word}\" 2>/dev/null")
     }
@@ -174,9 +172,7 @@ fn dx_complete_command(mode: &str, stack_direction: Option<&str>, current_word: 
 
 fn fish_complete_rhs(mode: &str, stack_direction: Option<&str>) -> String {
     if let Some(direction) = stack_direction {
-        format!(
-            "'(dx complete {mode} --direction {direction} (commandline -ct) 2>/dev/null)'"
-        )
+        format!("'(dx complete {mode} --direction {direction} (commandline -ct) 2>/dev/null)'")
     } else {
         format!("'(dx complete {mode} (commandline -ct) 2>/dev/null)'")
     }
@@ -258,7 +254,10 @@ pub fn render_zsh_menu_mapping_case(mappings: &[MenuCommandMapping]) -> String {
         .iter()
         .map(|mapping| {
             let command = quote_if_special(&mapping.command);
-            format!("    {command}) __dx_menu_mode=\"{}\" ;;", mapping.mode.as_cli_arg())
+            format!(
+                "    {command}) __dx_menu_mode=\"{}\" ;;",
+                mapping.mode.as_cli_arg()
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")

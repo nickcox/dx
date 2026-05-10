@@ -8,6 +8,18 @@ fn dx() -> Command {
     Command::new(env!("CARGO_BIN_EXE_dx"))
 }
 
+fn pwsh_available() -> bool {
+    Command::new("pwsh")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$PSVersionTable.PSVersion.ToString()",
+        ])
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 fn make_temp_dir(label: &str) -> std::path::PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -175,7 +187,7 @@ fn init_pwsh_with_menu_flag_includes_psreadline_handler() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Set-PSReadLineKeyHandler -Key Tab"),
+        stdout.contains("Set-PSReadLineKeyHandler -Key 'Tab'"),
         "pwsh with --menu should include Tab key handler"
     );
     assert!(
@@ -183,13 +195,225 @@ fn init_pwsh_with_menu_flag_includes_psreadline_handler() {
         "pwsh with --menu should parse JSON"
     );
     assert!(
-        stdout.contains("TabCompleteNext"),
-        "pwsh with --menu should fall back to TabCompleteNext"
+        stdout.contains("__dx_pwsh_menu_fallback"),
+        "pwsh with --menu should use fallback helper"
     );
     assert!(
         stdout.contains("--psreadline-mode"),
         "pwsh with --menu should invoke dx menu with --psreadline-mode"
     );
+}
+
+#[test]
+fn init_pwsh_menu_with_custom_key_emits_configured_key() {
+    let output = dx()
+        .args(["init", "pwsh", "--menu"])
+        .env("DX_PWSH_MENU_KEY", "F12")
+        .output()
+        .expect("dx init pwsh --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("$dxNewMenuKey = 'F12'"));
+    assert!(stdout.contains("$Global:__dx_pwsh_menu_key = $dxNewMenuKey"));
+    assert!(stdout.contains("Set-PSReadLineKeyHandler -Key 'F12'"));
+    assert!(stdout.contains("-ScriptBlock"));
+}
+
+#[test]
+fn init_pwsh_menu_with_empty_custom_key_defaults_to_tab() {
+    let output = dx()
+        .args(["init", "pwsh", "--menu"])
+        .env("DX_PWSH_MENU_KEY", "   ")
+        .output()
+        .expect("dx init pwsh --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("$dxNewMenuKey = 'Tab'"));
+    assert!(stdout.contains("Set-PSReadLineKeyHandler -Key 'Tab'"));
+    assert!(stdout.contains("-ScriptBlock"));
+}
+
+#[test]
+fn init_pwsh_menu_with_unsafe_custom_key_fails() {
+    let output = dx()
+        .args(["init", "pwsh", "--menu"])
+        .env("DX_PWSH_MENU_KEY", "Bad'Key")
+        .output()
+        .expect("dx init pwsh --menu should run");
+
+    assert!(!output.status.success(), "unsafe key should fail init");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid DX_PWSH_MENU_KEY"));
+}
+
+#[test]
+fn init_pwsh_menu_key_is_ignored_without_menu() {
+    let output = dx()
+        .args(["init", "pwsh"])
+        .env("DX_PWSH_MENU_KEY", "F12")
+        .output()
+        .expect("dx init pwsh should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("Set-PSReadLineKeyHandler"));
+    assert!(!stdout.contains("F12"));
+}
+
+#[test]
+fn init_bash_menu_ignores_pwsh_menu_key() {
+    let output = dx()
+        .args(["init", "bash", "--menu"])
+        .env("DX_PWSH_MENU_KEY", "F12")
+        .output()
+        .expect("dx init bash --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("F12"));
+}
+
+#[test]
+fn init_pwsh_menu_emits_previous_function_fallback_and_custom_action_warning() {
+    let output = dx()
+        .args(["init", "pwsh", "--menu"])
+        .output()
+        .expect("dx init pwsh --menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Get-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key"));
+    assert!(stdout.contains("function global:__dx_pwsh_menu_fallback"));
+    assert!(stdout.contains("$Global:__dx_pwsh_menu_handler_description = 'dx menu handler'"));
+    assert!(stdout.contains("Remove-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key"));
+    assert!(stdout
+        .contains("$previousHandler.Description -eq $Global:__dx_pwsh_menu_handler_description"));
+    assert!(stdout.contains("Set-PSReadLineKeyHandler -Key 'Tab'"));
+    assert!(stdout.contains(
+        "-BriefDescription 'dx menu' -Description $Global:__dx_pwsh_menu_handler_description"
+    ));
+    assert!(stdout.contains("'MenuComplete' { [Microsoft.PowerShell.PSConsoleReadLine]::MenuComplete($key, $arg); return }"));
+    assert!(stdout.contains("'TabCompleteNext' { [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg); return }"));
+    assert!(stdout.contains("$Global:__dx_pwsh_menu_previous_function -eq 'CustomAction'"));
+    assert!(stdout.contains(
+        "dx init: warning: PSReadLine key '$Global:__dx_pwsh_menu_key' was bound to a CustomAction"
+    ));
+}
+
+#[test]
+fn init_pwsh_menu_warns_when_evaluated_over_custom_action() {
+    if !pwsh_available() {
+        eprintln!("skipping PowerShell evaluation test: pwsh not available");
+        return;
+    }
+
+    let output = Command::new("pwsh")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Set-PSReadLineKeyHandler -Key F12 -ScriptBlock { param($key, $arg) }; $env:DX_PWSH_MENU_KEY = 'F12'; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String))",
+        ])
+        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .env("DX_PWSH_MENU_KEY", "F12")
+        .output()
+        .expect("pwsh should run");
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("dx init: warning: PSReadLine key 'F12' was bound to a CustomAction"));
+}
+
+#[test]
+fn init_pwsh_menu_does_not_warn_when_evaluated_over_menu_complete() {
+    if !pwsh_available() {
+        eprintln!("skipping PowerShell evaluation test: pwsh not available");
+        return;
+    }
+
+    let output = Command::new("pwsh")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Set-PSReadLineKeyHandler -Key F12 -Function MenuComplete; $env:DX_PWSH_MENU_KEY = 'F12'; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String))",
+        ])
+        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .env("DX_PWSH_MENU_KEY", "F12")
+        .output()
+        .expect("pwsh should run");
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("CustomAction"),
+        "unexpected stderr: {stderr}"
+    );
+}
+
+#[test]
+fn init_pwsh_menu_reload_does_not_warn_over_own_handler() {
+    if !pwsh_available() {
+        eprintln!("skipping PowerShell evaluation test: pwsh not available");
+        return;
+    }
+
+    let output = Command::new("pwsh")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Set-PSReadLineKeyHandler -Key F12 -Function MenuComplete; $env:DX_PWSH_MENU_KEY = 'F12'; $script = (& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String); Invoke-Expression $script; Invoke-Expression $script; $h = Get-PSReadLineKeyHandler -Chord F12; \"function=$($Global:__dx_pwsh_menu_previous_function); description=$($h.Description)\"",
+        ])
+        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .env("DX_PWSH_MENU_KEY", "F12")
+        .output()
+        .expect("pwsh should run");
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("CustomAction"),
+        "unexpected stderr: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("function=MenuComplete"));
+    assert!(stdout.contains("description=dx menu handler"));
+}
+
+#[test]
+fn init_pwsh_menu_key_change_removes_old_dx_binding() {
+    if !pwsh_available() {
+        eprintln!("skipping PowerShell evaluation test: pwsh not available");
+        return;
+    }
+
+    let output = Command::new("pwsh")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Set-PSReadLineKeyHandler -Key F11 -Function MenuComplete; $env:DX_PWSH_MENU_KEY = 'F11'; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String)); $env:DX_PWSH_MENU_KEY = 'F12'; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String)); $old = Get-PSReadLineKeyHandler -Chord F11 -ErrorAction SilentlyContinue; $new = Get-PSReadLineKeyHandler -Chord F12 -ErrorAction SilentlyContinue; \"old=$($old.Function)/$($old.Description); new=$($new.Function)/$($new.Description); previous=$Global:__dx_pwsh_menu_previous_function\"",
+        ])
+        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .output()
+        .expect("pwsh should run");
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("CustomAction"),
+        "unexpected stderr: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("old=MenuComplete/"));
+    assert!(stdout.contains("new=dx menu/dx menu handler"));
 }
 
 #[test]
@@ -200,7 +424,10 @@ fn init_with_invalid_menu_mappings_fails_when_menu_enabled() {
         .output()
         .expect("dx init bash --menu should run");
 
-    assert!(!output.status.success(), "invalid mappings should fail init");
+    assert!(
+        !output.status.success(),
+        "invalid mappings should fail init"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("invalid DX_MENU_COMMAND_MAPPINGS"));
 }
@@ -770,7 +997,9 @@ fn hook_scripts_contain_fallback_on_noop() {
     let bash_out = String::from_utf8_lossy(&bash.stdout);
     // Bash: _dx_menu_wrapper calls original completion when __dx_try_menu fails
     assert!(
-        bash_out.contains("if __dx_try_menu; then\n    [[ -t 1 ]] && printf '\\r' >/dev/tty\n    return 0\n  fi"),
+        bash_out.contains(
+            "if __dx_try_menu; then\n    [[ -t 1 ]] && printf '\\r' >/dev/tty\n    return 0\n  fi"
+        ),
         "bash menu wrapper should fall back to original completion"
     );
 
@@ -824,7 +1053,8 @@ fn hook_scripts_contain_fallback_on_noop() {
         "pwsh menu should treat cancel as handled without native fallback"
     );
     assert!(
-        pwsh_out.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"),
+        pwsh_out
+            .contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"),
         "pwsh cancel path should restore cursor to end of buffer"
     );
 }
@@ -936,7 +1166,8 @@ fn hook_scripts_apply_replace_action_contract() {
     let pwsh = dx().args(["init", "pwsh", "--menu"]).output().unwrap();
     let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);
     assert!(pwsh_out.contains("if ($result -and $result.action -eq 'cancel')"));
-    assert!(pwsh_out.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"));
+    assert!(pwsh_out
+        .contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"));
     assert!(pwsh_out.contains("$result.action -ne 'replace'"));
     assert!(pwsh_out.contains("PSConsoleReadLine]::Replace("));
 }

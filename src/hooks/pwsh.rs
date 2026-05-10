@@ -2,16 +2,48 @@ use super::common::{
     apply_template_replacements, pwsh_quoted_words, render_pwsh_completion_bindings,
     render_pwsh_menu_mapping_list, MENU_ELIGIBLE_COMMANDS,
 };
+use thiserror::Error;
+
 use super::MenuCommandMapping;
 
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum PwshMenuKeyError {
+    #[error("key contains unsupported character {0:?}")]
+    UnsafeCharacter(char),
+}
+
+pub fn parse_pwsh_menu_key(raw: &str) -> Result<String, PwshMenuKeyError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok("Tab".to_string());
+    }
+
+    for ch in trimmed.chars() {
+        if matches!(ch, '\n' | '\r' | '\'' | '"') {
+            return Err(PwshMenuKeyError::UnsafeCharacter(ch));
+        }
+    }
+
+    Ok(trimmed.to_string())
+}
+
 pub fn generate(command_not_found: bool, menu: bool) -> String {
-    generate_with_mappings(command_not_found, menu, &[])
+    generate_with_mappings_and_menu_key(command_not_found, menu, &[], "Tab")
 }
 
 pub fn generate_with_mappings(
     command_not_found: bool,
     menu: bool,
     _mappings: &[MenuCommandMapping],
+) -> String {
+    generate_with_mappings_and_menu_key(command_not_found, menu, _mappings, "Tab")
+}
+
+pub fn generate_with_mappings_and_menu_key(
+    command_not_found: bool,
+    menu: bool,
+    _mappings: &[MenuCommandMapping],
+    menu_key: &str,
 ) -> String {
     let mut script = String::from(
         r#"if (-not $env:DX_SESSION) {
@@ -248,7 +280,99 @@ __DX_PWSH_COMPLETION_BINDINGS__
         script.push_str(
             r#"
 if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
-    Set-PSReadLineKeyHandler -Key Tab -ScriptBlock {
+    $Global:__dx_pwsh_menu_handler_description = 'dx menu handler'
+    $dxNewMenuKey = '__DX_PWSH_MENU_KEY__'
+
+    if ($Global:__dx_pwsh_menu_key -and $Global:__dx_pwsh_menu_key -ne $dxNewMenuKey) {
+        try {
+            $oldHandler = Get-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key -ErrorAction SilentlyContinue
+            if ($oldHandler -and $oldHandler.Description -eq $Global:__dx_pwsh_menu_handler_description) {
+                switch ($Global:__dx_pwsh_menu_previous_function) {
+                    'AcceptAndGetNext' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function AcceptAndGetNext; break }
+                    'AcceptLine' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function AcceptLine; break }
+                    'AcceptNextSuggestionWord' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function AcceptNextSuggestionWord; break }
+                    'AcceptSuggestion' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function AcceptSuggestion; break }
+                    'BeginningOfHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function BeginningOfHistory; break }
+                    'ClearHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ClearHistory; break }
+                    'Complete' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function Complete; break }
+                    'EndOfHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function EndOfHistory; break }
+                    'ForwardSearchHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ForwardSearchHistory; break }
+                    'HistorySearchBackward' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function HistorySearchBackward; break }
+                    'HistorySearchForward' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function HistorySearchForward; break }
+                    'MenuComplete' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function MenuComplete; break }
+                    'NextHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function NextHistory; break }
+                    'PossibleCompletions' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function PossibleCompletions; break }
+                    'PrependAndAccept' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function PrependAndAccept; break }
+                    'PreviousHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function PreviousHistory; break }
+                    'ReverseSearchHistory' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ReverseSearchHistory; break }
+                    'TabCompleteNext' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function TabCompleteNext; break }
+                    'TabCompletePrevious' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function TabCompletePrevious; break }
+                    'ValidateAndAcceptLine' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ValidateAndAcceptLine; break }
+                    'ViAcceptLine' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViAcceptLine; break }
+                    'ViAcceptLineOrExit' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViAcceptLineOrExit; break }
+                    'ViSearchHistoryBackward' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViSearchHistoryBackward; break }
+                    'ViTabCompleteNext' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViTabCompleteNext; break }
+                    'ViTabCompletePrevious' { Set-PSReadLineKeyHandler -Key $Global:__dx_pwsh_menu_key -Function ViTabCompletePrevious; break }
+                    default { Remove-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key -ErrorAction SilentlyContinue }
+                }
+            }
+        } catch { }
+    }
+
+    $Global:__dx_pwsh_menu_key = $dxNewMenuKey
+    $dxWarnCustomAction = $false
+    try {
+        $previousHandler = Get-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key -ErrorAction SilentlyContinue
+        if ($previousHandler -and $previousHandler.Description -eq $Global:__dx_pwsh_menu_handler_description) {
+            if (-not (Get-Variable -Name __dx_pwsh_menu_previous_function -Scope Global -ErrorAction SilentlyContinue)) {
+                $Global:__dx_pwsh_menu_previous_function = $null
+            }
+        } elseif ($previousHandler) {
+            $Global:__dx_pwsh_menu_previous_function = $previousHandler.Function
+            if ($Global:__dx_pwsh_menu_previous_function -eq 'CustomAction') { $dxWarnCustomAction = $true }
+        } else {
+            $Global:__dx_pwsh_menu_previous_function = $null
+        }
+    } catch { }
+
+    if ($dxWarnCustomAction) {
+        [Console]::Error.WriteLine("dx init: warning: PSReadLine key '$Global:__dx_pwsh_menu_key' was bound to a CustomAction; dx cannot replay that handler, so fallback will use TabCompleteNext")
+    }
+
+    function global:__dx_pwsh_menu_fallback {
+        param($key, $arg)
+
+        switch ($Global:__dx_pwsh_menu_previous_function) {
+            'AcceptAndGetNext' { [Microsoft.PowerShell.PSConsoleReadLine]::AcceptAndGetNext($key, $arg); return }
+            'AcceptLine' { [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine($key, $arg); return }
+            'AcceptNextSuggestionWord' { [Microsoft.PowerShell.PSConsoleReadLine]::AcceptNextSuggestionWord($key, $arg); return }
+            'AcceptSuggestion' { [Microsoft.PowerShell.PSConsoleReadLine]::AcceptSuggestion($key, $arg); return }
+            'BeginningOfHistory' { [Microsoft.PowerShell.PSConsoleReadLine]::BeginningOfHistory($key, $arg); return }
+            'ClearHistory' { [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory($key, $arg); return }
+            'Complete' { [Microsoft.PowerShell.PSConsoleReadLine]::Complete($key, $arg); return }
+            'EndOfHistory' { [Microsoft.PowerShell.PSConsoleReadLine]::EndOfHistory($key, $arg); return }
+            'ForwardSearchHistory' { [Microsoft.PowerShell.PSConsoleReadLine]::ForwardSearchHistory($key, $arg); return }
+            'HistorySearchBackward' { [Microsoft.PowerShell.PSConsoleReadLine]::HistorySearchBackward($key, $arg); return }
+            'HistorySearchForward' { [Microsoft.PowerShell.PSConsoleReadLine]::HistorySearchForward($key, $arg); return }
+            'MenuComplete' { [Microsoft.PowerShell.PSConsoleReadLine]::MenuComplete($key, $arg); return }
+            'NextHistory' { [Microsoft.PowerShell.PSConsoleReadLine]::NextHistory($key, $arg); return }
+            'PossibleCompletions' { [Microsoft.PowerShell.PSConsoleReadLine]::PossibleCompletions($key, $arg); return }
+            'PrependAndAccept' { [Microsoft.PowerShell.PSConsoleReadLine]::PrependAndAccept($key, $arg); return }
+            'PreviousHistory' { [Microsoft.PowerShell.PSConsoleReadLine]::PreviousHistory($key, $arg); return }
+            'ReverseSearchHistory' { [Microsoft.PowerShell.PSConsoleReadLine]::ReverseSearchHistory($key, $arg); return }
+            'TabCompleteNext' { [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg); return }
+            'TabCompletePrevious' { [Microsoft.PowerShell.PSConsoleReadLine]::TabCompletePrevious($key, $arg); return }
+            'ValidateAndAcceptLine' { [Microsoft.PowerShell.PSConsoleReadLine]::ValidateAndAcceptLine($key, $arg); return }
+            'ViAcceptLine' { [Microsoft.PowerShell.PSConsoleReadLine]::ViAcceptLine($key, $arg); return }
+            'ViAcceptLineOrExit' { [Microsoft.PowerShell.PSConsoleReadLine]::ViAcceptLineOrExit($key, $arg); return }
+            'ViSearchHistoryBackward' { [Microsoft.PowerShell.PSConsoleReadLine]::ViSearchHistoryBackward($key, $arg); return }
+            'ViTabCompleteNext' { [Microsoft.PowerShell.PSConsoleReadLine]::ViTabCompleteNext($key, $arg); return }
+            'ViTabCompletePrevious' { [Microsoft.PowerShell.PSConsoleReadLine]::ViTabCompletePrevious($key, $arg); return }
+            default { [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg); return }
+        }
+    }
+
+    Set-PSReadLineKeyHandler -Key '__DX_PWSH_MENU_KEY__' -BriefDescription 'dx menu' -Description $Global:__dx_pwsh_menu_handler_description -ScriptBlock {
         param($key, $arg)
 
         $line = $null
@@ -278,7 +402,7 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         }
 
         if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or ($first -notin $dxCmds -and -not $dxMenuMode)) {
-            [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)
+            __dx_pwsh_menu_fallback $key $arg
             return
         }
 
@@ -300,7 +424,7 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         } catch { }
 
         if ($LASTEXITCODE -ne 0 -or -not $json) {
-            [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)
+            __dx_pwsh_menu_fallback $key $arg
             return
         }
 
@@ -316,7 +440,7 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         }
 
         if (-not $result -or $result.action -ne 'replace') {
-            [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg)
+            __dx_pwsh_menu_fallback $key $arg
             return
         }
 
@@ -373,6 +497,7 @@ if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandN
                 "__DX_MENU_MAPPINGS__",
                 render_pwsh_menu_mapping_list(_mappings),
             ),
+            ("__DX_PWSH_MENU_KEY__", menu_key.to_string()),
             (
                 "__DX_PWSH_COMPLETION_BINDINGS__",
                 render_pwsh_completion_bindings(),
