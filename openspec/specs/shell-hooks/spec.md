@@ -114,6 +114,103 @@ Menu-enabled hook invocations SHALL pass the interactive shell's current working
 - **AND** menu path candidates are resolved for a `cd`-style command
 - **THEN** candidate collection and replacement SHALL use the cwd provided by the shell-facing hook invocation
 
+### Requirement: Menu-Enabled Registration for Configured Mapped Commands
+When `dx init <shell> --menu` is used and `DX_MENU_COMMAND_MAPPINGS` contains valid mappings, generated hooks SHALL register mapped command names for menu-backed completion in that shell.
+
+Registration SHALL preserve existing native fallback behavior for noop/error/invalid payload paths.
+Generated mapped-command registrations SHALL invoke `dx menu --mode <mode>` with the explicit mode captured at init time.
+
+#### Scenario: Bash registers mapped commands
+- **WHEN** `dx init bash --menu` is run with `DX_MENU_COMMAND_MAPPINGS="ls=path,cat=file"`
+- **THEN** generated Bash completion registration SHALL bind `ls` and `cat` to the shared menu completion handler with explicit `--mode path` and `--mode file` invocation respectively
+
+#### Scenario: Zsh registers mapped commands
+- **WHEN** `dx init zsh --menu` is run with `DX_MENU_COMMAND_MAPPINGS="open=path"`
+- **THEN** generated Zsh hook output SHALL route `open` through the shared menu widget with explicit `--mode path`
+
+#### Scenario: Fish registers mapped commands
+- **WHEN** `dx init fish --menu` is run with `DX_MENU_COMMAND_MAPPINGS="ls=path"`
+- **THEN** generated Fish hook output SHALL route `ls` through the shared menu helper with explicit `--mode path`
+
+#### Scenario: PowerShell registers mapped commands
+- **WHEN** `dx init pwsh --menu` is run with `DX_MENU_COMMAND_MAPPINGS="cat=file"`
+- **THEN** generated PowerShell output SHALL route `cat` through the shared PSReadLine menu handler with explicit `--mode file`
+
+### Requirement: Invalid Mappings Fail Init Generation
+If `DX_MENU_COMMAND_MAPPINGS` contains an invalid entry, `dx init <shell> --menu` SHALL fail rather than emitting partial mapped-command registrations.
+
+#### Scenario: Invalid mapping prevents partial hook emission
+- **WHEN** `dx init bash --menu` is run with `DX_MENU_COMMAND_MAPPINGS="ls=path,badentry"`
+- **THEN** init generation SHALL fail and SHALL NOT emit partial mapped-command registrations
+
+### Requirement: Global Menu Enablement Gate for Mapped Commands
+Configured mapped command registrations SHALL apply only when global menu integration is enabled via `dx init <shell> --menu`.
+
+Without `--menu`, mapped commands SHALL NOT be registered for menu handling.
+
+#### Scenario: Mappings ignored when menu flag is not enabled
+- **WHEN** `dx init bash` is used without `--menu` and mappings are present in environment
+- **THEN** generated hooks SHALL NOT install mapped-command menu completion bindings
+
+### Requirement: Mapping Changes Require Re-Running Init
+Changing `DX_MENU_COMMAND_MAPPINGS` after hooks are generated SHALL NOT change mapped-command behavior until `dx init <shell> --menu` is re-run and the regenerated hooks are loaded.
+
+#### Scenario: Runtime env change does not update existing hook behavior
+- **WHEN** hooks were generated from `DX_MENU_COMMAND_MAPPINGS="ls=path"` and the environment later changes without re-running `dx init`
+- **THEN** the existing hook behavior SHALL continue using the previously generated mapped-command registrations
+
+### Requirement: Token-Scoped Buffer Replacement for Mapped Commands
+Shell integrations for mapped commands SHALL preserve existing replace action semantics and SHALL apply replacement only to the active token span reported by `dx menu`.
+
+#### Scenario: PowerShell replaces only mapped command active token
+- **WHEN** mapped command buffer is `open src/readme.md --wait` and replace action targets token `src/readme.md`
+- **THEN** hook logic SHALL replace only that token span and preserve remaining buffer text
+
+### Requirement: Configurable PowerShell Menu Key Binding
+When `dx init pwsh --menu` is invoked, generated PowerShell hooks SHALL bind the dx menu PSReadLine handler to the key named by `DX_PWSH_MENU_KEY`.
+
+If `DX_PWSH_MENU_KEY` is unset or empty, generated PowerShell hooks SHALL bind the handler to `Tab`.
+
+The configured key value SHALL be captured when hook output is generated. Changing `DX_PWSH_MENU_KEY` after hook generation SHALL NOT alter the active binding until `dx init pwsh --menu` is run again and the regenerated hooks are loaded.
+
+#### Scenario: Default PowerShell menu key remains Tab
+- **WHEN** `DX_PWSH_MENU_KEY` is unset and `dx init pwsh --menu` is invoked
+- **THEN** generated PowerShell output SHALL contain `Set-PSReadLineKeyHandler -Key Tab`
+
+#### Scenario: Custom PowerShell menu key is emitted
+- **WHEN** `DX_PWSH_MENU_KEY="F12"` and `dx init pwsh --menu` is invoked
+- **THEN** generated PowerShell output SHALL contain `Set-PSReadLineKeyHandler -Key F12`
+
+#### Scenario: Empty PowerShell menu key falls back to Tab
+- **WHEN** `DX_PWSH_MENU_KEY` is set to an empty or whitespace-only value and `dx init pwsh --menu` is invoked
+- **THEN** generated PowerShell output SHALL contain `Set-PSReadLineKeyHandler -Key Tab`
+
+#### Scenario: PowerShell menu key changes require re-init
+- **WHEN** hooks were generated with `DX_PWSH_MENU_KEY="F12"` and the environment later changes to `DX_PWSH_MENU_KEY="Tab"` without re-running `dx init pwsh --menu`
+- **THEN** the existing hook behavior SHALL continue using the previously generated `F12` binding
+
+### Requirement: Invalid PowerShell Menu Key Values Fail Init Generation
+If `DX_PWSH_MENU_KEY` contains a value that cannot be safely emitted into generated PowerShell hook code, `dx init pwsh --menu` SHALL fail rather than emitting a malformed menu binding.
+
+#### Scenario: Unsafe key value prevents hook emission
+- **WHEN** `DX_PWSH_MENU_KEY` contains a newline or quote character and `dx init pwsh --menu` is invoked
+- **THEN** init generation SHALL fail and SHALL NOT emit a partial PowerShell menu handler
+
+### Requirement: PowerShell Menu Key Configuration Is Menu-Scoped
+`DX_PWSH_MENU_KEY` SHALL affect only menu-enabled PowerShell hook generation.
+
+PowerShell init without `--menu` SHALL NOT emit a PSReadLine menu handler regardless of `DX_PWSH_MENU_KEY`.
+
+Bash, Zsh, and Fish hook generation SHALL ignore `DX_PWSH_MENU_KEY`.
+
+#### Scenario: Non-menu PowerShell init ignores configured menu key
+- **WHEN** `DX_PWSH_MENU_KEY="F12"` and `dx init pwsh` is invoked without `--menu`
+- **THEN** generated PowerShell output SHALL NOT contain `Set-PSReadLineKeyHandler`
+
+#### Scenario: POSIX shell init ignores PowerShell menu key
+- **WHEN** `DX_PWSH_MENU_KEY="F12"` and `dx init bash --menu` is invoked
+- **THEN** generated Bash output SHALL NOT include the configured PowerShell key value
+
 ### Requirement: Menu Action Boundary and Native Fallback
 When menu mode is enabled, hooks SHALL treat stdout from `dx menu` as a structured action payload channel.
 
@@ -127,7 +224,7 @@ Explicit `cancel` actions SHALL leave the shell buffer unchanged and SHALL NOT t
 
 `noop`, invalid payloads, non-replace actions where replacement is required other than explicit cancel, command failure, no candidates, and non-interactive execution paths SHALL all fall back to native completion behavior for the current shell.
 
-POSIX hooks SHALL keep deterministic dependency-free payload validation. PowerShell SHALL continue structured parsing via `ConvertFrom-Json` and native completion fallback via `TabCompleteNext`.
+POSIX hooks SHALL keep deterministic dependency-free payload validation. PowerShell SHALL continue structured parsing via `ConvertFrom-Json` and native completion fallback via PSReadLine.
 
 #### Scenario: Replace action updates the shell buffer
 - **WHEN** Zsh, Fish, or PowerShell receives a `replace` action with `replaceStart`, `replaceEnd`, and `value`
@@ -147,7 +244,53 @@ POSIX hooks SHALL keep deterministic dependency-free payload validation. PowerSh
 
 #### Scenario: PowerShell menu fallback remains PSReadLine-native for noop/error paths
 - **WHEN** menu-enabled PowerShell hook execution receives `noop`, invalid JSON, missing JSON, or a non-`replace` action other than explicit `cancel`
-- **THEN** the hook SHALL parse payloads with `ConvertFrom-Json` when present and SHALL fall back via `TabCompleteNext`
+- **THEN** the hook SHALL parse payloads with `ConvertFrom-Json` when present and SHALL fall back via PSReadLine native completion behavior
+
+### Requirement: PowerShell Menu Fallback Preserves Previous Key Function
+The generated PowerShell menu hook SHALL capture the configured key's previous PSReadLine function before registering dx's menu handler.
+
+For disabled menu, non-matching command, noop, error, invalid JSON, missing JSON, and non-`replace` action paths, the generated handler SHALL invoke the captured previous PSReadLine function when it can be safely mapped to a public PSReadLine function.
+
+If no previous function is available or the previous function cannot be safely replayed, the generated handler SHALL fall back via `TabCompleteNext`.
+
+#### Scenario: Prior MenuComplete binding is preserved on fallback
+- **WHEN** the configured key is bound to PSReadLine `MenuComplete` before `dx init pwsh --menu` output is evaluated
+- **THEN** generated hook behavior SHALL invoke `MenuComplete` for native fallback paths
+
+#### Scenario: Prior TabCompleteNext binding is preserved on fallback
+- **WHEN** the configured key is bound to PSReadLine `TabCompleteNext` before `dx init pwsh --menu` output is evaluated
+- **THEN** generated hook behavior SHALL invoke `TabCompleteNext` for native fallback paths
+
+#### Scenario: Unsupported prior custom action falls back safely
+- **WHEN** the configured key is bound to a user-defined PSReadLine scriptblock before `dx init pwsh --menu` output is evaluated
+- **THEN** generated hook behavior SHALL use `TabCompleteNext` for native fallback paths instead of attempting to replay the unavailable scriptblock
+
+#### Scenario: Custom menu key still preserves native fallback helper
+- **WHEN** `DX_PWSH_MENU_KEY="F12"` and `dx init pwsh --menu` is invoked
+- **THEN** generated PowerShell output SHALL bind the handler to `F12` and SHALL include logic to capture and invoke the previous key function for fallback paths
+
+#### Scenario: Re-evaluating hooks preserves original fallback function
+- **WHEN** generated `dx init pwsh --menu` output is evaluated more than once in the same PowerShell session
+- **THEN** the generated hook SHALL NOT capture its own dx menu handler as the previous key function
+
+#### Scenario: Changing configured key removes prior dx binding
+- **WHEN** generated hooks were loaded with `DX_PWSH_MENU_KEY="F11"` and are then regenerated and loaded with `DX_PWSH_MENU_KEY="F12"` in the same PowerShell session
+- **THEN** the previous `F11` dx menu binding SHALL be removed or restored to its original replayable PSReadLine function
+
+### Requirement: PowerShell CustomAction Overwrite Warning
+When generated PowerShell menu hooks replace a configured key whose previous PSReadLine function is `CustomAction`, the generated hook code SHALL emit a warning to stderr during hook evaluation.
+
+The warning SHALL identify the configured key and explain that dx cannot replay the previous custom handler, so native fallback will use `TabCompleteNext`.
+
+The warning SHALL NOT be emitted on every keypress.
+
+#### Scenario: CustomAction overwrite warns during init evaluation
+- **WHEN** the configured key is bound to a user-defined PSReadLine scriptblock and generated `dx init pwsh --menu` output is evaluated
+- **THEN** the generated hook SHALL write a warning to stderr before replacing the key binding
+
+#### Scenario: Built-in previous function does not warn
+- **WHEN** the configured key is bound to PSReadLine `MenuComplete` before generated `dx init pwsh --menu` output is evaluated
+- **THEN** the generated hook SHALL NOT emit the CustomAction overwrite warning
 
 ### Requirement: PowerShell PSReadLine Parsing Boundaries
 When the PowerShell menu integration invokes `dx menu --psreadline-mode`, POSIX-style flagged `cd` forms SHALL take the noop/native-fallback path rather than being reinterpreted as supported PowerShell path-editing forms.
