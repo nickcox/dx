@@ -209,7 +209,11 @@ pub fn parse_buffer_with_mode(
     })
 }
 
-fn parse_buffer_for_mapped_mode(buffer: &str, cursor: usize, mode: MenuMode) -> Option<ParsedBuffer> {
+fn parse_buffer_for_mapped_mode(
+    buffer: &str,
+    cursor: usize,
+    mode: MenuMode,
+) -> Option<ParsedBuffer> {
     let cursor = cursor.min(buffer.len());
     let visible = &buffer[..cursor];
     let trimmed = visible.trim_start();
@@ -388,13 +392,19 @@ mod tests {
     #[test]
     fn forward_maps_to_stack_forward() {
         let p = parse_buffer("forward", 7).expect("should parse");
-        assert_eq!(p.mode, builtin(CompletionMode::Stack(StackDirection::Forward)));
+        assert_eq!(
+            p.mode,
+            builtin(CompletionMode::Stack(StackDirection::Forward))
+        );
     }
 
     #[test]
     fn cd_plus_maps_to_stack_forward() {
         let p = parse_buffer("cd+ ", 4).expect("should parse");
-        assert_eq!(p.mode, builtin(CompletionMode::Stack(StackDirection::Forward)));
+        assert_eq!(
+            p.mode,
+            builtin(CompletionMode::Stack(StackDirection::Forward))
+        );
     }
 
     #[test]

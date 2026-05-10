@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 
-use crate::bookmarks::{storage, BookmarkError, BookmarkStore};
+use crate::bookmarks::{BookmarkError, BookmarkStore, storage};
 
 #[derive(Debug, Subcommand)]
 pub enum BookmarksCommand {

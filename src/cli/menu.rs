@@ -4,7 +4,7 @@ use clap::{Args, ValueEnum};
 
 use crate::complete::CompletionMode;
 use crate::menu::{
-    self, parse_buffer_with_override_mode, tui::QueryFn, MenuAction, MenuMode, MenuResult,
+    self, MenuAction, MenuMode, MenuResult, parse_buffer_with_override_mode, tui::QueryFn,
 };
 use crate::resolve::Resolver;
 
@@ -238,12 +238,8 @@ fn menu_result_to_action(
 ) -> MenuAction {
     match result {
         Some(MenuResult::Selected { value, .. }) => {
-            let formatted = format_selected_path_for_query_style(
-                &value,
-                mode,
-                cwd,
-                prefer_relative_paths,
-            );
+            let formatted =
+                format_selected_path_for_query_style(&value, mode, cwd, prefer_relative_paths);
             let replacement = if parsed.needs_space_prefix {
                 format!(" {formatted}")
             } else {
@@ -348,15 +344,14 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     let prefer_relative_paths = !has_explicit_absolute_input(parsed.query.as_deref(), parsed.mode);
 
     let query_fn: QueryFn<'_> = Box::new(|q: &str| {
-        let resolved_q = if q.is_empty()
-            && matches!(parsed.mode, MenuMode::Completion(CompletionMode::Paths))
-        {
-            Some("./")
-        } else if q.is_empty() {
-            None
-        } else {
-            Some(q)
-        };
+        let resolved_q =
+            if q.is_empty() && matches!(parsed.mode, MenuMode::Completion(CompletionMode::Paths)) {
+                Some("./")
+            } else if q.is_empty() {
+                None
+            } else {
+                Some(q)
+            };
         menu::source_candidates_with_meta(
             resolver,
             parsed.mode,
@@ -395,9 +390,15 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
             if debug {
                 match menu_result {
                     Some(MenuResult::Selected { .. }) => {
-                        eprintln!("[dx-menu-debug] action=replace value={:?}", action.to_json());
+                        eprintln!(
+                            "[dx-menu-debug] action=replace value={:?}",
+                            action.to_json()
+                        );
                     }
-                    Some(MenuResult::Cancelled { changed_query: true, .. }) => {
+                    Some(MenuResult::Cancelled {
+                        changed_query: true,
+                        ..
+                    }) => {
                         eprintln!(
                             "[dx-menu-debug] explicit cancel after query edits -> action=cancel value={:?}",
                             action.to_json()
@@ -465,13 +466,7 @@ mod tests {
             needs_space_prefix: false,
         };
 
-        let action = menu_result_to_action(
-            None,
-            &parsed,
-            parsed.mode,
-            Path::new("/tmp"),
-            true,
-        );
+        let action = menu_result_to_action(None, &parsed, parsed.mode, Path::new("/tmp"), true);
 
         assert_eq!(action, MenuAction::Noop);
     }
@@ -579,10 +574,8 @@ mod tests {
 
     #[test]
     fn recents_mode_returns_raw_path_no_slash() {
-        let result = format_selected_path(
-            "/tmp/work",
-            MenuMode::Completion(CompletionMode::Recents),
-        );
+        let result =
+            format_selected_path("/tmp/work", MenuMode::Completion(CompletionMode::Recents));
         assert_eq!(result, "/tmp/work");
     }
 
@@ -590,13 +583,12 @@ mod tests {
     fn paths_mode_relative_cwd_descendant_formats_as_dot_slash() {
         let cwd = Path::new("/tmp/work");
         let selected = Path::new("/tmp/work/./benches");
-        let result =
-            format_selected_path_for_query_style(
-                selected,
-                MenuMode::Completion(CompletionMode::Paths),
-                cwd,
-                true,
-            );
+        let result = format_selected_path_for_query_style(
+            selected,
+            MenuMode::Completion(CompletionMode::Paths),
+            cwd,
+            true,
+        );
         assert_eq!(result, "./benches/");
     }
 
@@ -604,13 +596,12 @@ mod tests {
     fn paths_mode_parent_relative_prefix_preserved_in_replacement() {
         let cwd = Path::new("/tmp/work");
         let selected = Path::new("/tmp/work/../sibling");
-        let result =
-            format_selected_path_for_query_style(
-                selected,
-                MenuMode::Completion(CompletionMode::Paths),
-                cwd,
-                true,
-            );
+        let result = format_selected_path_for_query_style(
+            selected,
+            MenuMode::Completion(CompletionMode::Paths),
+            cwd,
+            true,
+        );
         assert_eq!(result, "../sibling/");
     }
 
@@ -618,13 +609,12 @@ mod tests {
     fn paths_mode_multi_parent_relative_prefix_preserved_in_replacement() {
         let cwd = Path::new("/tmp/work");
         let selected = Path::new("/tmp/work/../../outer");
-        let result =
-            format_selected_path_for_query_style(
-                selected,
-                MenuMode::Completion(CompletionMode::Paths),
-                cwd,
-                true,
-            );
+        let result = format_selected_path_for_query_style(
+            selected,
+            MenuMode::Completion(CompletionMode::Paths),
+            cwd,
+            true,
+        );
         assert_eq!(result, "../../outer/");
     }
 
@@ -632,13 +622,12 @@ mod tests {
     fn paths_mode_explicit_absolute_input_preserves_absolute_output() {
         let cwd = Path::new("/tmp/work");
         let selected = Path::new("/tmp/work/./benches");
-        let result =
-            format_selected_path_for_query_style(
-                selected,
-                MenuMode::Completion(CompletionMode::Paths),
-                cwd,
-                false,
-            );
+        let result = format_selected_path_for_query_style(
+            selected,
+            MenuMode::Completion(CompletionMode::Paths),
+            cwd,
+            false,
+        );
         assert_eq!(result, "/tmp/work/./benches/");
     }
 

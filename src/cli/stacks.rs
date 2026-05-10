@@ -6,8 +6,8 @@ use clap::{Args, Subcommand, ValueEnum};
 use crate::common;
 use crate::complete;
 use crate::stacks::{
-    storage::{self, StorageError},
     SessionStack, StackError,
+    storage::{self, StorageError},
 };
 
 #[derive(Debug, Subcommand)]

@@ -2,8 +2,8 @@ use clap::{Subcommand, ValueEnum};
 
 use crate::common;
 use crate::complete::{
-    self, ancestors, paths as paths_mode, recents as recents_mode, stack as stack_mode,
-    StackDirection,
+    self, StackDirection, ancestors, paths as paths_mode, recents as recents_mode,
+    stack as stack_mode,
 };
 use crate::frecency::ZoxideProvider;
 use crate::resolve::Resolver;
@@ -174,10 +174,10 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::stacks::{storage, SessionStack};
+    use crate::stacks::{SessionStack, storage};
     use crate::test_support;
 
-    use super::{run_navigate, NavigateMode};
+    use super::{NavigateMode, run_navigate};
 
     fn make_temp_dir(label: &str) -> PathBuf {
         let nonce = SystemTime::now()

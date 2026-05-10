@@ -1,9 +1,10 @@
-use super::common::{
-    apply_template_replacements, render_bash_completion_bindings, render_bash_completion_functions,
-    render_bash_menu_fallback_case, render_bash_menu_mapping_case,
-    render_posix_wrapper_declarations, shell_words, DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS,
-};
 use super::MenuCommandMapping;
+use super::common::{
+    DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS, apply_template_replacements,
+    render_bash_completion_bindings, render_bash_completion_functions,
+    render_bash_menu_fallback_case, render_bash_menu_mapping_case,
+    render_posix_wrapper_declarations, shell_words,
+};
 
 pub fn generate(command_not_found: bool, menu: bool) -> String {
     generate_with_mappings(command_not_found, menu, &[])

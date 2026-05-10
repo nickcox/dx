@@ -6,16 +6,17 @@ pub mod tui;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::complete::{
-    self, ancestors, recents as recents_mode, stack as stack_mode,
-    CompletionMode,
-};
 use crate::common;
+use crate::complete::{
+    self, CompletionMode, ancestors, recents as recents_mode, stack as stack_mode,
+};
 use crate::frecency::ZoxideProvider;
 use crate::resolve::{CompletionCandidates, Resolver};
 
 pub use action::MenuAction;
-pub use buffer::{parse_buffer, parse_buffer_with_mode, parse_buffer_with_override_mode, ParsedBuffer};
+pub use buffer::{
+    ParsedBuffer, parse_buffer, parse_buffer_with_mode, parse_buffer_with_override_mode,
+};
 pub use mode::MenuMode;
 pub use tui::MenuResult;
 
@@ -165,11 +166,8 @@ fn mapped_parent_directories(
         return (vec![cwd.to_path_buf()], leaf_prefix.to_string());
     }
 
-    let smart_dirs = resolver.collect_completion_candidates_with_limit_and_cwd(
-        parent_query,
-        None,
-        Some(cwd),
-    );
+    let smart_dirs =
+        resolver.collect_completion_candidates_with_limit_and_cwd(parent_query, None, Some(cwd));
     if !smart_dirs.paths.is_empty() {
         return (smart_dirs.paths, leaf_prefix.to_string());
     }
@@ -256,10 +254,7 @@ fn push_unique_path(output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path
     }
 }
 
-fn apply_limit_with_has_more(
-    paths: Vec<PathBuf>,
-    limit: Option<usize>,
-) -> CompletionCandidates {
+fn apply_limit_with_has_more(paths: Vec<PathBuf>, limit: Option<usize>) -> CompletionCandidates {
     let (paths, has_more) = common::truncate_with_has_more(paths, limit);
 
     CompletionCandidates { paths, has_more }

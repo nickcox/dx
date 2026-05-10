@@ -1,10 +1,10 @@
-use super::common::{
-    apply_template_replacements, render_posix_menu_eligible_case_pattern,
-    render_posix_wrapper_declarations, render_zsh_completion_bindings,
-    render_zsh_completion_functions, render_zsh_menu_mapping_case, shell_words,
-    DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS,
-};
 use super::MenuCommandMapping;
+use super::common::{
+    DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS, apply_template_replacements,
+    render_posix_menu_eligible_case_pattern, render_posix_wrapper_declarations,
+    render_zsh_completion_bindings, render_zsh_completion_functions, render_zsh_menu_mapping_case,
+    shell_words,
+};
 
 pub fn generate(command_not_found: bool, menu: bool) -> String {
     generate_with_mappings(command_not_found, menu, &[])

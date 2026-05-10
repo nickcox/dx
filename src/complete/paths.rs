@@ -69,9 +69,11 @@ mod tests {
 
         assert_eq!(output.len(), 2);
         assert!(output.iter().any(|path| path.ends_with("projects/alpha")));
-        assert!(output
-            .iter()
-            .any(|path| path.ends_with("presentations/alpha")));
+        assert!(
+            output
+                .iter()
+                .any(|path| path.ends_with("presentations/alpha"))
+        );
         let _ = fs::remove_dir_all(temp);
     }
 

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::{complete_session_paths, StackDirection};
+use super::{StackDirection, complete_session_paths};
 
 pub fn complete(
     session: Option<&str>,
@@ -19,10 +19,10 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::stacks::{storage, SessionStack};
+    use crate::stacks::{SessionStack, storage};
     use crate::test_support;
 
-    use super::{complete, StackDirection};
+    use super::{StackDirection, complete};
 
     fn make_temp_dir(label: &str) -> std::path::PathBuf {
         let nonce = SystemTime::now()

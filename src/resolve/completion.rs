@@ -10,7 +10,8 @@ use super::{
 
 impl Resolver {
     pub fn collect_completion_candidates(&self, raw_query: &str) -> Vec<PathBuf> {
-        self.collect_completion_candidates_with_meta(raw_query).paths
+        self.collect_completion_candidates_with_meta(raw_query)
+            .paths
     }
 
     pub fn collect_completion_candidates_with_limit_and_cwd(
@@ -30,10 +31,7 @@ impl Resolver {
         self.collect_completion_candidates_impl(raw_query, limit, None)
     }
 
-    pub fn collect_completion_candidates_with_meta(
-        &self,
-        raw_query: &str,
-    ) -> CompletionCandidates {
+    pub fn collect_completion_candidates_with_meta(&self, raw_query: &str) -> CompletionCandidates {
         self.collect_completion_candidates_impl(raw_query, None, None)
     }
 
@@ -83,7 +81,7 @@ impl Resolver {
             FilesystemPrefixFallback::AlwaysForFilesystemPrefix,
         ) {
             Ok(value) => value,
-            Err( super::ResolveError::EmptyQuery | super::ResolveError::PathNotFound(_)) => {
+            Err(super::ResolveError::EmptyQuery | super::ResolveError::PathNotFound(_)) => {
                 return apply_completion_limit(output, limit);
             }
             Err(super::ResolveError::Ambiguous { .. } | super::ResolveError::NotFound) => {
@@ -448,14 +446,24 @@ mod tests {
 
         let sibling_names = siblings
             .iter()
-            .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().to_string()))
+            .filter_map(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+            })
             .collect::<Vec<_>>();
         let filtered_names = filtered
             .iter()
-            .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().to_string()))
+            .filter_map(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+            })
             .collect::<Vec<_>>();
 
-        let expected = vec!["cbravo".to_string(), "cobalt".to_string(), "Code".to_string()];
+        let expected = vec![
+            "cbravo".to_string(),
+            "cobalt".to_string(),
+            "Code".to_string(),
+        ];
         let expected_prefix = &expected[..];
 
         assert!(
@@ -482,7 +490,12 @@ mod tests {
 
         let ordered = results
             .iter()
-            .map(|path| path.file_name().expect("basename").to_string_lossy().to_string())
+            .map(|path| {
+                path.file_name()
+                    .expect("basename")
+                    .to_string_lossy()
+                    .to_string()
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(ordered, vec!["Calpha", "cAlpha", "cbravo"]);
@@ -509,7 +522,8 @@ mod tests {
         let target = root.join("PowerShell");
         fs::create_dir_all(&target).expect("create target");
 
-        let resolver = create_resolver_with_roots_and_bookmarks_and_case_sensitivity(vec![root], false);
+        let resolver =
+            create_resolver_with_roots_and_bookmarks_and_case_sensitivity(vec![root], false);
         let out = resolver.collect_completion_candidates("p..shell");
 
         assert_eq!(out, vec![target]);

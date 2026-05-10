@@ -107,7 +107,6 @@ fn json_mode_returns_structured_output() {
     let _ = fs::remove_dir_all(cwd);
 }
 
-
 #[test]
 fn resolve_uses_cwd_as_implicit_root_when_unset() {
     let cwd = make_temp_dir("cli-implicit-cwd-root");
@@ -122,7 +121,11 @@ fn resolve_uses_cwd_as_implicit_root_when_unset() {
         .output()
         .expect("run dx implicit cwd root");
 
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
         canonical_string(&target)
@@ -146,7 +149,11 @@ fn resolves_delimiter_aware_segment_query() {
         .output()
         .expect("run dx delimiter-aware resolve");
 
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(
         fs::canonicalize(String::from_utf8_lossy(&output.stdout).trim())
             .expect("canonical stdout path")
@@ -173,7 +180,11 @@ fn resolves_doubled_period_segment_query() {
         .output()
         .expect("run dx gap-aware resolve");
 
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(
         fs::canonicalize(String::from_utf8_lossy(&output.stdout).trim())
             .expect("canonical stdout path")

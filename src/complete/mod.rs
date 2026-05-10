@@ -10,7 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::Serialize;
 
 use crate::frecency::FrecencyProvider;
-use crate::stacks::{storage, SessionStack};
+use crate::stacks::{SessionStack, storage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionMode {
@@ -129,7 +129,11 @@ pub fn select_candidate(
         return Ok(candidates[index - 1].clone());
     }
 
-    if selector.as_bytes().iter().all(|value| value.is_ascii_digit()) {
+    if selector
+        .as_bytes()
+        .iter()
+        .all(|value| value.is_ascii_digit())
+    {
         return Err(SelectorError::OutOfRange {
             index: 0,
             total: candidates.len(),
@@ -205,16 +209,15 @@ pub fn label_for_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use std::{env, fs};
     use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{env, fs};
 
     use super::{
-        complete_frecents, complete_session_paths, format_json, format_plain, label_for_path,
-        select_candidate,
-        SelectorError,
+        SelectorError, complete_frecents, complete_session_paths, format_json, format_plain,
+        label_for_path, select_candidate,
     };
     use crate::frecency::FrecencyProvider;
-    use crate::stacks::{storage, SessionStack};
+    use crate::stacks::{SessionStack, storage};
     use crate::test_support;
 
     #[derive(Debug)]
@@ -376,8 +379,7 @@ mod tests {
             ]
         );
 
-        let redo_filtered =
-            complete_session_paths(Some("s1"), Some("redo/b"), |stack| stack.redo);
+        let redo_filtered = complete_session_paths(Some("s1"), Some("redo/b"), |stack| stack.redo);
         assert_eq!(redo_filtered, vec![PathBuf::from("/redo/b")]);
 
         unsafe { env::remove_var("XDG_RUNTIME_DIR") };

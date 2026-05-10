@@ -52,13 +52,13 @@ pub fn read_store() -> Result<BookmarkStore, StorageError> {
     let raw = match fs::read_to_string(&path) {
         Ok(value) => value,
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
-            return Ok(BookmarkStore::default())
+            return Ok(BookmarkStore::default());
         }
         Err(source) => {
             return Err(StorageError::ReadStore {
                 path: path.display().to_string(),
                 source,
-            })
+            });
         }
     };
 

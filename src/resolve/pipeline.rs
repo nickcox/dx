@@ -1,6 +1,6 @@
 use super::{
-    prepare_candidates, traversal, FilesystemPrefixFallback, ResolveError, ResolveQuery,
-    ResolveResult, Resolver, prepare_search_query, resolve_search_candidates,
+    FilesystemPrefixFallback, ResolveError, ResolveQuery, ResolveResult, Resolver,
+    prepare_candidates, prepare_search_query, resolve_search_candidates, traversal,
 };
 
 impl Resolver {
@@ -122,9 +122,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let result = resolver
-            .resolve(query)
-            .expect("resolve");
+        let result = resolver.resolve(query).expect("resolve");
         assert_eq!(result.path, temp);
     }
 
@@ -140,9 +138,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let result = resolver
-            .resolve(query)
-            .expect("resolve");
+        let result = resolver.resolve(query).expect("resolve");
         assert_eq!(result.path, child);
         let _ = fs::remove_dir_all(temp);
     }
@@ -157,9 +153,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let err = resolver
-            .resolve(query)
-            .expect_err("should error");
+        let err = resolver.resolve(query).expect_err("should error");
         assert!(matches!(err, ResolveError::NotFound));
         let _ = fs::remove_dir_all(temp);
     }
@@ -179,9 +173,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let result = resolver
-            .resolve(query)
-            .expect("fallback should resolve");
+        let result = resolver.resolve(query).expect("fallback should resolve");
         assert_eq!(result.path, target);
 
         let _ = fs::remove_dir_all(temp);
@@ -191,7 +183,8 @@ mod tests {
     fn resolve_leading_slash_direct_miss_does_not_use_bookmark_lookup() {
         let temp = make_temp_dir("resolve-leading-slash-no-bookmark");
         let missing_prefix = format!("dx-bookmark-only-{}", std::process::id());
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| Some(PathBuf::from("/tmp")));
+        let resolver =
+            Resolver::with_bookmark_lookup(AppConfig::default(), |_| Some(PathBuf::from("/tmp")));
 
         let query_string = format!("/{missing_prefix}/pro");
         let query = ResolveQuery {
@@ -220,9 +213,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let result = resolver
-            .resolve(query)
-            .expect("fallback should resolve");
+        let result = resolver.resolve(query).expect("fallback should resolve");
         assert_eq!(result.path, target);
 
         let _ = fs::remove_dir_all(temp);
@@ -248,9 +239,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let result = resolver
-            .resolve(query)
-            .expect("fallback should resolve");
+        let result = resolver.resolve(query).expect("fallback should resolve");
         assert_eq!(result.path, target);
 
         if let Some(value) = prev_home {
@@ -304,9 +293,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let err = resolver
-            .resolve(query)
-            .expect_err("should be ambiguous");
+        let err = resolver.resolve(query).expect_err("should be ambiguous");
         assert!(matches!(
             err,
             ResolveError::Ambiguous {
@@ -366,7 +353,9 @@ mod tests {
             cwd: &temp,
         };
 
-        let result = resolver.resolve(query).expect("multi-segment delimiter-aware resolve");
+        let result = resolver
+            .resolve(query)
+            .expect("multi-segment delimiter-aware resolve");
         assert_eq!(result.path, target);
         let _ = fs::remove_dir_all(temp);
     }
@@ -413,7 +402,9 @@ mod tests {
             cwd: &cwd,
         };
 
-        let result = resolver.resolve(query).expect("step-up precedence should win");
+        let result = resolver
+            .resolve(query)
+            .expect("step-up precedence should win");
         assert_eq!(result.path, temp.join("a"));
         let _ = fs::remove_dir_all(temp);
     }
@@ -433,9 +424,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let result = resolver
-            .resolve(query)
-            .expect("should resolve local");
+        let result = resolver.resolve(query).expect("should resolve local");
         assert_eq!(result.path, local);
         let _ = fs::remove_dir_all(temp);
     }
@@ -462,9 +451,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let result = resolver
-            .resolve(query)
-            .expect("bookmark should resolve");
+        let result = resolver.resolve(query).expect("bookmark should resolve");
         assert_eq!(result.path, canonical_target);
 
         set_bookmark_env(None);
@@ -500,9 +487,7 @@ mod tests {
             cwd: &temp,
         };
 
-        let result = resolver
-            .resolve(query)
-            .expect("fallback should resolve");
+        let result = resolver.resolve(query).expect("fallback should resolve");
         assert_eq!(result.path, fallback_match);
 
         set_bookmark_env(None);

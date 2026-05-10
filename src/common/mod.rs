@@ -46,7 +46,11 @@ pub enum AtomicWriteError {
     Replace(io::Error),
 }
 
-pub fn write_atomic_replace(temp: &Path, target: &Path, payload: &[u8]) -> Result<(), AtomicWriteError> {
+pub fn write_atomic_replace(
+    temp: &Path,
+    target: &Path,
+    payload: &[u8],
+) -> Result<(), AtomicWriteError> {
     fs::write(temp, payload).map_err(AtomicWriteError::Write)?;
 
     match replace_file(temp, target) {
@@ -129,7 +133,9 @@ mod test_replace_seam {
     }
 
     pub(super) fn with_replace_failure<T>(operation: impl FnOnce() -> T) -> T {
-        let _guard = replace_failure_lock().lock().expect("replace failure lock poisoned");
+        let _guard = replace_failure_lock()
+            .lock()
+            .expect("replace failure lock poisoned");
         FAIL_REPLACE_ONCE.with(|flag| flag.set(true));
 
         struct ResetOnDrop;

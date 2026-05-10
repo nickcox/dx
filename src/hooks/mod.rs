@@ -6,9 +6,9 @@ mod pwsh;
 mod zsh;
 
 pub use mappings::{
-    parse_menu_command_mappings, MenuCommandMapping, MenuCommandMappingError, MenuMappingMode,
+    MenuCommandMapping, MenuCommandMappingError, MenuMappingMode, parse_menu_command_mappings,
 };
-pub use pwsh::{parse_pwsh_menu_key, PwshMenuKeyError};
+pub use pwsh::{PwshMenuKeyError, parse_pwsh_menu_key};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shell {
@@ -69,7 +69,7 @@ pub fn generate_with_mappings_and_pwsh_key(
 
 #[cfg(test)]
 mod tests {
-    use super::{generate, generate_with_mappings_and_pwsh_key, parse_pwsh_menu_key, Shell};
+    use super::{Shell, generate, generate_with_mappings_and_pwsh_key, parse_pwsh_menu_key};
 
     fn count_unescaped(script: &str, needle: char) -> usize {
         let mut escaped = false;
@@ -476,8 +476,11 @@ mod tests {
         assert!(pwsh.contains("if ($LASTEXITCODE -ne 0 -or -not $json)"));
         assert!(pwsh.contains("$result = $json | ConvertFrom-Json"));
         assert!(pwsh.contains("if ($result -and $result.action -eq 'cancel')"));
-        assert!(pwsh
-            .contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"));
+        assert!(
+            pwsh.contains(
+                "[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"
+            )
+        );
         assert!(pwsh.contains("if (-not $result -or $result.action -ne 'replace')"));
         assert!(pwsh.contains("PSConsoleReadLine]::InvokePrompt()"));
         assert!(pwsh.contains("__dx_pwsh_menu_fallback $key $arg"));

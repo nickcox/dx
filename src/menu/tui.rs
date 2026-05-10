@@ -26,7 +26,7 @@ pub enum MenuResult {
 #[cfg(unix)]
 mod imp {
     use std::fs::OpenOptions;
-    use std::io::{stderr, BufWriter, Read, Write};
+    use std::io::{BufWriter, Read, Write, stderr};
     use std::path::{Path, PathBuf};
 
     use crossterm::{
@@ -35,6 +35,7 @@ mod imp {
         execute, terminal,
     };
     use ratatui::{
+        Terminal, TerminalOptions, Viewport,
         backend::CrosstermBackend,
         layout::{Constraint, Direction, Layout, Rect},
         style::{Color, Modifier, Style},
@@ -43,7 +44,6 @@ mod imp {
             Block, Clear, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
             ScrollbarState,
         },
-        Terminal, TerminalOptions, Viewport,
     };
 
     use crate::resolve::CompletionCandidates;
@@ -254,7 +254,12 @@ mod imp {
         cleaned
     }
 
-    fn display_label(path: &Path, cwd: &Path, home: Option<&Path>, prefer_relative_paths: bool) -> String {
+    fn display_label(
+        path: &Path,
+        cwd: &Path,
+        home: Option<&Path>,
+        prefer_relative_paths: bool,
+    ) -> String {
         if prefer_relative_paths && let Ok(rel) = path.strip_prefix(cwd) {
             use std::path::Component;
 
@@ -445,7 +450,8 @@ mod imp {
 
         if layout.scrollbar_needed {
             let selected_row = selected / layout.metrics.columns;
-            let mut scrollbar_state = ScrollbarState::new(layout.metrics.rows_total).position(selected_row);
+            let mut scrollbar_state =
+                ScrollbarState::new(layout.metrics.rows_total).position(selected_row);
             let scrollbar = build_scrollbar(show_border);
             let scrollbar_render_area =
                 menu_scrollbar_render_area(content_area, scrollbar_area, show_border);
@@ -498,7 +504,9 @@ mod imp {
     ) {
         let status = Paragraph::new(Span::styled(
             format!(" filter: {filter_label} | {selected_path}{overflow}"),
-            Style::default().fg(Color::White).add_modifier(Modifier::DIM),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::DIM),
         ));
         if let Some(divider_area) = divider_area {
             let divider = Paragraph::new("─".repeat(divider_area.width as usize)).style(
@@ -594,7 +602,8 @@ mod imp {
             terminal
                 .draw(|frame| {
                     frame.render_widget(Clear, current_area);
-                    if let Some(vacated_area) = cleared_trailing_area(frame.area(), previous_height, current_height)
+                    if let Some(vacated_area) =
+                        cleared_trailing_area(frame.area(), previous_height, current_height)
                     {
                         frame.render_widget(Clear, vacated_area);
                     }
@@ -724,7 +733,11 @@ mod imp {
         }
     }
 
-    fn cleared_trailing_area(area: Rect, previous_height: u16, current_height: u16) -> Option<Rect> {
+    fn cleared_trailing_area(
+        area: Rect,
+        previous_height: u16,
+        current_height: u16,
+    ) -> Option<Rect> {
         if current_height >= previous_height {
             return None;
         }
@@ -745,7 +758,12 @@ mod imp {
         rendered_height.saturating_add(prompt_gap_rows(show_border))
     }
 
-    fn menu_top_row(prompt_row: u16, terminal_rows: u16, rendered_height: u16, show_border: bool) -> u16 {
+    fn menu_top_row(
+        prompt_row: u16,
+        terminal_rows: u16,
+        rendered_height: u16,
+        show_border: bool,
+    ) -> u16 {
         prompt_row
             .saturating_add(1)
             .saturating_add(prompt_gap_rows(show_border))
@@ -839,8 +857,11 @@ mod imp {
         } else {
             item_count > visible_rows && visible_rows > 0
         };
-        let (content_area, scrollbar_area) =
-            split_menu_areas(provisional_content_area, show_border, scrollbar_probe_needed);
+        let (content_area, scrollbar_area) = split_menu_areas(
+            provisional_content_area,
+            show_border,
+            scrollbar_probe_needed,
+        );
         let final_inner_width = if show_border {
             content_area.width.saturating_sub(2) as usize
         } else {
@@ -950,11 +971,7 @@ mod imp {
                         .fg(Color::DarkGray)
                         .add_modifier(Modifier::DIM),
                 )
-                .thumb_style(
-                    Style::default()
-                        .fg(Color::Gray)
-                        .add_modifier(Modifier::DIM),
-                )
+                .thumb_style(Style::default().fg(Color::Gray).add_modifier(Modifier::DIM))
         }
     }
 
@@ -1140,7 +1157,10 @@ mod imp {
             let cwd = Path::new("/tmp");
             let home = Path::new("/Users/nick");
             let path = Path::new("/opt/homebrew/bin");
-            assert_eq!(display_label(path, cwd, Some(home), true), "/opt/homebrew/bin");
+            assert_eq!(
+                display_label(path, cwd, Some(home), true),
+                "/opt/homebrew/bin"
+            );
         }
 
         #[test]
@@ -1175,10 +1195,7 @@ mod imp {
         fn display_label_explicit_absolute_mode_preserves_absolute_path() {
             let cwd = Path::new("/tmp/work");
             let path = Path::new("/tmp/work/./benches");
-            assert_eq!(
-                display_label(path, cwd, None, false),
-                "/tmp/work/./benches"
-            );
+            assert_eq!(display_label(path, cwd, None, false), "/tmp/work/./benches");
         }
 
         #[test]
@@ -1263,7 +1280,11 @@ mod imp {
 
         #[test]
         fn compute_layout_metrics_distributes_remainder() {
-            let labels = vec!["abcdefgh".to_string(), "beta".to_string(), "gamma".to_string()];
+            let labels = vec![
+                "abcdefgh".to_string(),
+                "beta".to_string(),
+                "gamma".to_string(),
+            ];
             let m = compute_layout_metrics(43, 3, &labels, Some(8));
             assert_eq!(m.columns, 3);
             assert_eq!(m.column_widths, vec![15, 14, 14]);
@@ -1605,4 +1626,4 @@ mod imp {
     }
 }
 
-pub use imp::{select, QueryFn};
+pub use imp::{QueryFn, select};

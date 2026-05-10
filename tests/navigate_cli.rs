@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use dx::stacks::{storage, SessionStack};
+use dx::stacks::{SessionStack, storage};
 use dx::test_support;
 
 fn make_temp_dir(label: &str) -> PathBuf {

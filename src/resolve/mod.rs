@@ -1,10 +1,10 @@
 pub mod abbreviation;
-pub mod precedence;
-pub mod roots;
-pub mod traversal;
 mod completion;
 mod output;
 mod pipeline;
+pub mod precedence;
+pub mod roots;
+pub mod traversal;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -88,8 +88,8 @@ impl Resolver {
 }
 
 pub(super) fn normalized_root_key(path: &Path) -> String {
-    let normalized = std::fs::canonicalize(path)
-        .unwrap_or_else(|_| traversal::normalize_path(path));
+    let normalized =
+        std::fs::canonicalize(path).unwrap_or_else(|_| traversal::normalize_path(path));
     normalized.display().to_string()
 }
 
@@ -248,12 +248,8 @@ pub(super) fn prepare_search_query<'a>(
         uses_prefix_fallback = true;
     }
 
-    let fallback_policy = FallbackPolicy::from_query_context(
-        cwd,
-        configured_roots,
-        trimmed,
-        uses_prefix_fallback,
-    );
+    let fallback_policy =
+        FallbackPolicy::from_query_context(cwd, configured_roots, trimmed, uses_prefix_fallback);
 
     Ok(PreparedQuery {
         effective_query,

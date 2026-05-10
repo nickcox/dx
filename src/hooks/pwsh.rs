@@ -1,6 +1,6 @@
 use super::common::{
-    apply_template_replacements, pwsh_quoted_words, render_pwsh_completion_bindings,
-    render_pwsh_menu_mapping_list, MENU_ELIGIBLE_COMMANDS,
+    MENU_ELIGIBLE_COMMANDS, apply_template_replacements, pwsh_quoted_words,
+    render_pwsh_completion_bindings, render_pwsh_menu_mapping_list,
 };
 use thiserror::Error;
 

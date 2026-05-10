@@ -43,13 +43,13 @@ impl BookmarkStore {
         let canonical = match fs::canonicalize(path) {
             Ok(value) => value,
             Err(source) if source.kind() == io::ErrorKind::NotFound => {
-                return Err(BookmarkError::PathNotFound(path.display().to_string()))
+                return Err(BookmarkError::PathNotFound(path.display().to_string()));
             }
             Err(source) => {
                 return Err(BookmarkError::CanonicalizePath {
                     path: path.display().to_string(),
                     source,
-                })
+                });
             }
         };
 
@@ -121,7 +121,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{validate_name, BookmarkError, BookmarkStore};
+    use super::{BookmarkError, BookmarkStore, validate_name};
 
     fn make_temp_dir(label: &str) -> PathBuf {
         let nonce = SystemTime::now()

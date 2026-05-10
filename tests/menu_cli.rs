@@ -288,8 +288,11 @@ fn init_pwsh_menu_emits_previous_function_fallback_and_custom_action_warning() {
     assert!(stdout.contains("function global:__dx_pwsh_menu_fallback"));
     assert!(stdout.contains("$Global:__dx_pwsh_menu_handler_description = 'dx menu handler'"));
     assert!(stdout.contains("Remove-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key"));
-    assert!(stdout
-        .contains("$previousHandler.Description -eq $Global:__dx_pwsh_menu_handler_description"));
+    assert!(
+        stdout.contains(
+            "$previousHandler.Description -eq $Global:__dx_pwsh_menu_handler_description"
+        )
+    );
     assert!(stdout.contains("Set-PSReadLineKeyHandler -Key 'Tab'"));
     assert!(stdout.contains(
         "-BriefDescription 'dx menu' -Description $Global:__dx_pwsh_menu_handler_description"
@@ -1149,8 +1152,11 @@ fn hook_scripts_apply_replace_action_contract() {
     assert!(zsh_out.contains("__dx_value"));
     assert!(zsh_out.contains("if [[ \"$__dx_action\" == \"cancel\" ]]; then"));
     assert!(zsh_out.contains("CURSOR=${#BUFFER}"));
-    assert!(zsh_out
-        .contains("[[ \"$__dx_action\" == \"replace\" ]] || { zle expand-or-complete; return }"));
+    assert!(
+        zsh_out.contains(
+            "[[ \"$__dx_action\" == \"replace\" ]] || { zle expand-or-complete; return }"
+        )
+    );
     assert!(zsh_out.contains("(( __dx_re >= __dx_rs )) || { zle expand-or-complete; return }"));
 
     let fish = dx().args(["init", "fish", "--menu"]).output().unwrap();
@@ -1166,8 +1172,10 @@ fn hook_scripts_apply_replace_action_contract() {
     let pwsh = dx().args(["init", "pwsh", "--menu"]).output().unwrap();
     let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);
     assert!(pwsh_out.contains("if ($result -and $result.action -eq 'cancel')"));
-    assert!(pwsh_out
-        .contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"));
+    assert!(
+        pwsh_out
+            .contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)")
+    );
     assert!(pwsh_out.contains("$result.action -ne 'replace'"));
     assert!(pwsh_out.contains("PSConsoleReadLine]::Replace("));
 }

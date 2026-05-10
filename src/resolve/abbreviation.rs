@@ -158,7 +158,9 @@ fn tokenize_segment(segment: &str) -> Vec<SegmentToken> {
     while idx < bytes.len() {
         if bytes[idx] == b'.' && idx + 1 < bytes.len() && bytes[idx + 1] == b'.' {
             if literal_start < idx {
-                tokens.push(SegmentToken::Literal(segment[literal_start..idx].to_string()));
+                tokens.push(SegmentToken::Literal(
+                    segment[literal_start..idx].to_string(),
+                ));
             }
             tokens.push(SegmentToken::Gap);
             idx += 2;
@@ -168,7 +170,9 @@ fn tokenize_segment(segment: &str) -> Vec<SegmentToken> {
 
         if matches!(bytes[idx], b'.' | b'_' | b'-') {
             if literal_start < idx {
-                tokens.push(SegmentToken::Literal(segment[literal_start..idx].to_string()));
+                tokens.push(SegmentToken::Literal(
+                    segment[literal_start..idx].to_string(),
+                ));
             }
             tokens.push(SegmentToken::Delimiter(bytes[idx] as char));
             idx += 1;

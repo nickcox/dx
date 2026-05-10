@@ -1,9 +1,9 @@
 use std::env;
 use std::fs;
+use std::fs::DirEntry;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::fs::DirEntry;
 
 use thiserror::Error;
 
@@ -65,7 +65,7 @@ fn read_session_file(path: &Path) -> Result<SessionStack, StorageError> {
             return Err(StorageError::ReadSession {
                 path: path_text,
                 source,
-            })
+            });
         }
     };
 
@@ -120,11 +120,7 @@ pub fn cleanup_stale(dir: &Path, ttl: Duration) {
     }
 }
 
-fn stale_session_paths(
-    entries: fs::ReadDir,
-    now: SystemTime,
-    ttl: Duration,
-) -> Vec<PathBuf> {
+fn stale_session_paths(entries: fs::ReadDir, now: SystemTime, ttl: Duration) -> Vec<PathBuf> {
     let mut stale = Vec::new();
 
     for entry in entries.flatten() {

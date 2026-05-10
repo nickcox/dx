@@ -1,9 +1,9 @@
-use super::common::{
-    apply_template_replacements, fish_case_words, render_fish_completion_bindings,
-    render_fish_dx_root_completion_bindings, render_fish_menu_mapping_cases,
-    MENU_ELIGIBLE_COMMANDS,
-};
 use super::MenuCommandMapping;
+use super::common::{
+    MENU_ELIGIBLE_COMMANDS, apply_template_replacements, fish_case_words,
+    render_fish_completion_bindings, render_fish_dx_root_completion_bindings,
+    render_fish_menu_mapping_cases,
+};
 
 pub fn generate(command_not_found: bool, menu: bool) -> String {
     generate_with_mappings(command_not_found, menu, &[])

@@ -1,4 +1,4 @@
-use crate::hooks::{self, parse_menu_command_mappings, parse_pwsh_menu_key, Shell};
+use crate::hooks::{self, Shell, parse_menu_command_mappings, parse_pwsh_menu_key};
 
 pub fn run_init(shell: &str, command_not_found: bool, menu: bool) -> i32 {
     let Some(shell) = Shell::parse(shell) else {

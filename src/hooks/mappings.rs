@@ -40,9 +40,7 @@ pub enum MenuCommandMappingError {
     InvalidEntry(String),
     #[error("mapping command cannot be empty in entry '{0}'")]
     EmptyCommand(String),
-    #[error(
-        "invalid mapping mode '{mode}' in entry '{entry}' (expected path, directory, or file)"
-    )]
+    #[error("invalid mapping mode '{mode}' in entry '{entry}' (expected path, directory, or file)")]
     InvalidMode { entry: String, mode: String },
     #[error("duplicate mapping for command '{0}'")]
     DuplicateCommand(String),
@@ -99,7 +97,7 @@ pub fn parse_menu_command_mappings(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_menu_command_mappings, MenuCommandMapping, MenuCommandMappingError, MenuMappingMode,
+        MenuCommandMapping, MenuCommandMappingError, MenuMappingMode, parse_menu_command_mappings,
     };
 
     #[test]
@@ -128,9 +126,11 @@ mod tests {
 
     #[test]
     fn empty_raw_value_means_no_mappings() {
-        assert!(parse_menu_command_mappings("   ")
-            .expect("empty mappings should be valid")
-            .is_empty());
+        assert!(
+            parse_menu_command_mappings("   ")
+                .expect("empty mappings should be valid")
+                .is_empty()
+        );
     }
 
     #[test]

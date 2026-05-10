@@ -12,7 +12,7 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::stacks::{storage, SessionStack};
+    use crate::stacks::{SessionStack, storage};
     use crate::test_support;
 
     use super::complete;

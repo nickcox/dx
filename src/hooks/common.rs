@@ -434,8 +434,8 @@ pub fn render_pwsh_completion_bindings() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        dx_complete_command, fish_complete_rhs, pwsh_complete_invocation,
-        unique_completion_handlers, COMPLETION_ROUTES,
+        COMPLETION_ROUTES, dx_complete_command, fish_complete_rhs, pwsh_complete_invocation,
+        unique_completion_handlers,
     };
 
     #[test]
