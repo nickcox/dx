@@ -26,6 +26,7 @@ pub enum MenuResult {
 // fallback paths without enabling the inline TUI yet.
 #[cfg(unix)]
 mod imp {
+    use std::ffi::OsString;
     use std::fs::OpenOptions;
     use std::io::{BufWriter, Read, Write, stderr};
     use std::path::{Path, PathBuf};
@@ -47,6 +48,7 @@ mod imp {
         },
     };
 
+    use crate::menu::MenuMode;
     use crate::resolve::CompletionCandidates;
 
     use super::MenuResult;
@@ -300,9 +302,130 @@ mod imp {
         }
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum CandidateLabelStyle {
+        Compact,
+        BareRelative,
+        DotRelative,
+        ParentRelative,
+        HomeRelative,
+        Absolute,
+    }
+
+    impl CandidateLabelStyle {
+        fn from_query(mode: MenuMode, query: &str) -> Self {
+            if !mode.prefers_query_relative_rendering() {
+                return Self::Compact;
+            }
+
+            if query.starts_with('/') {
+                Self::Absolute
+            } else if query.starts_with('~') {
+                Self::HomeRelative
+            } else if query == ".." || query.starts_with("../") {
+                Self::ParentRelative
+            } else if query.starts_with("./") {
+                Self::DotRelative
+            } else {
+                Self::BareRelative
+            }
+        }
+    }
+
+    fn display_label_for_style(
+        path: &Path,
+        cwd: &Path,
+        home: Option<&Path>,
+        style: CandidateLabelStyle,
+    ) -> String {
+        match style {
+            CandidateLabelStyle::Compact => display_label(path, cwd, home, true),
+            CandidateLabelStyle::BareRelative => cwd_relative_label(path, cwd, false)
+                .unwrap_or_else(|| display_label(path, cwd, home, false)),
+            CandidateLabelStyle::DotRelative => cwd_relative_label(path, cwd, true)
+                .unwrap_or_else(|| display_label(path, cwd, home, false)),
+            CandidateLabelStyle::ParentRelative => relative_path_from(cwd, path)
+                .map(|relative| relative.display().to_string())
+                .unwrap_or_else(|| display_label(path, cwd, home, false)),
+            CandidateLabelStyle::HomeRelative => home_relative_label(path, home)
+                .unwrap_or_else(|| display_label(path, cwd, home, false)),
+            CandidateLabelStyle::Absolute => path.display().to_string(),
+        }
+    }
+
+    fn cwd_relative_label(path: &Path, cwd: &Path, dot_prefix: bool) -> Option<String> {
+        let rel = path.strip_prefix(cwd).ok()?;
+        let cleaned = sanitize_relative_components(rel);
+        if cleaned.as_os_str().is_empty() {
+            return Some(if dot_prefix { "./" } else { "." }.to_string());
+        }
+
+        Some(if dot_prefix {
+            format!("./{}", cleaned.display())
+        } else {
+            cleaned.display().to_string()
+        })
+    }
+
+    fn home_relative_label(path: &Path, home: Option<&Path>) -> Option<String> {
+        let rel = path.strip_prefix(home?).ok()?;
+        if rel.as_os_str().is_empty() {
+            Some("~".to_string())
+        } else {
+            Some(format!("~/{}", rel.display()))
+        }
+    }
+
+    fn path_parts(path: &Path) -> Option<(bool, Vec<OsString>)> {
+        use std::path::Component;
+
+        let mut absolute = false;
+        let mut parts = Vec::new();
+        for component in path.components() {
+            match component {
+                Component::RootDir => absolute = true,
+                Component::Normal(part) => parts.push(part.to_os_string()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    parts.pop()?;
+                }
+                Component::Prefix(_) => return None,
+            }
+        }
+        Some((absolute, parts))
+    }
+
+    fn relative_path_from(cwd: &Path, path: &Path) -> Option<PathBuf> {
+        let (cwd_abs, cwd_parts) = path_parts(cwd)?;
+        let (path_abs, path_parts) = path_parts(path)?;
+        if cwd_abs != path_abs {
+            return None;
+        }
+
+        let common_len = cwd_parts
+            .iter()
+            .zip(path_parts.iter())
+            .take_while(|(left, right)| left == right)
+            .count();
+
+        let mut relative = PathBuf::new();
+        for _ in common_len..cwd_parts.len() {
+            relative.push("..");
+        }
+        for part in &path_parts[common_len..] {
+            relative.push(part);
+        }
+
+        if relative.as_os_str().is_empty() {
+            relative.push(".");
+        }
+        Some(relative)
+    }
+
     pub fn select(
         initial_candidates: CompletionCandidates,
         initial_query: &str,
+        mode: MenuMode,
         cwd: &Path,
         prefer_relative_paths: bool,
         prompt_row_override: Option<u16>,
@@ -330,10 +453,11 @@ mod imp {
 
         let (cols, rows) = terminal::size().ok()?;
         let home = dirs::home_dir();
+        let initial_label_style = CandidateLabelStyle::from_query(mode, initial_query);
         let initial_labels: Vec<String> = initial_candidates
             .paths
             .iter()
-            .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
+            .map(|p| display_label_for_style(p, cwd, home.as_deref(), initial_label_style))
             .collect();
         let height = compute_rendered_height(
             cols,
@@ -378,6 +502,7 @@ mod imp {
         run_loop(
             initial_candidates,
             initial_query,
+            mode,
             cwd,
             prefer_relative_paths,
             area,
@@ -538,6 +663,7 @@ mod imp {
     fn run_loop(
         initial_candidates: CompletionCandidates,
         initial_query: &str,
+        mode: MenuMode,
         cwd: &Path,
         prefer_relative_paths: bool,
         area: Rect,
@@ -575,10 +701,12 @@ mod imp {
         let mut previous_height = area.height;
 
         loop {
+            let effective_query = filter_state.effective_query();
+            let label_style = CandidateLabelStyle::from_query(mode, &effective_query);
             let labels: Vec<String> = completion
                 .paths
                 .iter()
-                .map(|p| display_label(p, cwd, home.as_deref(), prefer_relative_paths))
+                .map(|p| display_label_for_style(p, cwd, home.as_deref(), label_style))
                 .collect();
             let target_height = compute_rendered_height(
                 area.width,
@@ -1226,6 +1354,165 @@ mod imp {
         }
 
         #[test]
+        fn candidate_label_style_from_query_only_applies_to_filesystem_modes() {
+            assert_eq!(
+                CandidateLabelStyle::from_query(
+                    crate::menu::MenuMode::Completion(crate::complete::CompletionMode::Paths),
+                    "",
+                ),
+                CandidateLabelStyle::BareRelative
+            );
+            assert_eq!(
+                CandidateLabelStyle::from_query(
+                    crate::menu::MenuMode::Completion(crate::complete::CompletionMode::Frecents),
+                    "",
+                ),
+                CandidateLabelStyle::Compact
+            );
+        }
+
+        #[test]
+        fn candidate_label_style_from_query_detects_explicit_styles() {
+            let mode = crate::menu::MenuMode::Completion(crate::complete::CompletionMode::Paths);
+
+            assert_eq!(
+                CandidateLabelStyle::from_query(mode, "src"),
+                CandidateLabelStyle::BareRelative
+            );
+            assert_eq!(
+                CandidateLabelStyle::from_query(mode, "./src"),
+                CandidateLabelStyle::DotRelative
+            );
+            assert_eq!(
+                CandidateLabelStyle::from_query(mode, "../src"),
+                CandidateLabelStyle::ParentRelative
+            );
+            assert_eq!(
+                CandidateLabelStyle::from_query(mode, "~/src"),
+                CandidateLabelStyle::HomeRelative
+            );
+            assert_eq!(
+                CandidateLabelStyle::from_query(mode, "/tmp/src"),
+                CandidateLabelStyle::Absolute
+            );
+        }
+
+        #[test]
+        fn display_label_for_empty_query_uses_bare_cwd_relative_label() {
+            let cwd = Path::new("/Users/nick/project");
+            let path = Path::new("/Users/nick/project/src");
+
+            assert_eq!(
+                display_label_for_style(path, cwd, None, CandidateLabelStyle::BareRelative),
+                "src"
+            );
+        }
+
+        #[test]
+        fn display_label_for_bare_query_uses_bare_cwd_relative_label() {
+            let cwd = Path::new("/Users/nick/project");
+            let path = Path::new("/Users/nick/project/src");
+
+            assert_eq!(
+                display_label_for_style(path, cwd, None, CandidateLabelStyle::BareRelative),
+                "src"
+            );
+        }
+
+        #[test]
+        fn display_label_for_dot_query_preserves_dot_prefix() {
+            let cwd = Path::new("/Users/nick/project");
+            let path = Path::new("/Users/nick/project/src");
+
+            assert_eq!(
+                display_label_for_style(path, cwd, None, CandidateLabelStyle::DotRelative),
+                "./src"
+            );
+        }
+
+        #[test]
+        fn display_label_for_parent_query_preserves_parent_prefix() {
+            let cwd = Path::new("/Users/nick/project");
+            let path = Path::new("/Users/nick/sibling");
+
+            assert_eq!(
+                display_label_for_style(path, cwd, None, CandidateLabelStyle::ParentRelative),
+                "../sibling"
+            );
+        }
+
+        #[test]
+        fn display_label_for_parent_query_normalizes_candidate_parent_components() {
+            let cwd = Path::new("/Users/nick/code/personal/dx");
+            let path = Path::new("/Users/nick/code/personal/dx/../sibling");
+
+            assert_eq!(
+                display_label_for_style(path, cwd, None, CandidateLabelStyle::ParentRelative),
+                "../sibling"
+            );
+        }
+
+        #[test]
+        fn display_label_for_multi_parent_query_preserves_parent_prefix() {
+            let cwd = Path::new("/Users/nick/project/deep");
+            let path = Path::new("/Users/nick/outer");
+
+            assert_eq!(
+                display_label_for_style(path, cwd, None, CandidateLabelStyle::ParentRelative),
+                "../../outer"
+            );
+        }
+
+        #[test]
+        fn display_label_for_home_query_preserves_home_prefix() {
+            let cwd = Path::new("/tmp");
+            let home = Path::new("/Users/nick");
+            let path = Path::new("/Users/nick/code");
+
+            assert_eq!(
+                display_label_for_style(path, cwd, Some(home), CandidateLabelStyle::HomeRelative),
+                "~/code"
+            );
+        }
+
+        #[test]
+        fn display_label_for_absolute_query_preserves_absolute_path() {
+            let cwd = Path::new("/tmp");
+            let path = Path::new("/Users/nick/code");
+
+            assert_eq!(
+                display_label_for_style(path, cwd, None, CandidateLabelStyle::Absolute),
+                "/Users/nick/code"
+            );
+        }
+
+        #[test]
+        fn compact_label_style_preserves_non_filesystem_mode_behavior() {
+            let cwd = Path::new("/Users/nick/project");
+            let path = Path::new("/Users/nick/project/src");
+
+            assert_eq!(
+                display_label_for_style(path, cwd, None, CandidateLabelStyle::Compact),
+                "./src"
+            );
+        }
+
+        #[test]
+        fn status_path_remains_full_when_item_label_is_query_style_relative() {
+            let cwd = Path::new("/Users/nick/project");
+            let path = PathBuf::from("/Users/nick/project/src");
+
+            assert_eq!(
+                display_label_for_style(&path, cwd, None, CandidateLabelStyle::BareRelative),
+                "src"
+            );
+            assert_eq!(
+                selected_status_path(&[path], Some(0)),
+                "/Users/nick/project/src"
+            );
+        }
+
+        #[test]
         fn display_label_tilde_when_under_home_but_not_cwd() {
             let cwd = Path::new("/tmp");
             let home = Path::new("/Users/nick");
@@ -1774,6 +2061,7 @@ mod imp {
     pub fn select(
         _candidates: CompletionCandidates,
         initial_query: &str,
+        _mode: crate::menu::MenuMode,
         _cwd: &Path,
         _prefer_relative_paths: bool,
         _prompt_row_override: Option<u16>,

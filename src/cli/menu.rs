@@ -376,6 +376,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     let menu_result = menu::tui::select(
         initial_candidates,
         &initial_query,
+        parsed.mode,
         &cwd,
         prefer_relative_paths,
         cmd.prompt_row,
