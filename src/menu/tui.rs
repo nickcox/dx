@@ -143,6 +143,10 @@ mod imp {
             !self.typed_refinement.is_empty()
         }
 
+        fn typed_refinement(&self) -> &str {
+            &self.typed_refinement
+        }
+
         fn push(&mut self, ch: char) {
             self.typed_refinement.push(ch);
         }
@@ -501,12 +505,14 @@ mod imp {
         frame: &mut ratatui::Frame<'_>,
         chunks: &[Rect],
         divider_area: Option<Rect>,
-        filter_label: &str,
         selected_path: &str,
         overflow: &str,
+        typed_refinement: &str,
     ) {
+        let status_text =
+            build_status_text(chunks[1].width, selected_path, overflow, typed_refinement);
         let status = Paragraph::new(Span::styled(
-            format!(" filter: {filter_label} | {selected_path}{overflow}"),
+            status_text,
             Style::default()
                 .fg(Color::White)
                 .add_modifier(Modifier::DIM),
@@ -595,13 +601,6 @@ mod imp {
 
             let overflow = overflow_note(completion.paths.len(), completion.has_more);
 
-            let filter_query = filter_state.effective_query();
-            let filter_label = if filter_query.is_empty() {
-                "(empty)".to_string()
-            } else {
-                filter_query
-            };
-
             terminal
                 .draw(|frame| {
                     frame.render_widget(Clear, current_area);
@@ -649,9 +648,9 @@ mod imp {
                         frame,
                         &chunks,
                         divider_area,
-                        &filter_label,
                         &selected_path,
                         &overflow,
+                        filter_state.typed_refinement(),
                     );
                 })
                 .ok()?;
@@ -1057,6 +1056,78 @@ mod imp {
         format!("…{tail}")
     }
 
+    fn text_width(input: &str) -> usize {
+        input.chars().count()
+    }
+
+    fn build_status_text(
+        width: u16,
+        selected_path: &str,
+        overflow: &str,
+        typed_refinement: &str,
+    ) -> String {
+        let width = width as usize;
+        if width == 0 {
+            return String::new();
+        }
+
+        let refinement = if typed_refinement.is_empty() {
+            None
+        } else {
+            Some(format!("/{typed_refinement}"))
+        };
+        let selected_with_overflow = format!("{selected_path}{overflow}");
+
+        if refinement.is_none() {
+            if text_width(&selected_with_overflow) <= width {
+                return selected_with_overflow;
+            }
+            return truncate_for_cell(selected_path, width);
+        }
+
+        let refinement = refinement.unwrap();
+        if let Some(text) = join_status_parts(width, &selected_with_overflow, &refinement) {
+            return text;
+        }
+
+        if let Some(text) = join_status_parts(width, selected_path, &refinement) {
+            return text;
+        }
+
+        let min_selection_width = width.min(12);
+        let min_refinement_width = 4;
+        if width >= min_selection_width + 1 + min_refinement_width {
+            let max_refinement_width = (width - min_selection_width - 1)
+                .min(refinement_cap(width, &refinement))
+                .max(min_refinement_width);
+            let refinement = truncate_for_cell(&refinement, max_refinement_width);
+            let selected_width = width - text_width(&refinement) - 1;
+            let selected = truncate_for_cell(selected_path, selected_width);
+            let gap = width - text_width(&selected) - text_width(&refinement);
+            return format!("{selected}{}{refinement}", " ".repeat(gap));
+        }
+
+        truncate_for_cell(selected_path, width)
+    }
+
+    fn refinement_cap(width: usize, refinement: &str) -> usize {
+        let natural = text_width(refinement);
+        let cap = (width / 3).max(4).min(32);
+        natural.min(cap)
+    }
+
+    fn join_status_parts(width: usize, left: &str, right: &str) -> Option<String> {
+        let left_width = text_width(left);
+        let right_width = refinement_cap(width, right);
+        if width < left_width + 1 + right_width {
+            return None;
+        }
+
+        let right = truncate_for_cell(right, right_width);
+        let gap = width - left_width - text_width(&right);
+        Some(format!("{left}{}{right}", " ".repeat(gap)))
+    }
+
     fn pad_to_width(input: &str, width: usize) -> String {
         let mut out = input.to_string();
         let len = out.chars().count();
@@ -1332,6 +1403,69 @@ mod imp {
             assert_eq!(overflow_note(1000, true), " | showing first 1000");
             assert_eq!(overflow_note(10, false), "");
             assert_eq!(overflow_note(0, false), "");
+        }
+
+        #[test]
+        fn status_text_shows_selection_without_refinement() {
+            assert_eq!(build_status_text(20, "./Downloads", "", ""), "./Downloads");
+        }
+
+        #[test]
+        fn status_text_right_aligns_typed_refinement_only() {
+            let status = build_status_text(20, "./Documents", "", "w");
+
+            assert!(status.starts_with("./Documents"));
+            assert!(status.ends_with("/w"));
+            assert_eq!(text_width(&status), 20);
+            assert!(!status.contains("/Dow"));
+            assert!(!status.contains("filter:"));
+        }
+
+        #[test]
+        fn status_text_places_overflow_between_selection_and_refinement() {
+            let status = build_status_text(45, "./Downloads", " | showing first 1000", "w");
+
+            assert!(status.starts_with("./Downloads | showing first 1000"));
+            assert!(status.ends_with("/w"));
+            assert!(status.find("showing first").unwrap() < status.find("/w").unwrap());
+            assert_eq!(text_width(&status), 45);
+        }
+
+        #[test]
+        fn status_text_drops_overflow_before_refinement() {
+            let status = build_status_text(20, "./Downloads", " | showing first 1000", "w");
+
+            assert!(status.starts_with("./Downloads"));
+            assert!(status.ends_with("/w"));
+            assert!(!status.contains("showing first"));
+            assert_eq!(text_width(&status), 20);
+        }
+
+        #[test]
+        fn status_text_truncates_long_selection_but_keeps_refinement() {
+            let status = build_status_text(24, "./very/deep/path/to/tui.rs", "", "abc");
+
+            assert!(status.starts_with('…'));
+            assert!(status.contains("path/to/tui.rs"));
+            assert!(status.ends_with("/abc"));
+            assert_eq!(text_width(&status), 24);
+        }
+
+        #[test]
+        fn status_text_caps_long_refinement_to_preserve_selection() {
+            let status = build_status_text(30, "./selected/path", "", "ridiculously-long-filter");
+
+            assert!(status.starts_with("./selected/path"));
+            assert!(status.ends_with("…ng-filter"));
+            assert_eq!(text_width(&status), 30);
+        }
+
+        #[test]
+        fn status_text_hides_refinement_when_terminal_is_tiny() {
+            let status = build_status_text(12, "selected-path", "", "abcdef");
+
+            assert_eq!(status, "…lected-path");
+            assert!(!status.contains('/'));
         }
 
         #[test]
