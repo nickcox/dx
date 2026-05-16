@@ -651,6 +651,41 @@ mod tests {
     }
 
     #[test]
+    fn menu_result_to_action_preserves_relative_replacement_formatting() {
+        let parsed = menu::ParsedBuffer {
+            mode: MenuMode::Completion(CompletionMode::Paths),
+            query: Some("s".to_string()),
+            replace_start: 3,
+            replace_end: 4,
+            needs_space_prefix: false,
+        };
+        let selected = PathBuf::from("/tmp/work/src");
+
+        let action = menu_result_to_action(
+            Some(MenuResult::Selected {
+                filter_query: "s".to_string(),
+                changed_query: false,
+                value: selected,
+                terminal: TerminalState::Dirty,
+            }),
+            &parsed,
+            parsed.mode,
+            Path::new("/tmp/work"),
+            true,
+        );
+
+        assert_eq!(
+            action,
+            MenuAction::Replace {
+                replace_start: 3,
+                replace_end: 4,
+                value: "./src/".to_string(),
+                terminal: TerminalState::Dirty,
+            }
+        );
+    }
+
+    #[test]
     fn paths_mode_parent_relative_prefix_preserved_in_replacement() {
         let cwd = Path::new("/tmp/work");
         let selected = Path::new("/tmp/work/../sibling");

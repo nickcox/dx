@@ -241,6 +241,13 @@ mod imp {
             .unwrap_or_else(|| "(no matches)".to_string())
     }
 
+    fn selected_status_path(paths: &[PathBuf], selected: Option<usize>) -> String {
+        selected
+            .and_then(|idx| paths.get(idx))
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "(no matches)".to_string())
+    }
+
     /// Compute a compact display label for a path:
     /// - relative to `cwd` if the path is under it (e.g. `Desktop`)
     /// - tilde-contracted if under `$HOME` (e.g. `~/code/dx`)
@@ -597,7 +604,7 @@ mod imp {
                 item_max_len,
             );
 
-            let selected_path = selected_label(&labels, list_state.selected());
+            let selected_path = selected_status_path(&completion.paths, list_state.selected());
 
             let overflow = overflow_note(completion.paths.len(), completion.has_more);
 
@@ -1408,6 +1415,26 @@ mod imp {
         #[test]
         fn status_text_shows_selection_without_refinement() {
             assert_eq!(build_status_text(20, "./Downloads", "", ""), "./Downloads");
+        }
+
+        #[test]
+        fn selected_status_path_uses_resolved_path_not_compact_label() {
+            let paths = vec![PathBuf::from("/Users/nick/code/personal/dx/src")];
+            let labels = vec!["./src".to_string()];
+
+            assert_eq!(selected_label(&labels, Some(0)), "./src");
+            assert_eq!(
+                selected_status_path(&paths, Some(0)),
+                "/Users/nick/code/personal/dx/src"
+            );
+        }
+
+        #[test]
+        fn selected_status_path_falls_back_for_empty_selection() {
+            let paths = vec![PathBuf::from("/tmp/alpha")];
+
+            assert_eq!(selected_status_path(&paths, None), "(no matches)");
+            assert_eq!(selected_status_path(&paths, Some(99)), "(no matches)");
         }
 
         #[test]
