@@ -69,7 +69,10 @@ pub fn generate_with_mappings_and_pwsh_key(
 
 #[cfg(test)]
 mod tests {
-    use super::{Shell, generate, generate_with_mappings_and_pwsh_key, parse_pwsh_menu_key};
+use super::{
+    MenuCommandMapping, MenuMappingMode, Shell, generate, generate_with_mappings,
+    generate_with_mappings_and_pwsh_key, parse_pwsh_menu_key,
+};
 
     fn count_unescaped(script: &str, needle: char) -> usize {
         let mut escaped = false;
@@ -489,6 +492,9 @@ mod tests {
         assert!(pwsh.contains("dx init: warning: PSReadLine key '$Global:__dx_pwsh_menu_key' was bound to a CustomAction"));
         assert!(pwsh.contains("Set-PSReadLineKeyHandler -Key 'Tab'"));
         assert!(pwsh.contains("-ScriptBlock"));
+        assert!(pwsh.contains("$dxMappingSeeds = @()"));
+        assert!(pwsh.contains("$Global:__dx_pwsh_menu_mapped = @{}"));
+        assert!(pwsh.contains("$dxMapped = $Global:__dx_pwsh_menu_mapped"));
         assert!(pwsh.contains("if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or ($first -notin $dxCmds -and -not $dxMenuMode))"));
         assert!(pwsh.contains("if ($LASTEXITCODE -ne 0 -or -not $json)"));
         assert!(pwsh.contains("$result = $json | ConvertFrom-Json"));
@@ -504,6 +510,55 @@ mod tests {
         assert!(pwsh.contains("PSConsoleReadLine]::InvokePrompt()"));
         assert!(pwsh.contains("__dx_pwsh_menu_fallback $key $arg"));
         assert!(pwsh.contains("default { [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg); return }"));
+    }
+
+    #[test]
+    fn pwsh_menu_mappings_expand_aliases_at_hook_load() {
+        let mappings = [MenuCommandMapping {
+            command: "Get-ChildItem".to_string(),
+            mode: MenuMappingMode::Path,
+        }];
+        let pwsh = generate_with_mappings(Shell::Pwsh, false, true, &mappings);
+
+        assert!(pwsh.contains("$dxMappingSeeds = @('Get-ChildItem=path')"));
+        assert!(pwsh.contains("$dxExplicitMapped = @{}"));
+        assert!(pwsh.contains("$dxDerivedMapped = @{}"));
+        assert!(pwsh.contains("$dxExplicitMapped[$parts[0]] = $parts[1]"));
+        assert!(pwsh.contains("foreach ($alias in Get-Alias -Definition $command -ErrorAction SilentlyContinue)"));
+        assert!(pwsh.contains("$dxDerivedMapped[$aliasName] = $mode"));
+        assert!(pwsh.contains("$Global:__dx_pwsh_menu_mapped = @{}"));
+        assert!(pwsh.contains("$dxMapped = $Global:__dx_pwsh_menu_mapped"));
+        assert!(pwsh.contains("if ($dxMapped -and $dxMapped.ContainsKey($first))"));
+        assert!(pwsh.contains("$dxMenuMode = $dxMapped[$first]"));
+        assert!(!pwsh.contains("foreach ($entry in $dxMapped)"));
+    }
+
+    #[test]
+    fn pwsh_menu_mapping_precedence_prefers_explicit_over_derived() {
+        let mappings = [
+            MenuCommandMapping {
+                command: "Get-ChildItem".to_string(),
+                mode: MenuMappingMode::Path,
+            },
+            MenuCommandMapping {
+                command: "gci".to_string(),
+                mode: MenuMappingMode::File,
+            },
+        ];
+        let pwsh = generate_with_mappings(Shell::Pwsh, false, true, &mappings);
+
+        assert!(pwsh.contains("$dxMappingSeeds = @('Get-ChildItem=path', 'gci=file')"));
+        assert!(pwsh.contains("if (-not $dxExplicitMapped.ContainsKey($aliasName) -and -not $dxDerivedMapped.ContainsKey($aliasName))"));
+        let derived_pos = pwsh
+            .find("foreach ($key in $dxDerivedMapped.Keys)")
+            .expect("derived mappings should be copied");
+        let explicit_pos = pwsh
+            .find("foreach ($key in $dxExplicitMapped.Keys)")
+            .expect("explicit mappings should be copied");
+        assert!(
+            derived_pos < explicit_pos,
+            "explicit mappings should be copied last so they win"
+        );
     }
 
     #[test]

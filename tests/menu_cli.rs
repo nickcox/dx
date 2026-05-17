@@ -518,9 +518,47 @@ fn init_pwsh_menu_with_mappings_emits_shared_handler_mode_routing() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("$dxMapped = @('cat=file')"));
+    assert!(stdout.contains("$dxMappingSeeds = @('cat=file')"));
+    assert!(stdout.contains("foreach ($alias in Get-Alias -Definition $command -ErrorAction SilentlyContinue)"));
+    assert!(stdout.contains("$Global:__dx_pwsh_menu_mapped = @{}"));
+    assert!(stdout.contains("$dxMapped = $Global:__dx_pwsh_menu_mapped"));
+    assert!(stdout.contains("if ($dxMapped -and $dxMapped.ContainsKey($first))"));
     assert!(stdout.contains("($first -notin $dxCmds -and -not $dxMenuMode)"));
     assert!(stdout.contains("dx menu --mode $dxMenuMode --buffer $line --cursor $cursor"));
+}
+
+#[test]
+fn init_non_pwsh_menu_mappings_remain_literal_command_registrations() {
+    let bash = dx()
+        .args(["init", "bash", "--menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "Get-ChildItem=path")
+        .output()
+        .expect("dx init bash --menu should run");
+    let zsh = dx()
+        .args(["init", "zsh", "--menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "Get-ChildItem=path")
+        .output()
+        .expect("dx init zsh --menu should run");
+    let fish = dx()
+        .args(["init", "fish", "--menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "Get-ChildItem=path")
+        .output()
+        .expect("dx init fish --menu should run");
+
+    assert!(bash.status.success());
+    assert!(zsh.status.success());
+    assert!(fish.status.success());
+
+    let bash_stdout = String::from_utf8_lossy(&bash.stdout);
+    let zsh_stdout = String::from_utf8_lossy(&zsh.stdout);
+    let fish_stdout = String::from_utf8_lossy(&fish.stdout);
+
+    assert!(bash_stdout.contains("Get-ChildItem) __dx_menu_mode=\"path\" ;;&"));
+    assert!(zsh_stdout.contains("'Get-ChildItem') __dx_menu_mode=\"path\" ;;"));
+    assert!(fish_stdout.contains("case 'Get-ChildItem'\n      set -l dx_menu_mode path"));
+    assert!(!bash_stdout.contains("Get-Alias -Definition"));
+    assert!(!zsh_stdout.contains("Get-Alias -Definition"));
+    assert!(!fish_stdout.contains("Get-Alias -Definition"));
 }
 
 // --- 4.3 Regression: menu disabled leaves existing behavior unchanged ---

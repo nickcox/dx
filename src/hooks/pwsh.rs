@@ -382,6 +382,41 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         }
     }
 
+    $dxMappingSeeds = @(__DX_MENU_MAPPINGS__)
+    $dxExplicitMapped = @{}
+    $dxDerivedMapped = @{}
+
+    foreach ($entry in $dxMappingSeeds) {
+        $parts = $entry -split '=', 2
+        if ($parts.Count -ne 2) { continue }
+        $dxExplicitMapped[$parts[0]] = $parts[1]
+    }
+
+    foreach ($entry in $dxMappingSeeds) {
+        $parts = $entry -split '=', 2
+        if ($parts.Count -ne 2) { continue }
+
+        $command = $parts[0]
+        $mode = $parts[1]
+
+        try {
+            foreach ($alias in Get-Alias -Definition $command -ErrorAction SilentlyContinue) {
+                $aliasName = $alias.Name
+                if (-not $dxExplicitMapped.ContainsKey($aliasName) -and -not $dxDerivedMapped.ContainsKey($aliasName)) {
+                    $dxDerivedMapped[$aliasName] = $mode
+                }
+            }
+        } catch { }
+    }
+
+    $Global:__dx_pwsh_menu_mapped = @{}
+    foreach ($key in $dxDerivedMapped.Keys) {
+        $Global:__dx_pwsh_menu_mapped[$key] = $dxDerivedMapped[$key]
+    }
+    foreach ($key in $dxExplicitMapped.Keys) {
+        $Global:__dx_pwsh_menu_mapped[$key] = $dxExplicitMapped[$key]
+    }
+
     Set-PSReadLineKeyHandler -Key '__DX_PWSH_MENU_KEY__' -BriefDescription 'dx menu' -Description $Global:__dx_pwsh_menu_handler_description -ScriptBlock {
         param($key, $arg)
 
@@ -399,16 +434,11 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         } catch {}
 
         $dxCmds = @(__DX_MENU_ELIGIBLE_COMMANDS__)
-        $dxMapped = @(__DX_MENU_MAPPINGS__)
         $first = ($line -split '\s+', 2)[0]
         $dxMenuMode = $null
-
-        foreach ($entry in $dxMapped) {
-            $parts = $entry -split '=', 2
-            if ($parts.Count -eq 2 -and $parts[0] -eq $first) {
-                $dxMenuMode = $parts[1]
-                break
-            }
+        $dxMapped = $Global:__dx_pwsh_menu_mapped
+        if ($dxMapped -and $dxMapped.ContainsKey($first)) {
+            $dxMenuMode = $dxMapped[$first]
         }
 
         if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or ($first -notin $dxCmds -and -not $dxMenuMode)) {
