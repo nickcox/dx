@@ -105,6 +105,7 @@ function __dx_jump_mode --argument mode query
     return 1
   end
 
+  __dx_push_pwd
   __dx_cd_native "$target"
   if test $status -ne 0
     return $status

@@ -107,6 +107,7 @@ __dx_jump_mode() {
     return 1
   fi
 
+  __dx_push_pwd
   __dx_cd_native "$__dx_target" || return $?
   __dx_push_pwd
   return 0

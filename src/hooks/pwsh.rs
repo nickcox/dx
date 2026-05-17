@@ -236,6 +236,7 @@ function cdf {
     param([string]$Query)
     $target = __dx_complete_first (__dx_complete_mode -Mode frecents -Word $Query)
     if ($target) {
+        __dx_push_pwd
         __dx_set_location_native @($target)
         if ($?) { __dx_push_pwd }
     }
@@ -247,6 +248,7 @@ function cdr {
     param([string]$Query)
     $target = __dx_complete_first (__dx_complete_mode -Mode recents -Word $Query)
     if ($target) {
+        __dx_push_pwd
         __dx_set_location_native @($target)
         if ($?) { __dx_push_pwd }
     }

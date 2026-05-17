@@ -120,6 +120,16 @@ mod tests {
         &rest[..end_rel]
     }
 
+    fn assert_contains_in_order(section: &str, markers: &[&str]) {
+        let mut cursor = 0;
+        for marker in markers {
+            let found = section[cursor..]
+                .find(marker)
+                .unwrap_or_else(|| panic!("missing marker in section: {marker}"));
+            cursor += found + marker.len();
+        }
+    }
+
     fn assert_bash_root_dx_completion_contract(script: &str) {
         let section = section_between(
             script,
@@ -253,6 +263,110 @@ mod tests {
             push_pos < navigate_pos,
             "push_pwd should come before dx navigate in nav_wrapper"
         );
+    }
+
+    #[test]
+    fn posix_jump_wrappers_seed_origin_before_cd_and_record_destination() {
+        let bash = generate(Shell::Bash, false, false);
+        let bash_jump = section_between(&bash, "__dx_jump_mode()", "\ncd() {");
+        assert_eq!(bash_jump.matches("__dx_push_pwd").count(), 2);
+        assert_contains_in_order(
+            bash_jump,
+            &[
+                "if [[ -z \"$__dx_target\" ]]; then",
+                "return 1",
+                "__dx_push_pwd",
+                "__dx_cd_native \"$__dx_target\" || return $?",
+                "__dx_push_pwd",
+            ],
+        );
+
+        let zsh = generate(Shell::Zsh, false, false);
+        let zsh_jump = section_between(&zsh, "__dx_jump_mode()", "\ncd() {");
+        assert_eq!(zsh_jump.matches("__dx_push_pwd").count(), 2);
+        assert_contains_in_order(
+            zsh_jump,
+            &[
+                "if [[ -z \"$__dx_target\" ]]; then",
+                "return 1",
+                "__dx_push_pwd",
+                "builtin cd \"$__dx_target\" || return $?",
+                "__dx_push_pwd",
+            ],
+        );
+
+        let fish = generate(Shell::Fish, false, false);
+        let fish_jump = section_between(&fish, "function __dx_jump_mode", "\nfunction cd");
+        assert_eq!(fish_jump.matches("__dx_push_pwd").count(), 2);
+        assert_contains_in_order(
+            fish_jump,
+            &[
+                "if test -z \"$target\"",
+                "return 1",
+                "__dx_push_pwd",
+                "__dx_cd_native \"$target\"",
+                "if test $status -ne 0",
+                "__dx_push_pwd",
+            ],
+        );
+    }
+
+    #[test]
+    fn pwsh_jump_wrappers_seed_origin_before_set_location_and_record_destination() {
+        let output = generate(Shell::Pwsh, false, false);
+
+        let cdf = section_between(&output, "function cdf {", "\nSet-Alias -Name z");
+        assert_eq!(cdf.matches("__dx_push_pwd").count(), 2);
+        assert_contains_in_order(
+            cdf,
+            &[
+                "$target = __dx_complete_first",
+                "if ($target) {",
+                "__dx_push_pwd",
+                "__dx_set_location_native @($target)",
+                "if ($?) { __dx_push_pwd }",
+            ],
+        );
+
+        let cdr = section_between(&output, "function cdr {", "\nfunction __dx_emit_completion");
+        assert_eq!(cdr.matches("__dx_push_pwd").count(), 2);
+        assert_contains_in_order(
+            cdr,
+            &[
+                "$target = __dx_complete_first",
+                "if ($target) {",
+                "__dx_push_pwd",
+                "__dx_set_location_native @($target)",
+                "if ($?) { __dx_push_pwd }",
+            ],
+        );
+    }
+
+    #[test]
+    fn stack_traversal_wrappers_do_not_seed_new_origin() {
+        let bash = generate(Shell::Bash, false, false);
+        let bash_stack = section_between(&bash, "__dx_stack_wrapper()", "\n__dx_jump_mode()");
+        assert!(!bash_stack.contains("__dx_push_pwd"));
+
+        let zsh = generate(Shell::Zsh, false, false);
+        let zsh_stack = section_between(&zsh, "__dx_stack_wrapper()", "\n__dx_jump_mode()");
+        assert!(!zsh_stack.contains("__dx_push_pwd"));
+
+        let fish = generate(Shell::Fish, false, false);
+        let fish_stack = section_between(
+            &fish,
+            "function __dx_stack_wrapper",
+            "\nfunction __dx_jump_mode",
+        );
+        assert!(!fish_stack.contains("__dx_push_pwd"));
+
+        let pwsh = generate(Shell::Pwsh, false, false);
+        let pwsh_stack = section_between(
+            &pwsh,
+            "function __dx_stack_wrapper",
+            "\nfunction __dx_set_location_native",
+        );
+        assert!(!pwsh_stack.contains("__dx_push_pwd"));
     }
 
     #[test]
