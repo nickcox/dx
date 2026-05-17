@@ -165,6 +165,7 @@ mod imp {
         Cancel,
         MoveLinear(isize),
         MoveGridVertical(isize),
+        MovePage(isize),
         Backspace,
         InputChar(char),
         Ignore,
@@ -180,6 +181,8 @@ mod imp {
             (KeyCode::Left, _) if use_grid => MenuKeyAction::MoveLinear(-1),
             (KeyCode::Down, _) if use_grid => MenuKeyAction::MoveGridVertical(1),
             (KeyCode::Up, _) if use_grid => MenuKeyAction::MoveGridVertical(-1),
+            (KeyCode::PageDown, _) => MenuKeyAction::MovePage(1),
+            (KeyCode::PageUp, _) => MenuKeyAction::MovePage(-1),
             (KeyCode::Tab, KeyModifiers::NONE) if use_grid => MenuKeyAction::MoveLinear(1),
             (KeyCode::BackTab, _) if use_grid => MenuKeyAction::MoveLinear(-1),
             (KeyCode::Down, _) | (KeyCode::Tab, KeyModifiers::NONE) => MenuKeyAction::MoveLinear(1),
@@ -849,6 +852,10 @@ mod imp {
                     MenuKeyAction::MoveGridVertical(direction) => {
                         move_selection_grid_vertical(&mut list_state, len, columns, direction);
                     }
+                    MenuKeyAction::MovePage(direction) => {
+                        let page_size = page_selection_step(layout.visible_rows, columns, use_grid);
+                        move_selection_page(&mut list_state, len, page_size, direction);
+                    }
                     MenuKeyAction::Backspace | MenuKeyAction::InputChar(_) => apply_filter_edit(
                         &mut filter_state,
                         &mut completion,
@@ -1371,6 +1378,30 @@ mod imp {
         }
         let current = state.selected().unwrap_or(0) as isize;
         let next = (current + delta).rem_euclid(len as isize) as usize;
+        state.select(Some(next));
+    }
+
+    fn page_selection_step(visible_rows: usize, columns: usize, use_grid: bool) -> usize {
+        if use_grid {
+            visible_rows.saturating_mul(columns).max(1)
+        } else {
+            visible_rows.max(1)
+        }
+    }
+
+    fn move_selection_page(state: &mut ListState, len: usize, page_size: usize, direction: isize) {
+        if len == 0 {
+            state.select(None);
+            return;
+        }
+
+        let current = state.selected().unwrap_or(0);
+        let step = page_size.max(1);
+        let next = if direction >= 0 {
+            current.saturating_add(step).min(len - 1)
+        } else {
+            current.saturating_sub(step)
+        };
         state.select(Some(next));
     }
 
@@ -1955,11 +1986,84 @@ mod imp {
         }
 
         #[test]
+        fn key_event_mapping_page_keys_move_by_page() {
+            let page_down = KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE);
+            let page_up = KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE);
+            assert_eq!(map_key_event(page_down, false), MenuKeyAction::MovePage(1));
+            assert_eq!(map_key_event(page_up, false), MenuKeyAction::MovePage(-1));
+            assert_eq!(map_key_event(page_down, true), MenuKeyAction::MovePage(1));
+            assert_eq!(map_key_event(page_up, true), MenuKeyAction::MovePage(-1));
+        }
+
+        #[test]
         fn key_event_mapping_tab_and_backtab_remain_navigation() {
             let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
             let backtab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
             assert_eq!(map_key_event(tab, false), MenuKeyAction::MoveLinear(1));
             assert_eq!(map_key_event(backtab, false), MenuKeyAction::MoveLinear(-1));
+        }
+
+        #[test]
+        fn page_selection_step_uses_visible_rows_for_single_column() {
+            assert_eq!(page_selection_step(10, 1, false), 10);
+            assert_eq!(page_selection_step(0, 1, false), 1);
+        }
+
+        #[test]
+        fn page_selection_step_uses_visible_grid_capacity_for_multicolumn() {
+            assert_eq!(page_selection_step(4, 3, true), 12);
+            assert_eq!(page_selection_step(0, 3, true), 1);
+            assert_eq!(page_selection_step(4, 0, true), 1);
+        }
+
+        #[test]
+        fn move_selection_page_moves_forward_and_backward_with_clamping() {
+            let mut state = ListState::default();
+            state.select(Some(0));
+
+            move_selection_page(&mut state, 30, 10, 1);
+            assert_eq!(state.selected(), Some(10));
+
+            move_selection_page(&mut state, 30, 10, -1);
+            assert_eq!(state.selected(), Some(0));
+
+            state.select(Some(25));
+            move_selection_page(&mut state, 30, 10, 1);
+            assert_eq!(state.selected(), Some(29));
+
+            state.select(Some(3));
+            move_selection_page(&mut state, 30, 10, -1);
+            assert_eq!(state.selected(), Some(0));
+        }
+
+        #[test]
+        fn move_selection_page_uses_minimum_step_and_handles_empty_lists() {
+            let mut state = ListState::default();
+            state.select(Some(0));
+
+            move_selection_page(&mut state, 5, 0, 1);
+            assert_eq!(state.selected(), Some(1));
+
+            move_selection_page(&mut state, 0, 10, 1);
+            assert_eq!(state.selected(), None);
+        }
+
+        #[test]
+        fn move_selection_page_supports_multicolumn_grid_capacity() {
+            let mut state = ListState::default();
+            let page_size = page_selection_step(4, 3, true);
+
+            state.select(Some(0));
+            move_selection_page(&mut state, 30, page_size, 1);
+            assert_eq!(state.selected(), Some(12));
+
+            state.select(Some(14));
+            move_selection_page(&mut state, 30, page_size, -1);
+            assert_eq!(state.selected(), Some(2));
+
+            state.select(Some(25));
+            move_selection_page(&mut state, 30, page_size, 1);
+            assert_eq!(state.selected(), Some(29));
         }
 
         #[test]
