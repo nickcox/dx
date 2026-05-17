@@ -206,6 +206,21 @@ fn parse_menu_border() -> bool {
     }
 }
 
+fn parse_menu_ls_colors() -> Option<crate::menu::ls_colors::LsColorsConfig> {
+    let ls_colors_raw = std::env::var("LS_COLORS").ok()?;
+    if ls_colors_raw.trim().is_empty() {
+        return None;
+    }
+    let enabled = match std::env::var("DX_MENU_LS_COLORS") {
+        Ok(val) => val.trim() == "1",
+        Err(_) => return None,
+    };
+    if !enabled {
+        return None;
+    }
+    Some(crate::menu::ls_colors::parse_ls_colors(&ls_colors_raw))
+}
+
 fn parse_menu_max_rows() -> u16 {
     std::env::var("DX_MENU_MAX_ROWS")
         .ok()
@@ -372,6 +387,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     let item_max_len = parse_menu_item_max_len();
     let show_border = parse_menu_border();
     let max_rows = parse_menu_max_rows();
+    let ls_colors = parse_menu_ls_colors();
 
     let menu_result = menu::tui::select(
         initial_candidates,
@@ -385,6 +401,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         show_border,
         cmd.psreadline_mode,
         query_fn,
+        ls_colors,
     );
 
     match menu_result_to_action(
@@ -831,5 +848,53 @@ mod tests {
 
         unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "-3") };
         assert_eq!(parse_menu_max_rows(), 20);
+    }
+
+    #[test]
+    fn parse_menu_ls_colors_missing_both_env_vars_returns_none() {
+        let _guard = env_lock();
+        unsafe { std::env::remove_var("DX_MENU_LS_COLORS") };
+        unsafe { std::env::remove_var("LS_COLORS") };
+        assert_eq!(parse_menu_ls_colors(), None);
+    }
+
+    #[test]
+    fn parse_menu_ls_colors_missing_flag_returns_none() {
+        let _guard = env_lock();
+        unsafe { std::env::remove_var("DX_MENU_LS_COLORS") };
+        unsafe { std::env::set_var("LS_COLORS", "di=01;34") };
+        assert_eq!(parse_menu_ls_colors(), None);
+    }
+
+    #[test]
+    fn parse_menu_ls_colors_non_one_flag_returns_none() {
+        let _guard = env_lock();
+        unsafe { std::env::set_var("DX_MENU_LS_COLORS", "0") };
+        unsafe { std::env::set_var("LS_COLORS", "di=01;34") };
+        assert_eq!(parse_menu_ls_colors(), None);
+    }
+
+    #[test]
+    fn parse_menu_ls_colors_missing_ls_colors_returns_none() {
+        let _guard = env_lock();
+        unsafe { std::env::set_var("DX_MENU_LS_COLORS", "1") };
+        unsafe { std::env::remove_var("LS_COLORS") };
+        assert_eq!(parse_menu_ls_colors(), None);
+    }
+
+    #[test]
+    fn parse_menu_ls_colors_empty_ls_colors_returns_none() {
+        let _guard = env_lock();
+        unsafe { std::env::set_var("DX_MENU_LS_COLORS", "1") };
+        unsafe { std::env::set_var("LS_COLORS", "") };
+        assert_eq!(parse_menu_ls_colors(), None);
+    }
+
+    #[test]
+    fn parse_menu_ls_colors_both_set_returns_config() {
+        let _guard = env_lock();
+        unsafe { std::env::set_var("DX_MENU_LS_COLORS", "1") };
+        unsafe { std::env::set_var("LS_COLORS", "di=01;34") };
+        assert!(parse_menu_ls_colors().is_some());
     }
 }

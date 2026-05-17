@@ -1,5 +1,6 @@
 pub mod action;
 pub mod buffer;
+pub mod ls_colors;
 pub mod mode;
 pub mod tui;
 
@@ -154,6 +155,7 @@ fn mapped_parent_directories(
         return (vec![cwd.to_path_buf()], String::new());
     }
 
+    let is_rooted = query.starts_with('/');
     let (parent_query, leaf_prefix) = if query.ends_with('/') {
         (query.trim_end_matches('/'), "")
     } else if let Some((parent, leaf)) = query.rsplit_once('/') {
@@ -163,6 +165,9 @@ fn mapped_parent_directories(
     };
 
     if parent_query.is_empty() {
+        if is_rooted {
+            return (vec![PathBuf::from("/")], leaf_prefix.to_string());
+        }
         return (vec![cwd.to_path_buf()], leaf_prefix.to_string());
     }
 
@@ -271,7 +276,7 @@ mod tests {
     use crate::resolve::Resolver;
     use crate::test_support;
 
-    use super::source_candidates;
+    use super::{MenuMode, source_candidates, source_candidates_with_meta};
 
     fn make_temp_dir(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -317,6 +322,123 @@ mod tests {
         );
 
         assert_eq!(menu, completion.paths);
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn mapped_path_root_slash_lists_root_without_cwd_children() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("mapped-root-slash");
+        let cwd = temp.join("work");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        let cwd_only = cwd.join("cwd-only-marker");
+        fs::write(&cwd_only, "marker").expect("create cwd marker");
+
+        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let candidates = source_candidates_with_meta(
+            &resolver,
+            MenuMode::Path,
+            Some("/"),
+            None,
+            Some(cwd.as_path()),
+            None,
+        );
+
+        assert!(
+            candidates
+                .paths
+                .iter()
+                .all(|path| path.parent() == Some(PathBuf::from("/").as_path()))
+        );
+        assert!(!candidates.paths.contains(&cwd_only));
+        assert!(!candidates.paths.is_empty());
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn mapped_path_rooted_prefix_filters_root_without_cwd_children() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("mapped-root-prefix");
+        let cwd = temp.join("work");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        let cwd_only = cwd.join("Users-local-marker");
+        fs::write(&cwd_only, "marker").expect("create cwd marker");
+
+        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let candidates = source_candidates_with_meta(
+            &resolver,
+            MenuMode::Path,
+            Some("/U"),
+            None,
+            Some(cwd.as_path()),
+            None,
+        );
+
+        assert!(
+            candidates
+                .paths
+                .iter()
+                .all(|path| path.parent() == Some(PathBuf::from("/").as_path()))
+        );
+        assert!(candidates.paths.iter().all(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase().starts_with('u'))
+                .unwrap_or(false)
+        }));
+        assert!(!candidates.paths.contains(&cwd_only));
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn mapped_path_empty_query_still_lists_cwd_children() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("mapped-empty-cwd");
+        let cwd = temp.join("work");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        let cwd_only = cwd.join("cwd-only-marker");
+        fs::write(&cwd_only, "marker").expect("create cwd marker");
+
+        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let candidates = source_candidates_with_meta(
+            &resolver,
+            MenuMode::Path,
+            Some(""),
+            None,
+            Some(cwd.as_path()),
+            None,
+        );
+
+        assert!(candidates.paths.contains(&cwd_only));
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn mapped_path_bare_query_still_filters_cwd_children() {
+        let _guard = env_lock();
+        let temp = make_temp_dir("mapped-bare-cwd");
+        let cwd = temp.join("work");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        let matching = cwd.join("src-local-marker");
+        let nonmatching = cwd.join("other-marker");
+        fs::write(&matching, "marker").expect("create matching marker");
+        fs::write(&nonmatching, "marker").expect("create nonmatching marker");
+
+        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let candidates = source_candidates_with_meta(
+            &resolver,
+            MenuMode::Path,
+            Some("src"),
+            None,
+            Some(cwd.as_path()),
+            None,
+        );
+
+        assert!(candidates.paths.contains(&matching));
+        assert!(!candidates.paths.contains(&nonmatching));
 
         let _ = fs::remove_dir_all(temp);
     }

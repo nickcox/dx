@@ -74,6 +74,15 @@ Notes:
 - `DX_MENU_BORDER`: controls whether the menu list/grid block border is shown.
   - Truthy values (`1`, `true`, `yes`, `on`) enable the border.
   - Unset/empty/`0`/`false`/`no`/`off` keeps border off (default).
+- `DX_MENU_LS_COLORS`: set to `1` to enable LS_COLORS-derived file type coloring
+  for non-selected candidate labels in the interactive menu.
+  - Requires `LS_COLORS` to be present in the environment.
+  - When enabled, candidate labels are styled per the file's LS_COLORS
+    classification (directory, executable, extension match, etc.).
+  - Selected candidates always use the selection highlight regardless of
+    LS_COLORS.
+  - When unset, not `1`, or `LS_COLORS` absent, candidate labels use the
+    existing monochrome rendering (default).
 - `DX_MENU_DEBUG`: set to `1` to print menu debug diagnostics to stderr.
 - `DX_MENU_COMMAND_MAPPINGS`: comma-separated command-to-mode mappings used by
   `dx init <shell> --menu` to generate menu-backed completion for external

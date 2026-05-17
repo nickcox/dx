@@ -49,6 +49,7 @@ mod imp {
     };
 
     use crate::menu::MenuMode;
+    use crate::menu::ls_colors::LsColorsConfig;
     use crate::resolve::CompletionCandidates;
 
     use super::MenuResult;
@@ -434,6 +435,7 @@ mod imp {
         show_border: bool,
         psreadline_mode: bool,
         query_fn: QueryFn<'_>,
+        ls_colors: Option<LsColorsConfig>,
     ) -> Option<MenuResult> {
         if initial_candidates.paths.is_empty() {
             return Some(MenuResult::Cancelled {
@@ -511,12 +513,14 @@ mod imp {
             item_max_len,
             show_border,
             &query_fn,
+            ls_colors,
         )
     }
 
     fn render_grid_items(
         completion: &CompletionCandidates,
         labels: &[String],
+        ls_colors: Option<&LsColorsConfig>,
         layout: &MenuLayoutPlan,
         selected: usize,
     ) -> Vec<Line<'static>> {
@@ -551,17 +555,7 @@ mod imp {
                 let content_width = metrics.column_widths[col].saturating_sub(2).max(1);
                 let trunc = truncate_for_cell(&labels[idx], content_width);
                 let text = pad_to_width(&trunc, metrics.column_widths[col]);
-                let span = if idx == selected {
-                    Span::styled(
-                        text,
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    Span::raw(text)
-                };
+                let span = candidate_span(text, &completion.paths[idx], idx == selected, ls_colors);
                 spans.push(span);
             }
             lines.push(Line::from(spans));
@@ -570,17 +564,42 @@ mod imp {
         lines
     }
 
+    fn selected_style() -> Style {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    fn candidate_span(
+        text: String,
+        path: &Path,
+        selected: bool,
+        ls_colors: Option<&LsColorsConfig>,
+    ) -> Span<'static> {
+        if selected {
+            return Span::styled(text, selected_style());
+        }
+
+        if let Some(style) = ls_colors.and_then(|lc| lc.style_for_path(path)) {
+            Span::styled(text, style)
+        } else {
+            Span::raw(text)
+        }
+    }
+
     fn render_grid(
         frame: &mut ratatui::Frame<'_>,
         completion: &CompletionCandidates,
         labels: &[String],
+        ls_colors: Option<&LsColorsConfig>,
         layout: &MenuLayoutPlan,
         content_area: Rect,
         scrollbar_area: Option<Rect>,
         selected: usize,
         show_border: bool,
     ) {
-        let lines = render_grid_items(completion, labels, layout, selected);
+        let lines = render_grid_items(completion, labels, ls_colors, layout, selected);
         let mut grid = Paragraph::new(lines);
         if show_border {
             grid = grid.block(Block::bordered());
@@ -601,21 +620,31 @@ mod imp {
     fn render_list(
         frame: &mut ratatui::Frame<'_>,
         labels: &[String],
+        paths: &[std::path::PathBuf],
+        ls_colors: Option<&LsColorsConfig>,
         layout: &MenuLayoutPlan,
         content_area: Rect,
         scrollbar_area: Option<Rect>,
         list_state: &mut ListState,
         show_border: bool,
     ) {
-        let items: Vec<ListItem> = labels.iter().cloned().map(ListItem::new).collect();
+        let items: Vec<ListItem> = labels
+            .iter()
+            .enumerate()
+            .map(|(i, label)| {
+                let selected = list_state.selected() == Some(i);
+                let line = Line::from(candidate_span(
+                    label.clone(),
+                    &paths[i],
+                    selected,
+                    ls_colors,
+                ));
+                ListItem::new(line)
+            })
+            .collect();
 
         let mut list = List::new(items)
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
+            .highlight_style(selected_style())
             .highlight_symbol("▸ ");
         if show_border {
             list = list.block(Block::bordered());
@@ -672,6 +701,7 @@ mod imp {
         item_max_len: Option<usize>,
         show_border: bool,
         query_fn: &QueryFn<'_>,
+        ls_colors: Option<LsColorsConfig>,
     ) -> Option<MenuResult> {
         let writer: Box<dyn Write> = if use_tty_backend {
             Box::new(OpenOptions::new().write(true).open("/dev/tty").ok()?)
@@ -761,6 +791,7 @@ mod imp {
                             frame,
                             &completion,
                             &labels,
+                            ls_colors.as_ref(),
                             &layout,
                             content_area,
                             scrollbar_area,
@@ -771,6 +802,8 @@ mod imp {
                         render_list(
                             frame,
                             &labels,
+                            &completion.paths,
+                            ls_colors.as_ref(),
                             &layout,
                             content_area,
                             scrollbar_area,
@@ -2046,6 +2079,68 @@ mod imp {
             assert_eq!(selected_label(&labels, None), "(no matches)");
             assert_eq!(selected_label(&labels, Some(99)), "(no matches)");
         }
+
+        #[test]
+        fn candidate_span_uses_ls_colors_for_non_selected_item() {
+            let ls_colors = crate::menu::ls_colors::parse_ls_colors("*.rs=01;31");
+            let span = candidate_span(
+                "main.rs".to_string(),
+                Path::new("/tmp/main.rs"),
+                false,
+                Some(&ls_colors),
+            );
+
+            assert_eq!(span.content.as_ref(), "main.rs");
+            assert_eq!(span.style.fg, Some(Color::Red));
+            assert!(span.style.add_modifier & Modifier::BOLD != Modifier::empty());
+        }
+
+        #[test]
+        fn candidate_span_stays_plain_when_ls_colors_disabled() {
+            let span = candidate_span(
+                "main.rs".to_string(),
+                Path::new("/tmp/main.rs"),
+                false,
+                None,
+            );
+
+            assert_eq!(span.content.as_ref(), "main.rs");
+            assert_eq!(span.style, Style::default());
+        }
+
+        #[test]
+        fn candidate_span_selected_item_overrides_ls_colors() {
+            let ls_colors = crate::menu::ls_colors::parse_ls_colors("*.rs=01;31");
+            let span = candidate_span(
+                "main.rs".to_string(),
+                Path::new("/tmp/main.rs"),
+                true,
+                Some(&ls_colors),
+            );
+
+            assert_eq!(span.content.as_ref(), "main.rs");
+            assert_eq!(span.style, selected_style());
+        }
+
+        #[test]
+        fn render_grid_items_styles_non_selected_cells_and_preserves_selected_highlight() {
+            let ls_colors = crate::menu::ls_colors::parse_ls_colors("*.rs=01;31:*.md=01;32");
+            let completion = CompletionCandidates {
+                paths: vec![
+                    PathBuf::from("/tmp/main.rs"),
+                    PathBuf::from("/tmp/README.md"),
+                ],
+                has_more: false,
+            };
+            let labels = vec!["main.rs".to_string(), "README.md".to_string()];
+            let layout = build_menu_layout(Rect::new(0, 0, 40, 3), false, 2, &labels, Some(20));
+
+            let lines = render_grid_items(&completion, &labels, Some(&ls_colors), &layout, 1);
+            let spans = &lines[0].spans;
+
+            assert_eq!(spans[0].style.fg, Some(Color::Red));
+            assert_eq!(spans[1].style, selected_style());
+        }
     }
 }
 
@@ -2070,6 +2165,7 @@ mod imp {
         _show_border: bool,
         _psreadline_mode: bool,
         _query_fn: QueryFn<'_>,
+        _ls_colors: Option<crate::menu::ls_colors::LsColorsConfig>,
     ) -> Option<MenuResult> {
         Some(MenuResult::Cancelled {
             filter_query: initial_query.to_string(),
