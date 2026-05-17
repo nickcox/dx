@@ -27,18 +27,6 @@ pub fn parse_pwsh_menu_key(raw: &str) -> Result<String, PwshMenuKeyError> {
     Ok(trimmed.to_string())
 }
 
-pub fn generate(command_not_found: bool, menu: bool) -> String {
-    generate_with_mappings_and_menu_key(command_not_found, menu, &[], "Tab")
-}
-
-pub fn generate_with_mappings(
-    command_not_found: bool,
-    menu: bool,
-    _mappings: &[MenuCommandMapping],
-) -> String {
-    generate_with_mappings_and_menu_key(command_not_found, menu, _mappings, "Tab")
-}
-
 pub fn generate_with_mappings_and_menu_key(
     command_not_found: bool,
     menu: bool,

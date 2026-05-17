@@ -6,10 +6,6 @@ use super::common::{
     shell_words,
 };
 
-pub fn generate(command_not_found: bool, menu: bool) -> String {
-    generate_with_mappings(command_not_found, menu, &[])
-}
-
 pub fn generate_with_mappings(
     command_not_found: bool,
     menu: bool,

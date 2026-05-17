@@ -240,13 +240,6 @@ mod imp {
         reset_selection(list_state, completion.paths.len());
     }
 
-    fn selected_label(labels: &[String], selected: Option<usize>) -> String {
-        selected
-            .and_then(|idx| labels.get(idx))
-            .cloned()
-            .unwrap_or_else(|| "(no matches)".to_string())
-    }
-
     fn selected_status_path(paths: &[PathBuf], selected: Option<usize>) -> String {
         selected
             .and_then(|idx| paths.get(idx))
@@ -431,7 +424,6 @@ mod imp {
         initial_query: &str,
         mode: MenuMode,
         cwd: &Path,
-        prefer_relative_paths: bool,
         prompt_row_override: Option<u16>,
         max_rows: u16,
         item_max_len: Option<usize>,
@@ -447,6 +439,8 @@ mod imp {
             });
         }
 
+        let (cols, rows) = terminal::size().ok()?;
+
         if initial_candidates.paths.len() == 1 && !initial_candidates.has_more {
             return Some(MenuResult::Selected {
                 value: initial_candidates.paths.into_iter().next().unwrap(),
@@ -456,7 +450,7 @@ mod imp {
             });
         }
 
-        let (cols, rows) = terminal::size().ok()?;
+
         let home = dirs::home_dir();
         let initial_label_style = CandidateLabelStyle::from_query(mode, initial_query);
         let initial_labels: Vec<String> = initial_candidates
@@ -509,7 +503,6 @@ mod imp {
             initial_query,
             mode,
             cwd,
-            prefer_relative_paths,
             area,
             max_rows,
             use_tty_backend,
@@ -697,7 +690,6 @@ mod imp {
         initial_query: &str,
         mode: MenuMode,
         cwd: &Path,
-        prefer_relative_paths: bool,
         area: Rect,
         max_rows: u16,
         use_tty_backend: bool,
@@ -1771,9 +1763,6 @@ mod imp {
         #[test]
         fn selected_status_path_uses_resolved_path_not_compact_label() {
             let paths = vec![PathBuf::from("/Users/nick/code/personal/dx/src")];
-            let labels = vec!["./src".to_string()];
-
-            assert_eq!(selected_label(&labels, Some(0)), "./src");
             assert_eq!(
                 selected_status_path(&paths, Some(0)),
                 "/Users/nick/code/personal/dx/src"
@@ -2176,15 +2165,6 @@ mod imp {
         }
 
         #[test]
-        fn selected_label_uses_precomputed_labels_and_falls_back_for_empty_selection() {
-            let labels = vec!["./alpha".to_string(), "./beta".to_string()];
-
-            assert_eq!(selected_label(&labels, Some(1)), "./beta");
-            assert_eq!(selected_label(&labels, None), "(no matches)");
-            assert_eq!(selected_label(&labels, Some(99)), "(no matches)");
-        }
-
-        #[test]
         fn candidate_span_uses_ls_colors_for_non_selected_item() {
             let ls_colors = crate::menu::ls_colors::parse_ls_colors("*.rs=01;31");
             let span = candidate_span(
@@ -2262,7 +2242,6 @@ mod imp {
         initial_query: &str,
         _mode: crate::menu::MenuMode,
         _cwd: &Path,
-        _prefer_relative_paths: bool,
         _prompt_row_override: Option<u16>,
         _max_rows: u16,
         _item_max_len: Option<usize>,

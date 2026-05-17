@@ -71,6 +71,7 @@ pub struct MenuCommand {
 /// Examples (Paths mode):
 ///   /Users/nick/Downloads          → Downloads/
 ///   /Users/nick/Dropbox (Maestral) → 'Dropbox (Maestral)/'
+#[cfg(test)]
 fn format_selected_path(path: &str, mode: MenuMode) -> String {
     let append_trailing_slash = matches!(
         mode,
@@ -409,7 +410,6 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         &initial_query,
         parsed.mode,
         &cwd,
-        prefer_relative_paths,
         cmd.prompt_row,
         max_rows,
         item_max_len,
