@@ -181,18 +181,18 @@ fn needs_shell_quoting(s: &str) -> bool {
 }
 
 fn parse_menu_item_max_len() -> Option<usize> {
+    let default = 80usize;
     let Ok(raw) = std::env::var("DX_MENU_ITEM_MAX_LEN") else {
-        // Default: multicolumn on, with no artificial truncation cap.
-        return Some(usize::MAX);
+        return Some(default);
     };
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Some(usize::MAX);
+        return Some(default);
     }
     match trimmed.parse::<i64>() {
         Ok(value) if value <= 0 => None,
         Ok(value) => Some(value as usize),
-        Err(_) => Some(usize::MAX),
+        Err(_) => Some(default),
     }
 }
 
@@ -211,7 +211,7 @@ fn parse_menu_max_rows() -> u16 {
         .ok()
         .and_then(|raw| raw.trim().parse::<u16>().ok())
         .filter(|&value| value > 0)
-        .unwrap_or(10)
+        .unwrap_or(20)
 }
 
 fn parse_menu_max_results() -> usize {
@@ -726,23 +726,23 @@ mod tests {
     }
 
     #[test]
-    fn parse_item_max_len_unset_is_none() {
+    fn parse_item_max_len_unset_uses_default_cap() {
         let _guard = env_lock();
         unsafe { std::env::remove_var("DX_MENU_ITEM_MAX_LEN") };
-        assert_eq!(parse_menu_item_max_len(), Some(usize::MAX));
+        assert_eq!(parse_menu_item_max_len(), Some(80));
     }
 
     #[test]
-    fn parse_item_max_len_invalid_is_none() {
+    fn parse_item_max_len_invalid_uses_default_cap() {
         let _guard = env_lock();
         unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "abc") };
-        assert_eq!(parse_menu_item_max_len(), Some(usize::MAX));
+        assert_eq!(parse_menu_item_max_len(), Some(80));
         unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "0") };
         assert_eq!(parse_menu_item_max_len(), None);
         unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "-3") };
         assert_eq!(parse_menu_item_max_len(), None);
         unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "") };
-        assert_eq!(parse_menu_item_max_len(), Some(usize::MAX));
+        assert_eq!(parse_menu_item_max_len(), Some(80));
     }
 
     #[test]
@@ -803,10 +803,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_menu_max_rows_defaults_to_10() {
+    fn parse_menu_max_rows_defaults_to_20() {
         let _guard = env_lock();
         unsafe { std::env::remove_var("DX_MENU_MAX_ROWS") };
-        assert_eq!(parse_menu_max_rows(), 10);
+        assert_eq!(parse_menu_max_rows(), 20);
     }
 
     #[test]
@@ -821,15 +821,15 @@ mod tests {
         let _guard = env_lock();
 
         unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "") };
-        assert_eq!(parse_menu_max_rows(), 10);
+        assert_eq!(parse_menu_max_rows(), 20);
 
         unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "abc") };
-        assert_eq!(parse_menu_max_rows(), 10);
+        assert_eq!(parse_menu_max_rows(), 20);
 
         unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "0") };
-        assert_eq!(parse_menu_max_rows(), 10);
+        assert_eq!(parse_menu_max_rows(), 20);
 
         unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "-3") };
-        assert_eq!(parse_menu_max_rows(), 10);
+        assert_eq!(parse_menu_max_rows(), 20);
     }
 }
