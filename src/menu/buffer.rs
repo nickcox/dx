@@ -26,15 +26,16 @@ pub struct ParsedBuffer {
 /// can enumerate the directory's children on the next Tab press.
 ///
 /// Handles:
-/// - Single-quoted: `'foo bar'/` → `foo bar/`, `'it'\''s'/` → `it's/`
-/// - Double-quoted: `"foo bar"/` → `foo bar/`
+/// - Single-quoted: `'foo bar/'` → `foo bar/`, `'foo bar'/` → `foo bar/`
+/// - Double-quoted: `"foo bar/"` → `foo bar/`, `"foo bar"/` → `foo bar/`
 /// - Unquoted: `/usr/local/` → `/usr/local/` (unchanged)
 fn unquote_shell_quoted(s: &str) -> String {
     // Single-quoted string (possibly with `'\''` escape sequences for embedded `'`).
-    // The trailing `/` sits outside the closing `'`; move it after unquoting.
+    // Preserve both current slash-inside-quote and legacy slash-outside-quote forms.
     //
+    // Example: `'foo bar/'`  → `foo bar/`
     // Example: `'foo bar'/`  → `foo bar/`
-    // Example: `'it'\''s'/` → `it's/`
+    // Example: `'it'\''s/'` → `it's/`
     // Example: `'foo bar'`   → `foo bar`
     if s.starts_with('\'') {
         let (s, trailing_slash) = if s.ends_with("'/") {
@@ -470,10 +471,17 @@ mod tests {
     }
 
     #[test]
-    fn unquote_single_quoted_path_with_appended_slash() {
-        // Trailing `/` moved outside the unquoted result — preserved for drill-in
+    fn unquote_single_quoted_path_with_legacy_outside_slash() {
         assert_eq!(
             unquote_shell_quoted("'/Library/Application Support'/"),
+            "/Library/Application Support/"
+        );
+    }
+
+    #[test]
+    fn unquote_single_quoted_path_with_inside_slash() {
+        assert_eq!(
+            unquote_shell_quoted("'/Library/Application Support/'"),
             "/Library/Application Support/"
         );
     }
@@ -489,17 +497,30 @@ mod tests {
     #[test]
     fn unquote_single_quoted_with_embedded_single_quote() {
         assert_eq!(unquote_shell_quoted("'it'\\''s here'/"), "it's here/");
+        assert_eq!(unquote_shell_quoted("'it'\\''s here/'"), "it's here/");
     }
 
     #[test]
     fn unquote_double_quoted_path() {
+        assert_eq!(unquote_shell_quoted("\"foo bar/\""), "foo bar/");
         assert_eq!(unquote_shell_quoted("\"foo bar\"/"), "foo bar/");
     }
 
     #[test]
-    fn parse_buffer_handles_quoted_token_for_drill_in() {
-        // After selecting '/Library/Application Support'/ the buffer is:
-        // `cd '/Library/Application Support'/` — query must include the trailing slash
+    fn parse_buffer_handles_quoted_token_with_inside_slash_for_drill_in() {
+        // Query must include the trailing slash so expand_filesystem_prefix lists children.
+        let buf = "cd '/Library/Application Support/'";
+        let p = parse_buffer(buf, buf.len()).expect("should parse");
+        assert_eq!(p.mode, builtin(CompletionMode::Paths));
+        assert_eq!(p.query.as_deref(), Some("/Library/Application Support/"));
+        assert_eq!(p.replace_start, 3);
+        assert_eq!(p.replace_end, buf.len());
+    }
+
+    #[test]
+    fn parse_buffer_handles_legacy_quoted_token_with_outside_slash_for_drill_in() {
+        // Legacy outside-slash form remains parseable for repeated expansions.
+        // `cd '/Library/Application Support'/` must include the trailing slash
         // so that expand_filesystem_prefix lists the directory's children.
         let buf = "cd '/Library/Application Support'/";
         let p = parse_buffer(buf, buf.len()).expect("should parse");

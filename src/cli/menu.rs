@@ -61,8 +61,7 @@ pub struct MenuCommand {
 /// For `Paths` mode (directory browsing):
 /// - Appends a trailing `/` so the user can Tab-complete into the directory.
 /// - Single-quote-wraps if the path contains shell-special characters.
-///   The trailing `/` is placed outside quotes so the shell sees it as a
-///   word boundary.
+///   The trailing `/` is included inside quotes when quoting is needed.
 ///
 /// For all other modes (stack, ancestors, frecents, recents):
 /// - Returns the absolute path as-is — no trailing slash, no quoting needed
@@ -71,22 +70,23 @@ pub struct MenuCommand {
 ///
 /// Examples (Paths mode):
 ///   /Users/nick/Downloads          → Downloads/
-///   /Users/nick/Dropbox (Maestral) → 'Dropbox (Maestral)'/
+///   /Users/nick/Dropbox (Maestral) → 'Dropbox (Maestral)/'
 fn format_selected_path(path: &str, mode: MenuMode) -> String {
-    let formatted = if needs_shell_quoting(path) {
+    let path = match mode {
+        MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory => {
+            format!("{path}/")
+        }
+        _ => path.to_string(),
+    };
+
+    let formatted = if needs_shell_quoting(&path) {
         let escaped = path.replace('\'', "'\\''");
         format!("'{escaped}'")
     } else {
-        path.to_string()
+        path
     };
 
-    match mode {
-        MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory => {
-            format!("{formatted}/")
-        }
-        // Stack, ancestors, frecents, recents — no trailing slash needed.
-        _ => formatted,
-    }
+    formatted
 }
 
 fn sanitize_relative_components(path: &Path) -> PathBuf {
@@ -572,13 +572,13 @@ mod tests {
     }
 
     #[test]
-    fn paths_mode_path_with_spaces_is_quoted_with_trailing_slash_outside() {
+    fn paths_mode_path_with_spaces_is_quoted_with_trailing_slash_inside() {
         assert_eq!(
             format_selected_path(
                 "/Users/nick/Dropbox (Maestral)",
                 MenuMode::Completion(CompletionMode::Paths),
             ),
-            "'/Users/nick/Dropbox (Maestral)'/"
+            "'/Users/nick/Dropbox (Maestral)/'"
         );
     }
 
@@ -589,7 +589,7 @@ mod tests {
                 "/tmp/it's here",
                 MenuMode::Completion(CompletionMode::Paths),
             ),
-            "'/tmp/it'\\''s here'/"
+            "'/tmp/it'\\''s here/'"
         );
     }
 
