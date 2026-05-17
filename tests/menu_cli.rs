@@ -519,7 +519,9 @@ fn init_pwsh_menu_with_mappings_emits_shared_handler_mode_routing() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("$dxMappingSeeds = @('cat=file')"));
-    assert!(stdout.contains("foreach ($alias in Get-Alias -Definition $command -ErrorAction SilentlyContinue)"));
+    assert!(stdout.contains(
+        "foreach ($alias in Get-Alias -Definition $command -ErrorAction SilentlyContinue)"
+    ));
     assert!(stdout.contains("$Global:__dx_pwsh_menu_mapped = @{}"));
     assert!(stdout.contains("$dxMapped = $Global:__dx_pwsh_menu_mapped"));
     assert!(stdout.contains("if ($dxMapped -and $dxMapped.ContainsKey($first))"));

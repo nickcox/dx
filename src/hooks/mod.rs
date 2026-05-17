@@ -69,10 +69,10 @@ pub fn generate_with_mappings_and_pwsh_key(
 
 #[cfg(test)]
 mod tests {
-use super::{
-    MenuCommandMapping, MenuMappingMode, Shell, generate, generate_with_mappings,
-    generate_with_mappings_and_pwsh_key, parse_pwsh_menu_key,
-};
+    use super::{
+        MenuCommandMapping, MenuMappingMode, Shell, generate, generate_with_mappings,
+        generate_with_mappings_and_pwsh_key, parse_pwsh_menu_key,
+    };
 
     fn count_unescaped(script: &str, needle: char) -> usize {
         let mut escaped = false;
@@ -524,7 +524,9 @@ use super::{
         assert!(pwsh.contains("$dxExplicitMapped = @{}"));
         assert!(pwsh.contains("$dxDerivedMapped = @{}"));
         assert!(pwsh.contains("$dxExplicitMapped[$parts[0]] = $parts[1]"));
-        assert!(pwsh.contains("foreach ($alias in Get-Alias -Definition $command -ErrorAction SilentlyContinue)"));
+        assert!(pwsh.contains(
+            "foreach ($alias in Get-Alias -Definition $command -ErrorAction SilentlyContinue)"
+        ));
         assert!(pwsh.contains("$dxDerivedMapped[$aliasName] = $mode"));
         assert!(pwsh.contains("$Global:__dx_pwsh_menu_mapped = @{}"));
         assert!(pwsh.contains("$dxMapped = $Global:__dx_pwsh_menu_mapped"));

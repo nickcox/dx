@@ -491,10 +491,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock should be after epoch")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "dx-menu-{label}-{nonce}-{}",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("dx-menu-{label}-{nonce}-{}", std::process::id()));
         std::fs::create_dir_all(&path).expect("temp directory should be created");
         path
     }
