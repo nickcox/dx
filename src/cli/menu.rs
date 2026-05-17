@@ -72,11 +72,18 @@ pub struct MenuCommand {
 ///   /Users/nick/Downloads          → Downloads/
 ///   /Users/nick/Dropbox (Maestral) → 'Dropbox (Maestral)/'
 fn format_selected_path(path: &str, mode: MenuMode) -> String {
-    let path = match mode {
-        MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory => {
-            format!("{path}/")
-        }
-        _ => path.to_string(),
+    let append_trailing_slash = matches!(
+        mode,
+        MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory
+    );
+    format_selected_path_with_trailing_slash(path, append_trailing_slash)
+}
+
+fn format_selected_path_with_trailing_slash(path: &str, append_trailing_slash: bool) -> String {
+    let path = if append_trailing_slash {
+        format!("{path}/")
+    } else {
+        path.to_string()
     };
 
     let formatted = if needs_shell_quoting(&path) {
@@ -110,6 +117,11 @@ fn format_selected_path_for_query_style(
     cwd: &Path,
     prefer_relative_paths: bool,
 ) -> String {
+    let append_trailing_slash = matches!(
+        mode,
+        MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory
+    ) || (mode == MenuMode::Path && selected.is_dir());
+
     match mode {
         MenuMode::Completion(CompletionMode::Paths)
         | MenuMode::Path
@@ -136,12 +148,15 @@ fn format_selected_path_for_query_style(
                     }
                 };
                 let without_trailing = rel_text.trim_end_matches('/');
-                format_selected_path(without_trailing, mode)
+                format_selected_path_with_trailing_slash(without_trailing, append_trailing_slash)
             } else {
-                format_selected_path(&selected_str, mode)
+                format_selected_path_with_trailing_slash(&selected_str, append_trailing_slash)
             }
         }
-        _ => format_selected_path(&selected.display().to_string(), mode),
+        _ => format_selected_path_with_trailing_slash(
+            &selected.display().to_string(),
+            append_trailing_slash,
+        ),
     }
 }
 
@@ -471,6 +486,19 @@ mod tests {
 
     use super::*;
 
+    fn make_temp_dir(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be after epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "dx-menu-{label}-{nonce}-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&path).expect("temp directory should be created");
+        path
+    }
+
     #[test]
     fn menu_result_to_action_passes_terminal_state_through() {
         let parsed = menu::ParsedBuffer {
@@ -740,6 +768,51 @@ mod tests {
             false,
         );
         assert_eq!(result, "/tmp/work/./benches/");
+    }
+
+    #[test]
+    fn mapped_path_mode_directory_gets_trailing_slash() {
+        let temp = make_temp_dir("path-mode-dir");
+        let selected = temp.join("src");
+        std::fs::create_dir_all(&selected).expect("selected directory should be created");
+
+        let result = format_selected_path_for_query_style(&selected, MenuMode::Path, &temp, false);
+
+        assert_eq!(result, selected.display().to_string() + "/");
+    }
+
+    #[test]
+    fn mapped_path_mode_directory_relative_to_cwd_gets_dot_slash() {
+        let temp = make_temp_dir("path-mode-relative-dir");
+        let selected = temp.join("src");
+        std::fs::create_dir_all(&selected).expect("selected directory should be created");
+
+        let result = format_selected_path_for_query_style(&selected, MenuMode::Path, &temp, true);
+
+        assert_eq!(result, "./src/");
+    }
+
+    #[test]
+    fn mapped_path_mode_file_does_not_get_trailing_slash() {
+        let temp = make_temp_dir("path-mode-file");
+        let selected = temp.join("readme.md");
+        std::fs::write(&selected, "test").expect("selected file should be created");
+
+        let result = format_selected_path_for_query_style(&selected, MenuMode::Path, &temp, false);
+
+        assert_eq!(result, selected.display().to_string());
+    }
+
+    #[test]
+    fn mapped_path_mode_quoted_directory_keeps_trailing_slash_inside_quotes() {
+        let temp = make_temp_dir("path-mode-quoted-dir");
+        let selected = temp.join("Project Files");
+        std::fs::create_dir_all(&selected).expect("selected directory should be created");
+
+        let result = format_selected_path_for_query_style(&selected, MenuMode::Path, &temp, false);
+        let expected = format!("'{}/'", selected.display());
+
+        assert_eq!(result, expected);
     }
 
     #[test]
