@@ -38,8 +38,11 @@ fn make_temp_dir(label: &str) -> std::path::PathBuf {
 #[test]
 fn menu_without_tty_outputs_noop_json() {
     // When run non-interactively (no TTY), dx menu should output {"action":"noop"}
+    // unless the single-candidate fast path applies.
+    let cwd = make_temp_dir("without-tty-noop");
     let output = dx()
         .args(["menu", "--buffer", "cd foo", "--cursor", "6"])
+        .current_dir(&cwd)
         .output()
         .expect("dx menu should run");
 
@@ -651,25 +654,46 @@ fn init_pwsh_without_menu_excludes_tab_handler() {
 #[test]
 fn menu_with_valid_dx_command_without_tty_returns_noop() {
     // In a non-TTY context (CI/piped), dx menu for a valid command
-    // should still return noop (since no interactive TUI is possible).
+    // should return noop when the single-candidate fast path does not apply.
     // This proves the TTY gate is effective — without TTY the menu
     // does not attempt to open, and falls back cleanly.
-    for cmd in [
-        "cd foo", "up", "cdf proj", "z proj", "cdr", "back", "forward", "cd- ", "cd+ ",
-    ] {
+    let cwd = make_temp_dir("valid-without-tty-noop");
+    let miss = format!(
+        "__dx_no_candidate_{}",
+        cwd.file_name()
+            .expect("temp cwd should have a file name")
+            .to_string_lossy()
+    );
+    let session = format!("test-{miss}");
+    let commands = [
+        format!("cd {miss}"),
+        format!("up {miss}"),
+        format!("cdf {miss}"),
+        format!("z {miss}"),
+        format!("cdr {miss}"),
+        format!("back {miss}"),
+        format!("forward {miss}"),
+        format!("cd- {miss}"),
+        format!("cd+ {miss}"),
+    ];
+    for cmd in commands {
         let cursor = cmd.len().to_string();
         let output = dx()
-            .args(["menu", "--buffer", cmd, "--cursor", &cursor])
+            .args([
+                "menu", "--buffer", &cmd, "--cursor", &cursor, "--session", &session,
+            ])
+            .current_dir(&cwd)
             .output()
-            .unwrap_or_else(|_| panic!("dx menu should run for buffer '{cmd}'"));
+            .unwrap_or_else(|_| panic!("dx menu should run for buffer '{}'", cmd));
 
-        assert!(output.status.success(), "should succeed for '{cmd}'");
+        assert!(output.status.success(), "should succeed for '{}'", cmd);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
-            .unwrap_or_else(|_| panic!("should be valid JSON for '{cmd}': {stdout}"));
+            .unwrap_or_else(|_| panic!("should be valid JSON for '{}': {stdout}", cmd));
         assert_eq!(
             parsed["action"], "noop",
-            "non-TTY context should produce noop for '{cmd}'"
+            "non-TTY context should produce noop for '{}'",
+            cmd
         );
     }
 }
