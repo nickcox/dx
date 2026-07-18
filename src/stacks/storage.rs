@@ -3,7 +3,7 @@ use std::fs;
 use std::fs::DirEntry;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use thiserror::Error;
 
@@ -112,18 +112,17 @@ pub fn write_session(
         source,
     })?;
 
-    let temp = temp_session_path(dir, session_id);
     let payload = serde_json::to_vec(stack).map_err(StorageError::SerializeSession)?;
 
-    common::write_atomic_replace(&temp, &target, &payload).map_err(|err| {
+    common::write_atomic_replace(&target, &payload).map_err(|err| {
         common::map_atomic_write_error(
             err,
             |source| StorageError::WriteSession {
-                path: temp.display().to_string(),
+                path: target.display().to_string(),
                 source,
             },
             |source| StorageError::ReplaceSession {
-                from: temp.display().to_string(),
+                from: target.display().to_string(),
                 to: target.display().to_string(),
                 source,
             },
@@ -173,17 +172,6 @@ fn session_file_path(dir: &Path, session_id: &str) -> Result<PathBuf, StorageErr
     Ok(dir.join(format!("{session_id}.json")))
 }
 
-fn temp_session_path(dir: &Path, session_id: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_nanos())
-        .unwrap_or(0);
-    dir.join(format!(
-        ".{session_id}.{}.{}.tmp",
-        std::process::id(),
-        nonce
-    ))
-}
 
 fn is_session_file(path: &Path) -> bool {
     if path.extension().and_then(|value| value.to_str()) != Some("json") {

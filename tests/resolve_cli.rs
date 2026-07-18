@@ -37,6 +37,21 @@ fn returns_non_zero_with_empty_stdout_on_not_found() {
 }
 
 #[test]
+fn explicit_missing_config_stops_resolver_commands() {
+    let cwd = common::temp_dir("cli-missing-config");
+    let output = common::dx()
+        .args(["resolve", "missing"])
+        .env("DX_CONFIG", cwd.path().join("missing.toml"))
+        .current_dir(cwd.path())
+        .output()
+        .expect("run dx");
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("explicit config file does not exist"));
+}
+
+#[test]
 fn list_mode_returns_candidates_for_ambiguity() {
     let cwd = common::temp_dir("cli-list");
     let root = cwd.path().join("root");

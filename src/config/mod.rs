@@ -26,6 +26,8 @@ pub struct AppConfig {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("explicit config file does not exist: {0}")]
+    MissingExplicit(PathBuf),
     #[error("failed to read config file {path}: {source}")]
     Read {
         path: String,
@@ -54,17 +56,23 @@ struct ResolveConfig {
 impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
         let mut config = Self::default();
-        let path = config_path();
-
-        if let Some(path) = path
-            && path.exists()
-        {
-            let raw = fs::read_to_string(&path).map_err(|source| ConfigError::Read {
-                path: path.display().to_string(),
-                source,
-            })?;
-            let parsed = parse_toml(&raw, &path)?;
-            config = merge_toml(config, parsed);
+        if let Some((path, explicit)) = config_path_with_source() {
+            match fs::read_to_string(&path) {
+                Ok(raw) => {
+                    let parsed = parse_toml(&raw, &path)?;
+                    config = merge_toml(config, parsed);
+                }
+                Err(source) if source.kind() == std::io::ErrorKind::NotFound && explicit => {
+                    return Err(ConfigError::MissingExplicit(path));
+                }
+                Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(ConfigError::Read {
+                        path: path.display().to_string(),
+                        source,
+                    });
+                }
+            }
         }
 
         Ok(merge_environment(config))
@@ -72,11 +80,14 @@ impl AppConfig {
 }
 
 pub fn config_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("DX_CONFIG") {
-        return Some(PathBuf::from(path));
-    }
+    config_path_with_source().map(|(path, _)| path)
+}
 
-    dirs::config_dir().map(|dir| dir.join("dx").join("config.toml"))
+fn config_path_with_source() -> Option<(PathBuf, bool)> {
+    if let Some(path) = env::var_os("DX_CONFIG").filter(|value| !value.is_empty()) {
+        return Some((PathBuf::from(path), true));
+    }
+    dirs::config_dir().map(|dir| (dir.join("dx").join("config.toml"), false))
 }
 
 fn parse_toml(raw: &str, path: &Path) -> Result<TomlConfig, ConfigError> {
@@ -103,11 +114,9 @@ fn merge_toml(mut base: AppConfig, parsed: TomlConfig) -> AppConfig {
 }
 
 fn merge_environment(mut base: AppConfig) -> AppConfig {
-    if let Ok(raw) = env::var("DX_SEARCH_ROOTS") {
-        let roots = split_paths(&raw)
-            .into_iter()
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
+    if let Some(raw) = env::var_os("DX_SEARCH_ROOTS") {
+        let roots = env::split_paths(&raw)
+            .filter(|path| !path.as_os_str().is_empty())
             .collect::<Vec<_>>();
         if !roots.is_empty() {
             base.search_roots = roots;
@@ -129,9 +138,6 @@ fn parse_bool(input: &str, default: bool) -> bool {
     }
 }
 
-fn split_paths(raw: &str) -> Vec<String> {
-    raw.split(':').map(ToString::to_string).collect()
-}
 
 #[cfg(test)]
 mod tests {
@@ -171,9 +177,11 @@ case_sensitive = false
     }
 
     #[test]
-    fn split_paths_supports_multiple_values() {
-        let roots = split_paths("/a:/b:/c");
-        assert_eq!(roots, vec!["/a", "/b", "/c"]);
+    fn environment_path_lists_use_platform_separator() {
+        let raw = env::join_paths([Path::new("/a"), Path::new("/b"), Path::new("/c")])
+            .expect("join paths");
+        let roots = env::split_paths(&raw).collect::<Vec<_>>();
+        assert_eq!(roots, vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]);
     }
 
     #[test]
@@ -226,5 +234,22 @@ case_sensitive = false
             vec![PathBuf::from("/tmp/r2"), PathBuf::from("/tmp/r3")]
         );
         assert!(!loaded.resolve.case_sensitive);
+    }
+
+    #[test]
+    fn explicit_missing_config_is_an_error() {
+        let mut process = ScopedProcess::new();
+        let temp = make_temp_dir("missing-explicit");
+        process.set("DX_CONFIG", temp.path().join("missing.toml"));
+
+        assert!(matches!(AppConfig::load(), Err(ConfigError::MissingExplicit(_))));
+    }
+
+    #[test]
+    fn empty_explicit_config_uses_default_location() {
+        let mut process = ScopedProcess::new();
+        process.set("DX_CONFIG", "");
+
+        assert_eq!(config_path(), dirs::config_dir().map(|dir| dir.join("dx/config.toml")));
     }
 }

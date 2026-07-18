@@ -1,7 +1,9 @@
 use std::env;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(test)]
 use std::cell::Cell;
@@ -47,19 +49,46 @@ pub enum AtomicWriteError {
 }
 
 pub fn write_atomic_replace(
-    temp: &Path,
     target: &Path,
     payload: &[u8],
 ) -> Result<(), AtomicWriteError> {
-    fs::write(temp, payload).map_err(AtomicWriteError::Write)?;
+    let (temp, mut file) = create_temp_file(target).map_err(AtomicWriteError::Write)?;
+    if let Err(source) = file.write_all(payload).and_then(|()| file.sync_all()) {
+        let _ = fs::remove_file(&temp);
+        return Err(AtomicWriteError::Write(source));
+    }
+    drop(file);
 
-    match replace_file(temp, target) {
+    match replace_file(&temp, target) {
         Ok(()) => Ok(()),
         Err(source) => {
             let _ = fs::remove_file(temp);
             Err(AtomicWriteError::Replace(source))
         }
     }
+}
+
+fn create_temp_file(target: &Path) -> io::Result<(PathBuf, fs::File)> {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("dx");
+
+    for _ in 0..32 {
+        let nonce = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temp = parent.join(format!(".{name}.{}.{}.tmp", std::process::id(), nonce));
+        match fs::OpenOptions::new().write(true).create_new(true).open(&temp) {
+            Ok(file) => return Ok((temp, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not create a unique temporary file",
+    ))
 }
 
 pub fn map_atomic_write_error<T, FWrite, FReplace>(
@@ -85,7 +114,31 @@ fn replace_file(from: &Path, to: &Path) -> io::Result<()> {
         }
     }
 
+    replace_file_platform(from, to)
+}
+
+#[cfg(not(windows))]
+fn replace_file_platform(from: &Path, to: &Path) -> io::Result<()> {
     fs::rename(from, to)
+}
+
+#[cfg(windows)]
+fn replace_file_platform(from: &Path, to: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_REPLACE_EXISTING, MoveFileExW};
+
+    let from = from
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let to = to.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+    // SAFETY: both buffers are NUL-terminated UTF-16 paths that remain alive for the call.
+    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_REPLACE_EXISTING) } != 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
 }
 
 #[cfg(test)]
@@ -95,9 +148,11 @@ pub(crate) fn with_replace_failure_injection_for_tests<T>(operation: impl FnOnce
 
 #[cfg(test)]
 mod tests {
-    use std::io;
+    use std::{fs, io};
 
-    use super::{AtomicWriteError, map_atomic_write_error};
+    use crate::test_support;
+
+    use super::{AtomicWriteError, map_atomic_write_error, write_atomic_replace};
 
     #[test]
     fn atomic_write_error_mapping_dispatches_to_correct_closure() {
@@ -114,6 +169,23 @@ mod tests {
             |source| format!("replace:{}", source),
         );
         assert_eq!(replace_mapped, "replace:replace");
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_file_without_leaving_temporary_files() {
+        let temp = test_support::temp_dir("atomic-replace");
+        let target = temp.path().join("state.json");
+        fs::write(&target, "old").expect("seed target");
+
+        write_atomic_replace(&target, b"new").expect("replace target");
+
+        assert_eq!(fs::read(&target).expect("read target"), b"new");
+        assert_eq!(
+            fs::read_dir(temp.path())
+                .expect("read temp directory")
+                .count(),
+            1
+        );
     }
 }
 

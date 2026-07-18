@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::{bookmarks, config::AppConfig};
+use crate::{bookmarks, config::{AppConfig, ConfigError}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolveMode {
@@ -68,12 +68,12 @@ impl CompletionCandidates {
 }
 
 impl Resolver {
-    pub fn from_environment() -> Self {
-        let config = AppConfig::load().unwrap_or_default();
-        Self {
+    pub fn from_environment() -> Result<Self, ConfigError> {
+        let config = AppConfig::load()?;
+        Ok(Self {
             config,
             bookmark_lookup: bookmarks::lookup,
-        }
+        })
     }
 
     pub fn with_bookmark_lookup(

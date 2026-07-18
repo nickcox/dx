@@ -55,7 +55,6 @@ enum Commands {
 
 pub fn run() -> i32 {
     let cli = Cli::parse();
-    let resolver = Resolver::from_environment();
 
     match cli.command {
         Commands::Init {
@@ -63,10 +62,10 @@ pub fn run() -> i32 {
             command_not_found,
             menu,
         } => init::run_init(&shell, command_not_found, menu),
-        Commands::Resolve { query, list, json } => {
-            resolve::run_resolve(&resolver, &query, list, json)
-        }
-        Commands::Complete { command } => complete::run_complete(&resolver, command),
+        Commands::Resolve { query, list, json } => with_resolver(|resolver| {
+            resolve::run_resolve(resolver, &query, list, json)
+        }),
+        Commands::Complete { command } => with_resolver(|resolver| complete::run_complete(resolver, command)),
         Commands::Navigate {
             mode,
             selector,
@@ -74,6 +73,16 @@ pub fn run() -> i32 {
         } => complete::run_navigate(mode, selector.as_deref(), session.as_deref()),
         Commands::Bookmarks { json, command } => bookmarks::run_bookmarks(command, json),
         Commands::Stack(args) => stacks::run_stack(args),
-        Commands::Menu(cmd) => menu::run_menu(&resolver, cmd),
+        Commands::Menu(cmd) => with_resolver(|resolver| menu::run_menu(resolver, cmd)),
+    }
+}
+
+fn with_resolver(run: impl FnOnce(&Resolver) -> i32) -> i32 {
+    match Resolver::from_environment() {
+        Ok(resolver) => run(&resolver),
+        Err(error) => {
+            eprintln!("dx: {error}");
+            1
+        }
     }
 }

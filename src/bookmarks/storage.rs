@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -110,16 +109,15 @@ pub fn write_store(store: &BookmarkStore) -> Result<(), StorageError> {
     };
     let raw = toml::to_string(&payload).map_err(StorageError::SerializeStore)?;
 
-    let temp = temp_store_path(&target);
-    common::write_atomic_replace(&temp, &target, raw.as_bytes()).map_err(|err| {
+    common::write_atomic_replace(&target, raw.as_bytes()).map_err(|err| {
         common::map_atomic_write_error(
             err,
             |source| StorageError::WriteStore {
-                path: temp.display().to_string(),
+                path: target.display().to_string(),
                 source,
             },
             |source| StorageError::ReplaceStore {
-                from: temp.display().to_string(),
+                from: target.display().to_string(),
                 to: target.display().to_string(),
                 source,
             },
@@ -145,14 +143,6 @@ fn bookmark_data_dir_path() -> Option<PathBuf> {
     dirs::data_dir().map(|path| path.join("dx").join("bookmarks.toml"))
 }
 
-fn temp_store_path(target: &Path) -> PathBuf {
-    let parent = target.parent().unwrap_or_else(|| Path::new("."));
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_nanos())
-        .unwrap_or(0);
-    parent.join(format!(".bookmarks.{}.{}.tmp", std::process::id(), nonce))
-}
 
 #[cfg(test)]
 mod tests {
