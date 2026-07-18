@@ -20,15 +20,15 @@ pub enum MenuResult {
     },
 }
 
-// The interactive menu TUI currently targets Unix TTY semantics (`/dev/tty`,
-// cursor queries, explicit terminal scrolling). Non-Unix builds use the stub
+// The interactive menu TUI currently targets Unix TTY semantics (`/dev/tty`
+// and explicit terminal scrolling). Non-Unix builds use the stub
 // implementation below, which preserves the JSON/noop contract for shell
 // fallback paths without enabling the inline TUI yet.
 #[cfg(unix)]
 mod imp {
     use std::ffi::OsString;
     use std::fs::OpenOptions;
-    use std::io::{BufWriter, Read, Write, stderr};
+    use std::io::{BufWriter, Write, stderr};
     use std::path::{Path, PathBuf};
 
     use crossterm::{
@@ -53,36 +53,6 @@ mod imp {
     use crate::resolve::CompletionCandidates;
 
     use super::MenuResult;
-
-    fn cursor_row_via_tty() -> Option<u16> {
-        let mut tty = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open("/dev/tty")
-            .ok()?;
-
-        tty.write_all(b"[6n").ok()?;
-        tty.flush().ok()?;
-
-        let mut buf = Vec::with_capacity(16);
-        let mut byte = [0u8; 1];
-        loop {
-            tty.read_exact(&mut byte).ok()?;
-            buf.push(byte[0]);
-            if byte[0] == b'R' {
-                break;
-            }
-            if buf.len() > 32 {
-                return None;
-            }
-        }
-
-        let s = std::str::from_utf8(&buf).ok()?;
-        let inner = s.strip_prefix("[")?.strip_suffix('R')?;
-        let (row_str, _col_str) = inner.split_once(';')?;
-        let row: u16 = row_str.parse().ok()?;
-        Some(row.saturating_sub(1))
-    }
 
     #[derive(Clone, Copy)]
     struct CleanupRegion {
@@ -552,14 +522,9 @@ mod imp {
         let use_tty_backend = psreadline_mode;
         let mut session = TerminalSession::start(use_tty_backend).ok()?;
 
-        let skip_cursor_query = psreadline_mode;
-        let prompt_row = if let Some(row) = prompt_row_override {
-            row.min(rows.saturating_sub(1))
-        } else if skip_cursor_query {
-            rows.saturating_sub(required_rows + 1)
-        } else {
-            cursor_row_via_tty().unwrap_or(rows.saturating_sub(1))
-        };
+        // Shells that know the prompt row provide it explicitly. Otherwise,
+        // assume the prompt is at the bottom and reserve space by scrolling.
+        let prompt_row = initial_prompt_row(prompt_row_override, rows);
         let prompt_row = session
             .reserve_space(prompt_row, rows, required_rows)
             .ok()?;
@@ -996,6 +961,12 @@ mod imp {
 
     fn required_rows_below(rendered_height: u16, show_border: bool) -> u16 {
         rendered_height.saturating_add(prompt_gap_rows(show_border))
+    }
+
+    fn initial_prompt_row(prompt_row_override: Option<u16>, terminal_rows: u16) -> u16 {
+        prompt_row_override
+            .unwrap_or_else(|| terminal_rows.saturating_sub(1))
+            .min(terminal_rows.saturating_sub(1))
     }
 
     fn menu_top_row(
@@ -2024,6 +1995,23 @@ mod imp {
             assert_eq!(prompt_gap_rows(false), 1);
             assert_eq!(required_rows_below(12, true), 12);
             assert_eq!(required_rows_below(12, false), 13);
+        }
+
+        #[test]
+        fn prompt_row_uses_override_or_terminal_bottom() {
+            assert_eq!(initial_prompt_row(Some(5), 24), 5);
+            assert_eq!(initial_prompt_row(Some(30), 24), 23);
+            assert_eq!(initial_prompt_row(None, 24), 23);
+            assert_eq!(initial_prompt_row(None, 0), 0);
+        }
+
+        #[test]
+        fn bottom_row_fallback_reserves_requested_space() {
+            let prompt_row = initial_prompt_row(None, 24);
+            let scroll_needed = scroll_rows_needed(prompt_row, 24, 10);
+
+            assert_eq!(scroll_needed, 10);
+            assert_eq!(prompt_row.saturating_sub(scroll_needed), 13);
         }
 
         #[test]
