@@ -37,6 +37,9 @@ pub struct StackStepCommand {
     pub session: Option<String>,
     #[arg(long)]
     pub target: Option<String>,
+    /// Print the destination without changing session history
+    #[arg(long)]
+    pub preview: bool,
 }
 
 #[derive(Debug, Args)]
@@ -69,8 +72,12 @@ pub fn run_stack(args: StackCommandArgs) -> i32 {
 
         return match command {
             StackCommand::Push(cmd) => run_push(&cmd.path, cmd.session.as_deref()),
-            StackCommand::Undo(cmd) => run_undo(cmd.session.as_deref(), cmd.target.as_deref()),
-            StackCommand::Redo(cmd) => run_redo(cmd.session.as_deref(), cmd.target.as_deref()),
+            StackCommand::Undo(cmd) => {
+                run_undo(cmd.session.as_deref(), cmd.target.as_deref(), cmd.preview)
+            }
+            StackCommand::Redo(cmd) => {
+                run_redo(cmd.session.as_deref(), cmd.target.as_deref(), cmd.preview)
+            }
         };
     }
 
@@ -124,17 +131,17 @@ pub fn run_push(path: &str, cli_session: Option<&str>) -> i32 {
     0
 }
 
-pub fn run_undo(cli_session: Option<&str>, target: Option<&str>) -> i32 {
+pub fn run_undo(cli_session: Option<&str>, target: Option<&str>, preview: bool) -> i32 {
     match target {
-        Some(t) => run_targeted_stack_op(cli_session, t, |stack| stack.undo()),
-        None => run_stack_operation(cli_session, |stack| stack.undo()),
+        Some(t) => run_targeted_stack_op(cli_session, t, |stack| stack.undo(), !preview),
+        None => run_stack_operation(cli_session, |stack| stack.undo(), !preview),
     }
 }
 
-pub fn run_redo(cli_session: Option<&str>, target: Option<&str>) -> i32 {
+pub fn run_redo(cli_session: Option<&str>, target: Option<&str>, preview: bool) -> i32 {
     match target {
-        Some(t) => run_targeted_stack_op(cli_session, t, |stack| stack.redo()),
-        None => run_stack_operation(cli_session, |stack| stack.redo()),
+        Some(t) => run_targeted_stack_op(cli_session, t, |stack| stack.redo(), !preview),
+        None => run_stack_operation(cli_session, |stack| stack.redo(), !preview),
     }
 }
 
@@ -226,6 +233,7 @@ fn run_targeted_stack_op(
     cli_session: Option<&str>,
     target: &str,
     step: fn(&mut SessionStack) -> Result<PathBuf, StackError>,
+    commit: bool,
 ) -> i32 {
     let target_path = PathBuf::from(target);
     if !target_path.is_absolute() {
@@ -273,7 +281,7 @@ fn run_targeted_stack_op(
         return 1;
     }
 
-    if let Err(err) = storage::write_session(&dir, &session_id, &stack) {
+    if commit && let Err(err) = storage::write_session(&dir, &session_id, &stack) {
         return storage_error(err);
     }
 
@@ -284,6 +292,7 @@ fn run_targeted_stack_op(
 fn run_stack_operation(
     cli_session: Option<&str>,
     operation: impl FnOnce(&mut SessionStack) -> Result<PathBuf, StackError>,
+    commit: bool,
 ) -> i32 {
     let session_id = match resolve_session_id(cli_session) {
         Ok(value) => value,
@@ -305,7 +314,7 @@ fn run_stack_operation(
         Err(err) => return stack_error(err),
     };
 
-    if let Err(err) = storage::write_session(&dir, &session_id, &stack) {
+    if commit && let Err(err) = storage::write_session(&dir, &session_id, &stack) {
         return storage_error(err);
     }
 

@@ -28,6 +28,16 @@ pub enum StackError {
 }
 
 impl SessionStack {
+    pub fn validate(&self) -> Result<(), StackError> {
+        if let Some(cwd) = &self.cwd {
+            ensure_absolute(cwd)?;
+        }
+        for path in self.undo.iter().chain(&self.redo) {
+            ensure_absolute(path)?;
+        }
+        Ok(())
+    }
+
     pub fn push(&mut self, path: PathBuf) -> Result<PathBuf, StackError> {
         ensure_absolute(&path)?;
 
@@ -44,18 +54,22 @@ impl SessionStack {
     }
 
     pub fn pop(&mut self) -> Result<PathBuf, StackError> {
-        let next = self.undo.pop().ok_or(StackError::NothingToPop)?;
-        ensure_absolute(&next)?;
+        let next = self.undo.last().ok_or(StackError::NothingToPop)?;
+        ensure_absolute(next)?;
+        let next = self.undo.pop().expect("checked non-empty undo stack");
         self.cwd = Some(next.clone());
         Ok(next)
     }
 
     pub fn undo(&mut self) -> Result<PathBuf, StackError> {
-        let next = self.undo.pop().ok_or(StackError::NothingToUndo)?;
-        ensure_absolute(&next)?;
+        let next = self.undo.last().ok_or(StackError::NothingToUndo)?;
+        ensure_absolute(next)?;
+        if let Some(current) = &self.cwd {
+            ensure_absolute(current)?;
+        }
+        let next = self.undo.pop().expect("checked non-empty undo stack");
 
         if let Some(current) = self.cwd.take() {
-            ensure_absolute(&current)?;
             self.redo.push(current);
         }
         self.cwd = Some(next.clone());
@@ -63,11 +77,14 @@ impl SessionStack {
     }
 
     pub fn redo(&mut self) -> Result<PathBuf, StackError> {
-        let next = self.redo.pop().ok_or(StackError::NothingToRedo)?;
-        ensure_absolute(&next)?;
+        let next = self.redo.last().ok_or(StackError::NothingToRedo)?;
+        ensure_absolute(next)?;
+        if let Some(current) = &self.cwd {
+            ensure_absolute(current)?;
+        }
+        let next = self.redo.pop().expect("checked non-empty redo stack");
 
         if let Some(current) = self.cwd.take() {
-            ensure_absolute(&current)?;
             self.undo.push(current);
         }
         self.cwd = Some(next.clone());
@@ -277,5 +294,31 @@ mod tests {
         assert_eq!(stack.cwd, None);
         assert_eq!(stack.undo, vec![p("/a")]);
         assert_eq!(stack.redo, vec![p("/c")]);
+    }
+
+    #[test]
+    fn failed_undo_leaves_invalid_stack_unchanged() {
+        let mut stack = SessionStack {
+            cwd: Some(p("relative")),
+            undo: vec![p("/previous")],
+            redo: Vec::new(),
+        };
+        let original = stack.clone();
+
+        assert!(matches!(stack.undo(), Err(StackError::PathNotAbsolute(_))));
+        assert_eq!(stack, original);
+    }
+
+    #[test]
+    fn failed_redo_leaves_invalid_stack_unchanged() {
+        let mut stack = SessionStack {
+            cwd: Some(p("/current")),
+            undo: Vec::new(),
+            redo: vec![p("relative")],
+        };
+        let original = stack.clone();
+
+        assert!(matches!(stack.redo(), Err(StackError::PathNotAbsolute(_))));
+        assert_eq!(stack, original);
     }
 }

@@ -117,6 +117,46 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
 }
 
 #[test]
+fn stack_preview_reports_destination_without_mutating_history() {
+    let temp = common::temp_dir("stacks-preview");
+    let runtime = temp.path().join("runtime");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    fs::create_dir_all(&a).expect("create a");
+    fs::create_dir_all(&b).expect("create b");
+    fs::create_dir_all(&runtime).expect("create runtime");
+
+    for path in [&a, &b] {
+        let output = common::dx()
+            .args([
+                "stack",
+                "push",
+                path.to_str().expect("utf8 path"),
+                "--session",
+                "preview",
+            ])
+            .env("XDG_RUNTIME_DIR", &runtime)
+            .output()
+            .expect("push stack entry");
+        assert!(output.status.success());
+    }
+
+    let session_file = runtime.join("dx-sessions/preview.json");
+    let before = fs::read(&session_file).expect("read session before preview");
+    let preview = common::dx()
+        .args(["stack", "undo", "--preview", "--session", "preview"])
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .output()
+        .expect("preview undo");
+    assert!(preview.status.success());
+    common::assert_same_path(String::from_utf8_lossy(&preview.stdout).trim(), &a);
+    assert_eq!(
+        fs::read(&session_file).expect("read session after preview"),
+        before
+    );
+}
+
+#[test]
 fn missing_session_id_returns_error() {
     let temp = common::temp_dir("stacks-missing-session");
     let runtime = temp.path().join("runtime");

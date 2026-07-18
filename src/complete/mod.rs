@@ -89,9 +89,7 @@ pub(super) fn complete_session_paths(
         return Vec::new();
     };
 
-    let Ok(dir) = storage::ensure_session_dir() else {
-        return Vec::new();
-    };
+    let dir = storage::session_directory();
 
     let Ok(stack) = storage::read_session(&dir, session) else {
         return Vec::new();
@@ -331,6 +329,18 @@ mod tests {
     #[test]
     fn session_helper_returns_empty_for_missing_session() {
         assert!(complete_session_paths(None, None, |stack| stack.undo).is_empty());
+    }
+
+    #[test]
+    fn session_helper_does_not_create_session_directory_when_reading() {
+        let temp = test_support::temp_dir("complete-read-only-session");
+        let mut process = test_support::ScopedProcess::new();
+        let runtime = temp.path().join("runtime");
+        fs::create_dir_all(&runtime).expect("create runtime");
+        process.set("XDG_RUNTIME_DIR", &runtime);
+
+        assert!(complete_session_paths(Some("missing"), None, |stack| stack.undo).is_empty());
+        assert!(!runtime.join("dx-sessions").exists());
     }
 
     #[test]

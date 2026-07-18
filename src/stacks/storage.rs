@@ -30,6 +30,16 @@ pub enum StorageError {
     },
     #[error("failed to serialize session json: {0}")]
     SerializeSession(serde_json::Error),
+    #[error("failed to parse session file {path}: {source}")]
+    ParseSession {
+        path: String,
+        source: serde_json::Error,
+    },
+    #[error("invalid session data in {path}: {source}")]
+    InvalidSession {
+        path: String,
+        source: super::StackError,
+    },
 }
 
 pub fn session_directory() -> PathBuf {
@@ -49,8 +59,8 @@ pub fn ensure_session_dir() -> Result<PathBuf, StorageError> {
 }
 
 pub fn read_session(dir: &Path, session_id: &str) -> Result<SessionStack, StorageError> {
-    cleanup_stale(dir, DEFAULT_STALE_TTL);
     let path = session_file_path(dir, session_id)?;
+    cleanup_stale(dir, DEFAULT_STALE_TTL);
 
     read_session_file(&path)
 }
@@ -69,11 +79,18 @@ fn read_session_file(path: &Path) -> Result<SessionStack, StorageError> {
         }
     };
 
-    let mut stack = match serde_json::from_str::<SessionStack>(&raw) {
-        Ok(value) => value,
-        Err(_) => return Ok(SessionStack::default()),
-    };
-    stack.sanitize();
+    let stack = serde_json::from_str::<SessionStack>(&raw).map_err(|source| {
+        StorageError::ParseSession {
+            path: path_text.clone(),
+            source,
+        }
+    })?;
+    stack
+        .validate()
+        .map_err(|source| StorageError::InvalidSession {
+            path: path_text,
+            source,
+        })?;
     Ok(stack)
 }
 
@@ -82,13 +99,19 @@ pub fn write_session(
     session_id: &str,
     stack: &SessionStack,
 ) -> Result<(), StorageError> {
+    let target = session_file_path(dir, session_id)?;
+    stack
+        .validate()
+        .map_err(|source| StorageError::InvalidSession {
+            path: target.display().to_string(),
+            source,
+        })?;
     cleanup_stale(dir, DEFAULT_STALE_TTL);
     fs::create_dir_all(dir).map_err(|source| StorageError::CreateSessionDir {
         path: dir.display().to_string(),
         source,
     })?;
 
-    let target = session_file_path(dir, session_id)?;
     let temp = temp_session_path(dir, session_id);
     let payload = serde_json::to_vec(stack).map_err(StorageError::SerializeSession)?;
 
@@ -215,21 +238,17 @@ mod tests {
     }
 
     #[test]
-    fn read_corrupt_file_returns_default_and_write_overwrites() {
+    fn read_corrupt_file_returns_error_without_overwriting() {
         let dir = make_temp_dir("read-corrupt");
         let file = dir.path().join("123.json");
         fs::write(&file, "{invalid json").expect("write corrupt file");
 
-        let stack = read_session(dir.path(), "123").expect("read session");
-        assert_eq!(stack, SessionStack::default());
-
-        let mut next = SessionStack::default();
-        next.push(PathBuf::from("/home/user")).expect("push path");
-        write_session(dir.path(), "123", &next).expect("write session");
-
-        let raw = fs::read_to_string(&file).expect("read repaired file");
-        let parsed = serde_json::from_str::<SessionStack>(&raw).expect("parse repaired file");
-        assert_eq!(parsed.cwd, Some(PathBuf::from("/home/user")));
+        let error = read_session(dir.path(), "123").expect_err("corrupt session fails");
+        assert!(matches!(error, StorageError::ParseSession { .. }));
+        assert_eq!(
+            fs::read_to_string(&file).expect("read corrupt file"),
+            "{invalid json"
+        );
     }
 
     #[test]

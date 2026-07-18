@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::BookmarkStore;
+use super::{BookmarkStore, validate_name};
 use crate::common;
 
 #[derive(Debug, Error)]
@@ -31,6 +31,12 @@ pub enum StorageError {
         from: String,
         to: String,
         source: io::Error,
+    },
+    #[error("invalid bookmark {name:?} in store {path}: {reason}")]
+    InvalidBookmark {
+        path: String,
+        name: String,
+        reason: String,
     },
 }
 
@@ -68,11 +74,23 @@ pub fn read_store() -> Result<BookmarkStore, StorageError> {
             source,
         })?;
 
-    let bookmarks = parsed
-        .bookmarks
-        .into_iter()
-        .map(|(name, value)| (name, PathBuf::from(value)))
-        .collect::<BTreeMap<_, _>>();
+    let mut bookmarks = BTreeMap::new();
+    for (name, value) in parsed.bookmarks {
+        validate_name(&name).map_err(|error| StorageError::InvalidBookmark {
+            path: path.display().to_string(),
+            name: name.clone(),
+            reason: error.to_string(),
+        })?;
+        let bookmark_path = PathBuf::from(value);
+        if !bookmark_path.is_absolute() {
+            return Err(StorageError::InvalidBookmark {
+                path: path.display().to_string(),
+                name,
+                reason: "path must be absolute".to_string(),
+            });
+        }
+        bookmarks.insert(name, bookmark_path);
+    }
 
     Ok(BookmarkStore::from_paths(bookmarks))
 }
@@ -228,6 +246,27 @@ mod tests {
 
         let err = read_store().expect_err("corrupt file should fail");
         assert!(matches!(err, StorageError::ParseStore { .. }));
+    }
+
+    #[test]
+    fn read_store_rejects_invalid_names_and_relative_paths() {
+        let mut process = ScopedProcess::new();
+        let temp = make_temp_dir("invalid-values");
+        let file = temp.path().join("bookmarks.toml");
+        process.set("DX_BOOKMARKS_FILE", &file);
+
+        fs::write(&file, "[bookmarks]\n'bad name' = '/tmp'\n").expect("write invalid name store");
+        assert!(matches!(
+            read_store(),
+            Err(StorageError::InvalidBookmark { .. })
+        ));
+
+        fs::write(&file, "[bookmarks]\nvalid = 'relative/path'\n")
+            .expect("write relative path store");
+        assert!(matches!(
+            read_store(),
+            Err(StorageError::InvalidBookmark { .. })
+        ));
     }
 
     #[test]

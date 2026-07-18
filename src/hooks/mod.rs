@@ -353,10 +353,14 @@ mod tests {
         let bash = generate(Shell::Bash, false, false);
         let bash_stack = section_between(&bash, "__dx_stack_wrapper()", "\n__dx_jump_mode()");
         assert!(!bash_stack.contains("__dx_push_pwd"));
+        assert!(bash_stack.contains("--preview"));
+        assert!(bash_stack.contains("--target \"$__dx_dest\" >/dev/null"));
 
         let zsh = generate(Shell::Zsh, false, false);
         let zsh_stack = section_between(&zsh, "__dx_stack_wrapper()", "\n__dx_jump_mode()");
         assert!(!zsh_stack.contains("__dx_push_pwd"));
+        assert!(zsh_stack.contains("--preview"));
+        assert!(zsh_stack.contains("--target \"$__dx_dest\" >/dev/null"));
 
         let fish = generate(Shell::Fish, false, false);
         let fish_stack = section_between(
@@ -365,6 +369,8 @@ mod tests {
             "\nfunction __dx_jump_mode",
         );
         assert!(!fish_stack.contains("__dx_push_pwd"));
+        assert!(fish_stack.contains("--preview"));
+        assert!(fish_stack.contains("--target \"$dest\" >/dev/null"));
 
         let pwsh = generate(Shell::Pwsh, false, false);
         let pwsh_stack = section_between(
@@ -373,6 +379,8 @@ mod tests {
             "\nfunction __dx_set_location_native",
         );
         assert!(!pwsh_stack.contains("__dx_push_pwd"));
+        assert!(pwsh_stack.contains("--preview"));
+        assert!(pwsh_stack.contains("dx stack $undoOrRedo --target $dest"));
     }
 
     #[test]

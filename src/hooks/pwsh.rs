@@ -169,6 +169,7 @@ function __dx_stack_wrapper {
     }
 
     $undoOrRedo = if ($Mode -eq 'back') { 'undo' } else { 'redo' }
+    $origin = $PWD.Path
 
     $dest = $null
     if ($Selector) {
@@ -177,9 +178,9 @@ function __dx_stack_wrapper {
             return
         }
 
-        $dest = (dx stack $undoOrRedo --target $target)
+        $dest = (dx stack $undoOrRedo --preview --target $target)
     } else {
-        $dest = (dx stack $undoOrRedo)
+        $dest = (dx stack $undoOrRedo --preview)
     }
 
     if ($LASTEXITCODE -ne 0 -or -not $dest) {
@@ -187,6 +188,13 @@ function __dx_stack_wrapper {
     }
 
     __dx_set_location_native @($dest)
+    if (-not $?) {
+        return
+    }
+    dx stack $undoOrRedo --target $dest *> $null
+    if ($LASTEXITCODE -ne 0) {
+        __dx_set_location_native @($origin)
+    }
 }
 
 function __dx_set_location_native {

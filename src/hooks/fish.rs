@@ -76,19 +76,31 @@ function __dx_stack_wrapper --argument op selector
   end
 
   set -l dest
+  set -l origin "$PWD"
   if test -n "$selector"
     set -l target (dx navigate $op "$selector")
     or return 1
     test -n "$target"; or return 1
-    set dest (dx stack $undo_or_redo --target "$target")
+    set dest (dx stack $undo_or_redo --preview --target "$target")
     or return 1
   else
-    set dest (dx stack $undo_or_redo)
+    set dest (dx stack $undo_or_redo --preview)
     or return 1
   end
 
   test -n "$dest"; or return 1
   __dx_cd_native "$dest"
+  set -l dx_status $status
+  if test $dx_status -ne 0
+    return $dx_status
+  end
+  dx stack $undo_or_redo --target "$dest" >/dev/null
+  set dx_status $status
+  if test $dx_status -ne 0
+    __dx_cd_native "$origin" >/dev/null 2>/dev/null
+    return $dx_status
+  end
+  return 0
 end
 
 function __dx_jump_mode --argument mode query

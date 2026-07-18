@@ -78,17 +78,23 @@ __dx_stack_wrapper() {
   fi
 
   local __dx_dest=""
+  local __dx_origin="$PWD"
   if [[ -n "$__dx_selector" ]]; then
     local __dx_target
     __dx_target="$(dx navigate "$__dx_op" "$__dx_selector")" || return 1
     [[ -n "$__dx_target" ]] || return 1
-    __dx_dest="$(dx stack "$__dx_undo_or_redo" --target "$__dx_target")" || return 1
+    __dx_dest="$(dx stack "$__dx_undo_or_redo" --preview --target "$__dx_target")" || return 1
   else
-    __dx_dest="$(dx stack "$__dx_undo_or_redo")" || return 1
+    __dx_dest="$(dx stack "$__dx_undo_or_redo" --preview)" || return 1
   fi
 
   [[ -n "$__dx_dest" ]] || return 1
-  __dx_cd_native "$__dx_dest"
+  __dx_cd_native "$__dx_dest" || return $?
+  dx stack "$__dx_undo_or_redo" --target "$__dx_dest" >/dev/null || {
+    __dx_cd_native "$__dx_origin" >/dev/null 2>&1
+    return 1
+  }
+  return 0
 }
 
 __dx_jump_mode() {
