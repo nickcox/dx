@@ -317,7 +317,11 @@ mod tests {
     fn pwsh_jump_wrappers_seed_origin_before_set_location_and_record_destination() {
         let output = generate(Shell::Pwsh, false, false);
 
-        let cdf = section_between(&output, "function Set-FrecentLocation {", "\n__dx_set_alias cdf");
+        let cdf = section_between(
+            &output,
+            "function Set-FrecentLocation {",
+            "\n__dx_set_alias cdf",
+        );
         assert_eq!(cdf.matches("__dx_push_pwd").count(), 2);
         assert_contains_in_order(
             cdf,
@@ -441,15 +445,21 @@ mod tests {
     fn generate_pwsh_without_command_not_found_excludes_action() {
         let output = generate(Shell::Pwsh, false, false);
         assert!(output.contains("Set-Location"));
-        assert!(!output.contains("[System.EventHandler[System.Management.Automation.CommandLookupEventArgs]]"));
+        assert!(!output.contains(
+            "[System.EventHandler[System.Management.Automation.CommandLookupEventArgs]]"
+        ));
         assert!(!output.contains("$script:__dx_installed_command_not_found_action = $true"));
     }
 
     #[test]
     fn pwsh_imports_in_memory_module_with_cleanup() {
         let output = generate(Shell::Pwsh, false, false);
-        assert!(output.contains("Get-Module -Name dx | Remove-Module -ErrorAction SilentlyContinue"));
-        assert!(output.contains("$Global:__dx_previous_aliases_for_cleanup = $__dx_previous_aliases"));
+        assert!(
+            output.contains("Get-Module -Name dx | Remove-Module -ErrorAction SilentlyContinue")
+        );
+        assert!(
+            output.contains("$Global:__dx_previous_aliases_for_cleanup = $__dx_previous_aliases")
+        );
         assert!(output.contains("function global:__dx_restore_aliases {"));
         assert!(output.contains("New-Module -Name dx -ScriptBlock {"));
         assert!(output.contains("$ExecutionContext.SessionState.Module.OnRemove += {"));
@@ -466,7 +476,9 @@ mod tests {
         let output = generate(Shell::Pwsh, false, false);
         assert!(output.contains("function Set-DxLocation"));
         assert!(output.contains("__dx_set_alias cd Set-DxLocation"));
-        assert!(output.contains("Set-Alias -Name $Name -Value $Value -Scope Global -Option $existing.Options -Force"));
+        assert!(output.contains(
+            "Set-Alias -Name $Name -Value $Value -Scope Global -Option $existing.Options -Force"
+        ));
         assert!(!output.contains("function cd {"));
         assert!(!output.contains("Remove-Item Alias:cd -ErrorAction SilentlyContinue"));
     }

@@ -172,7 +172,6 @@ fn session_file_path(dir: &Path, session_id: &str) -> Result<PathBuf, StorageErr
     Ok(dir.join(format!("{session_id}.json")))
 }
 
-
 fn is_session_file(path: &Path) -> bool {
     if path.extension().and_then(|value| value.to_str()) != Some("json") {
         return false;
@@ -243,8 +242,8 @@ mod tests {
     fn write_then_read_round_trip_succeeds() {
         let dir = make_temp_dir("write-read");
         let mut stack = SessionStack::default();
-        stack.push(PathBuf::from("/a")).expect("push cwd");
-        stack.push(PathBuf::from("/b")).expect("push cwd");
+        stack.push(dir.path().join("a")).expect("push cwd");
+        stack.push(dir.path().join("b")).expect("push cwd");
 
         write_session(dir.path(), "200", &stack).expect("write session");
         let loaded = read_session(dir.path(), "200").expect("read session");
@@ -314,7 +313,7 @@ mod tests {
         fs::write(&file, original).expect("seed existing session file");
 
         let mut next = SessionStack::default();
-        next.push(PathBuf::from("/next")).expect("push next cwd");
+        next.push(dir.path().join("next")).expect("push next cwd");
 
         let err = crate::common::with_replace_failure_injection_for_tests(|| {
             write_session(dir.path(), session_id, &next)

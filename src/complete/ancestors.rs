@@ -23,7 +23,7 @@ pub fn complete_from(cwd: &Path, query: Option<&str>) -> Vec<PathBuf> {
         cursor = parent;
     }
 
-    match query.map(str::trim).filter(|value| !value.is_empty()) {
+    match query.filter(|value| !value.is_empty()) {
         Some(value) => filter_candidates(&output, value),
         None => output,
     }

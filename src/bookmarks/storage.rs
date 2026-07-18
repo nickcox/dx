@@ -143,7 +143,6 @@ fn bookmark_data_dir_path() -> Option<PathBuf> {
     dirs::data_dir().map(|path| path.join("dx").join("bookmarks.toml"))
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;

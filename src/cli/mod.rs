@@ -62,10 +62,12 @@ pub fn run() -> i32 {
             command_not_found,
             menu,
         } => init::run_init(&shell, command_not_found, menu),
-        Commands::Resolve { query, list, json } => with_resolver(|resolver| {
-            resolve::run_resolve(resolver, &query, list, json)
-        }),
-        Commands::Complete { command } => with_resolver(|resolver| complete::run_complete(resolver, command)),
+        Commands::Resolve { query, list, json } => {
+            with_resolver(|resolver| resolve::run_resolve(resolver, &query, list, json))
+        }
+        Commands::Complete { command } => {
+            with_resolver(|resolver| complete::run_complete(resolver, command))
+        }
         Commands::Navigate {
             mode,
             selector,

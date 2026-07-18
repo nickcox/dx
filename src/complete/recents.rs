@@ -25,11 +25,11 @@ mod tests {
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
-            cwd: Some(std::path::PathBuf::from("/now")),
+            cwd: Some(temp.path().join("now")),
             undo: vec![
-                std::path::PathBuf::from("/a"),
-                std::path::PathBuf::from("/b"),
-                std::path::PathBuf::from("/c"),
+                temp.path().join("a"),
+                temp.path().join("b"),
+                temp.path().join("c"),
             ],
             redo: Vec::new(),
         };
@@ -39,9 +39,9 @@ mod tests {
         assert_eq!(
             output,
             vec![
-                std::path::PathBuf::from("/c"),
-                std::path::PathBuf::from("/b"),
-                std::path::PathBuf::from("/a")
+                temp.path().join("c"),
+                temp.path().join("b"),
+                temp.path().join("a")
             ]
         );
     }
@@ -72,20 +72,14 @@ mod tests {
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
-            cwd: Some(std::path::PathBuf::from("/now")),
-            undo: vec![
-                std::path::PathBuf::from("/tmp/scratch"),
-                std::path::PathBuf::from("/home/user/projects/dx"),
-            ],
+            cwd: Some(temp.path().join("now")),
+            undo: vec![temp.path().join("scratch"), temp.path().join("projects/dx")],
             redo: Vec::new(),
         };
         storage::write_session(&dir, "s1", &stack).expect("write session");
 
         let output = complete(Some("s1"), Some("proj"));
-        assert_eq!(
-            output,
-            vec![std::path::PathBuf::from("/home/user/projects/dx")]
-        );
+        assert_eq!(output, vec![temp.path().join("projects/dx")]);
     }
 
     #[test]

@@ -36,7 +36,12 @@ fn complete_ancestors_lists_nearest_first() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines = stdout.lines().collect::<Vec<_>>();
     common::assert_same_path(lines[0], cwd.parent().expect("parent"));
-    assert!(lines.contains(&"/"));
+    common::assert_same_path(
+        lines
+            .last()
+            .expect("ancestor output includes filesystem root"),
+        cwd.ancestors().last().expect("filesystem root"),
+    );
 }
 
 #[test]
@@ -55,15 +60,18 @@ fn complete_ancestors_filter_returns_matching_entry() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines = stdout.lines().collect::<Vec<_>>();
     assert!(!lines.is_empty());
-    assert!(lines[0].ends_with("/code"));
-    assert!(lines.iter().any(|line| line.ends_with("/code/projects")));
+    common::assert_same_path(lines[0], temp.path().join("code"));
+    assert!(lines.iter().any(|line| {
+        common::canonical(Path::new(line)) == common::canonical(&temp.path().join("code/projects"))
+    }));
 }
 
 #[test]
 fn complete_ancestors_at_root_returns_empty() {
+    let root = PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
     let output = Command::new(dx_bin())
         .args(["complete", "ancestors"])
-        .current_dir("/")
+        .current_dir(root)
         .output()
         .expect("run complete ancestors root");
 
@@ -114,8 +122,15 @@ fn complete_paths_returns_abbreviation_matches() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("projects/alpha"));
-    assert!(stdout.contains("presentations/alpha"));
+    let paths = stdout.lines().map(Path::new).collect::<Vec<_>>();
+    assert!(
+        paths
+            .iter()
+            .any(|path| common::canonical(path) == common::canonical(&root.join("projects/alpha")))
+    );
+    assert!(paths.iter().any(|path| {
+        common::canonical(path) == common::canonical(&root.join("presentations/alpha"))
+    }));
 }
 
 #[test]
@@ -140,11 +155,18 @@ fn complete_recents_and_stack_use_session_state() {
     let temp = common::temp_dir("complete-recents-stack");
     let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
+    let now = temp.path().join("now");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    let x = temp.path().join("x");
+    for path in [&now, &a, &b, &x] {
+        fs::create_dir_all(path).expect("create session path");
+    }
 
     let state = SessionStack {
-        cwd: Some(PathBuf::from("/now")),
-        undo: vec![PathBuf::from("/a"), PathBuf::from("/b")],
-        redo: vec![PathBuf::from("/x")],
+        cwd: Some(now),
+        undo: vec![a.clone(), b.clone()],
+        redo: vec![x.clone()],
     };
     write_session(&runtime, "s1", &state);
 
@@ -159,7 +181,10 @@ fn complete_recents_and_stack_use_session_state() {
         .lines()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
-    assert_eq!(recents_lines, vec!["/b".to_string(), "/a".to_string()]);
+    assert_eq!(
+        recents_lines,
+        vec![b.display().to_string(), a.display().to_string()]
+    );
 
     let stack_back = Command::new(dx_bin())
         .args([
@@ -179,7 +204,10 @@ fn complete_recents_and_stack_use_session_state() {
         .lines()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
-    assert_eq!(back_lines, vec!["/b".to_string(), "/a".to_string()]);
+    assert_eq!(
+        back_lines,
+        vec![b.display().to_string(), a.display().to_string()]
+    );
 
     let stack_forward = Command::new(dx_bin())
         .args([
@@ -199,7 +227,7 @@ fn complete_recents_and_stack_use_session_state() {
         .lines()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
-    assert_eq!(forward_lines, vec!["/x".to_string()]);
+    assert_eq!(forward_lines, vec![x.display().to_string()]);
 }
 
 #[test]
@@ -298,7 +326,10 @@ fn complete_paths_uses_cwd_as_implicit_root_when_unset() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("workspace/project"),
+        stdout
+            .lines()
+            .map(Path::new)
+            .any(|path| common::canonical(path) == common::canonical(&target)),
         "expected implicit cwd-root abbreviation candidate, got: {stdout}"
     );
 }

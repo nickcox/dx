@@ -1,43 +1,53 @@
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
+
+use crate::resolve::path_query::{PathQuery, QueryKind};
 
 /// Normalise a query string to a canonical form for directory matching.
 ///
 /// Applied rules (in order):
-/// 1. Trim surrounding whitespace.
-/// 2. Strip a trailing `/` — `/foo/bar/` and `/foo/bar` refer to the same directory.
-/// 3. Expand a leading `~/` (or bare `~`) to the user's home directory, so that
-///    `~/projects` matches `/Users/nick/projects`.
-/// 4. Strip a leading `./` — `./src` is treated the same as the bare name `src`
+/// 1. Preserve surrounding whitespace.
+/// 2. Strip a native trailing separator when it follows a directory name.
+/// 3. Expand a leading native `~/` (or bare `~`) to the user's home directory.
+/// 4. Strip a leading native `./` — `./src` is treated the same as the bare name `src`
 ///    for substring/prefix matching purposes (we have no cwd here to make it absolute).
 ///
-/// The result is lowercased after normalisation so all comparisons are case-insensitive.
-fn normalize_query(query: &str) -> String {
-    let s = query.trim();
-
-    // Strip trailing slash.
-    let s = s.trim_end_matches('/');
-
-    // Expand `~` / `~/...`.
-    let s: std::borrow::Cow<str> = if s == "~" {
-        if let Some(home) = dirs::home_dir() {
-            home.display().to_string().into()
-        } else {
-            s.into()
-        }
-    } else if let Some(rest) = s.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            format!("{}/{}", home.display(), rest).into()
-        } else {
-            s.into()
-        }
+/// The result uses encoded native path bytes, lowercased only for ASCII matching.
+fn normalize_query(query: &str) -> Vec<u8> {
+    let path_query = PathQuery::new(query);
+    let query = if path_query.has_trailing_separator() && Path::new(query).file_name().is_some() {
+        let separator = query.chars().next_back().expect("trailing separator");
+        &query[..query.len() - separator.len_utf8()]
     } else {
-        s.into()
+        query
+    };
+    let mut path = match path_query.kind {
+        QueryKind::Home => {
+            let home = dirs::home_dir();
+            match (home, query.strip_prefix('~')) {
+                (Some(home), Some("")) => home,
+                (Some(home), Some(rest)) => {
+                    home.join(rest.trim_start_matches(std::path::is_separator))
+                }
+                _ => PathBuf::from(query),
+            }
+        }
+        _ => PathBuf::from(query),
     };
 
-    // Strip leading `./`.
-    let s = s.strip_prefix("./").unwrap_or(&s);
+    if path_query.kind == QueryKind::ExplicitRelative
+        && matches!(
+            Path::new(query).components().next(),
+            Some(Component::CurDir)
+        )
+    {
+        path = path.components().skip(1).collect();
+    }
 
-    s.to_ascii_lowercase()
+    ascii_lowercase(path.as_os_str().as_encoded_bytes())
+}
+
+fn ascii_lowercase(value: &[u8]) -> Vec<u8> {
+    value.iter().map(u8::to_ascii_lowercase).collect()
 }
 
 pub fn filter_candidates(candidates: &[PathBuf], query: &str) -> Vec<PathBuf> {
@@ -53,13 +63,11 @@ pub fn filter_candidates(candidates: &[PathBuf], query: &str) -> Vec<PathBuf> {
     let mut substring = Vec::new();
 
     for candidate in candidates {
-        let full = candidate.display().to_string();
-        let full_lower = full.to_ascii_lowercase();
-        let basename = candidate
+        let full_lower = ascii_lowercase(candidate.as_os_str().as_encoded_bytes());
+        let basename_lower = candidate
             .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("");
-        let basename_lower = basename.to_ascii_lowercase();
+            .map(|value| ascii_lowercase(value.as_encoded_bytes()))
+            .unwrap_or_default();
 
         if full_lower == query {
             exact_path.push(candidate.clone());
@@ -71,17 +79,20 @@ pub fn filter_candidates(candidates: &[PathBuf], query: &str) -> Vec<PathBuf> {
             continue;
         }
 
-        if full_lower.starts_with(&*query) {
+        if full_lower.starts_with(&query) {
             path_prefix.push(candidate.clone());
             continue;
         }
 
-        if !basename_lower.is_empty() && basename_lower.starts_with(&*query) {
+        if !basename_lower.is_empty() && basename_lower.starts_with(&query) {
             basename_prefix.push(candidate.clone());
             continue;
         }
 
-        if full_lower.contains(&*query) {
+        if full_lower
+            .windows(query.len())
+            .any(|window| window == query)
+        {
             substring.push(candidate.clone());
         }
     }
@@ -99,19 +110,20 @@ pub fn filter_candidates(candidates: &[PathBuf], query: &str) -> Vec<PathBuf> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{filter_candidates, normalize_query};
+    use super::{ascii_lowercase, filter_candidates, normalize_query};
 
     // --- normalize_query ---
 
     #[test]
-    fn normalize_strips_trailing_slash() {
-        assert_eq!(normalize_query("/foo/bar/"), "/foo/bar");
+    fn normalize_strips_native_trailing_separator_without_erasing_root() {
+        assert_eq!(normalize_query("/foo/bar/"), b"/foo/bar");
+        assert_eq!(normalize_query("/"), b"/");
     }
 
     #[test]
     fn normalize_expands_tilde() {
         if let Some(home) = dirs::home_dir() {
-            let expected = format!("{}/projects", home.display()).to_ascii_lowercase();
+            let expected = ascii_lowercase(home.join("projects").as_os_str().as_encoded_bytes());
             assert_eq!(normalize_query("~/projects"), expected);
         }
     }
@@ -119,20 +131,20 @@ mod tests {
     #[test]
     fn normalize_bare_tilde() {
         if let Some(home) = dirs::home_dir() {
-            let expected = home.display().to_string().to_ascii_lowercase();
+            let expected = ascii_lowercase(home.as_os_str().as_encoded_bytes());
             assert_eq!(normalize_query("~"), expected);
         }
     }
 
     #[test]
     fn normalize_strips_dot_slash_prefix() {
-        assert_eq!(normalize_query("./src"), "src");
+        assert_eq!(normalize_query("./src"), b"src");
     }
 
     #[test]
     fn normalize_trailing_slash_and_tilde() {
         if let Some(home) = dirs::home_dir() {
-            let expected = format!("{}/projects", home.display()).to_ascii_lowercase();
+            let expected = ascii_lowercase(home.join("projects").as_os_str().as_encoded_bytes());
             assert_eq!(normalize_query("~/projects/"), expected);
         }
     }
@@ -218,5 +230,39 @@ mod tests {
         let candidates = vec![PathBuf::from("/some/deep/path/src")];
         let filtered = filter_candidates(&candidates, "./src");
         assert_eq!(filtered, candidates);
+    }
+
+    #[test]
+    fn whitespace_in_query_is_significant() {
+        let candidates = vec![
+            PathBuf::from("/tmp/ project "),
+            PathBuf::from("/tmp/project"),
+        ];
+
+        assert_eq!(
+            filter_candidates(&candidates, " project "),
+            vec![candidates[0].clone()]
+        );
+        assert_eq!(
+            filter_candidates(&candidates, " project"),
+            vec![candidates[0].clone()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_backslash_query_matches_filename_character() {
+        let candidates = vec![PathBuf::from("/tmp/project\\source")];
+
+        assert_eq!(
+            filter_candidates(&candidates, "project\\source"),
+            candidates
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_backslash_trailing_separator_preserves_root_selector() {
+        assert_eq!(normalize_query(r"C:\"), b"c:\\");
     }
 }

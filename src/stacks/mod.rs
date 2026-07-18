@@ -116,7 +116,7 @@ mod tests {
     use super::{SessionStack, StackError};
 
     fn p(path: &str) -> PathBuf {
-        PathBuf::from(path)
+        std::env::temp_dir().join(path.trim_start_matches('/'))
     }
 
     #[test]
@@ -179,7 +179,7 @@ mod tests {
     fn push_rejects_relative_path() {
         let mut stack = SessionStack::default();
         let err = stack
-            .push(p("relative/path"))
+            .push(PathBuf::from("relative/path"))
             .expect_err("relative path fails");
         assert!(matches!(err, StackError::PathNotAbsolute(_)));
     }
@@ -284,9 +284,9 @@ mod tests {
     #[test]
     fn sanitize_drops_relative_entries() {
         let mut stack = SessionStack {
-            cwd: Some(p("relative")),
-            undo: vec![p("/a"), p("b")],
-            redo: vec![p("/c"), p("d")],
+            cwd: Some(PathBuf::from("relative")),
+            undo: vec![p("/a"), PathBuf::from("b")],
+            redo: vec![p("/c"), PathBuf::from("d")],
         };
 
         stack.sanitize();
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn failed_undo_leaves_invalid_stack_unchanged() {
         let mut stack = SessionStack {
-            cwd: Some(p("relative")),
+            cwd: Some(PathBuf::from("relative")),
             undo: vec![p("/previous")],
             redo: Vec::new(),
         };
@@ -314,7 +314,7 @@ mod tests {
         let mut stack = SessionStack {
             cwd: Some(p("/current")),
             undo: Vec::new(),
-            redo: vec![p("relative")],
+            redo: vec![PathBuf::from("relative")],
         };
         let original = stack.clone();
 

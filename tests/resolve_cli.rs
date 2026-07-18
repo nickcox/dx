@@ -48,7 +48,9 @@ fn explicit_missing_config_stops_resolver_commands() {
 
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("explicit config file does not exist"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("explicit config file does not exist")
+    );
 }
 
 #[test]
@@ -69,8 +71,17 @@ fn list_mode_returns_candidates_for_ambiguity() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("proj/alpha"));
-    assert!(stdout.contains("prod/alpha"));
+    let paths = stdout.lines().map(std::path::Path::new).collect::<Vec<_>>();
+    assert!(
+        paths
+            .iter()
+            .any(|path| common::canonical(path) == common::canonical(&root.join("proj/alpha")))
+    );
+    assert!(
+        paths
+            .iter()
+            .any(|path| common::canonical(path) == common::canonical(&root.join("prod/alpha")))
+    );
 }
 
 #[test]

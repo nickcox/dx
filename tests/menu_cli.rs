@@ -1,7 +1,11 @@
 mod common;
 
 use std::fs;
+#[cfg(unix)]
 use std::io::Write;
+#[cfg(not(unix))]
+use std::process::Command;
+#[cfg(unix)]
 use std::process::{Command, Stdio};
 
 fn dx() -> Command {
@@ -27,6 +31,7 @@ fn optional_tool_available(command: &str) -> bool {
     false
 }
 
+#[cfg(unix)]
 fn assert_hook_parses_with(shell: &str, command: &str, args: &[&str]) {
     if command == "bash" {
         assert!(
@@ -568,9 +573,12 @@ fn init_rejects_shell_injection_in_menu_mappings() {
 
 #[test]
 fn generated_hooks_with_safe_mappings_pass_available_shell_parsers() {
-    assert_hook_parses_with("bash", "bash", &["-n"]);
-    assert_hook_parses_with("zsh", "zsh", &["-n"]);
-    assert_hook_parses_with("fish", "fish", &["--no-execute"]);
+    #[cfg(unix)]
+    {
+        assert_hook_parses_with("bash", "bash", &["-n"]);
+        assert_hook_parses_with("zsh", "zsh", &["-n"]);
+        assert_hook_parses_with("fish", "fish", &["--no-execute"]);
+    }
 
     if pwsh_available() {
         let generated = dx()
@@ -864,6 +872,7 @@ fn menu_stderr_is_silent_on_noop() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn menu_paths_mode_honors_explicit_cwd() {
     let process_cwd = common::temp_dir("process-cwd-empty");
@@ -906,13 +915,13 @@ fn menu_paths_mode_honors_explicit_cwd() {
         .as_str()
         .expect("replace action should include value");
     assert!(
-        value.ends_with('/'),
+        value.ends_with(std::path::MAIN_SEPARATOR),
         "paths mode replacement should drill in"
     );
 
     let replaced_path = value
-        .strip_suffix('/')
-        .expect("replacement should end with slash");
+        .strip_suffix(std::path::MAIN_SEPARATOR)
+        .expect("replacement should end with the native separator");
     let replaced_abs = if std::path::Path::new(replaced_path).is_relative() {
         explicit_cwd.path().join(replaced_path)
     } else {
@@ -928,6 +937,7 @@ fn menu_paths_mode_honors_explicit_cwd() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn menu_paths_mode_relative_query_uses_dot_slash_replacement() {
     let explicit_cwd = common::temp_dir("explicit-cwd-relative-rendering");
@@ -962,16 +972,24 @@ fn menu_paths_mode_relative_query_uses_dot_slash_replacement() {
     let value = parsed["value"]
         .as_str()
         .expect("replace action should include value");
-    assert_eq!(value, "./benches/");
+    assert_eq!(
+        value,
+        format!(
+            ".{}benches{}",
+            std::path::MAIN_SEPARATOR,
+            std::path::MAIN_SEPARATOR
+        )
+    );
 }
 
+#[cfg(unix)]
 #[test]
 fn menu_paths_mode_explicit_absolute_query_preserves_absolute_replacement() {
     let explicit_cwd = common::temp_dir("explicit-cwd-absolute-query");
     let child = explicit_cwd.path().join("benches");
     fs::create_dir_all(&child).expect("create benches child dir");
 
-    let query = format!("{}/b", explicit_cwd.path().display());
+    let query = explicit_cwd.path().join("b").display().to_string();
     let buffer = format!("cd {query}");
     let output = dx()
         .args([
@@ -1001,10 +1019,11 @@ fn menu_paths_mode_explicit_absolute_query_preserves_absolute_replacement() {
     let value = parsed["value"]
         .as_str()
         .expect("replace action should include value");
-    let expected = format!("{}/", child.display());
+    let expected = format!("{}{}", child.display(), std::path::MAIN_SEPARATOR);
     assert_eq!(value, expected);
 }
 
+#[cfg(unix)]
 #[test]
 fn menu_paths_mode_parent_relative_query_preserves_parent_prefix_replacement() {
     let root = common::temp_dir("explicit-cwd-parent-relative");
@@ -1041,9 +1060,17 @@ fn menu_paths_mode_parent_relative_query_preserves_parent_prefix_replacement() {
     let value = parsed["value"]
         .as_str()
         .expect("replace action should include value");
-    assert_eq!(value, "../sibling/");
+    assert_eq!(
+        value,
+        format!(
+            "..{}sibling{}",
+            std::path::MAIN_SEPARATOR,
+            std::path::MAIN_SEPARATOR
+        )
+    );
 }
 
+#[cfg(unix)]
 #[test]
 fn mapped_path_mode_returns_single_file_candidate_replace() {
     let explicit_cwd = common::temp_dir("mapped-path-file");
@@ -1073,6 +1100,7 @@ fn mapped_path_mode_returns_single_file_candidate_replace() {
     assert_eq!(parsed["terminal"], "clean");
 }
 
+#[cfg(unix)]
 #[test]
 fn mapped_directory_mode_excludes_files() {
     let explicit_cwd = common::temp_dir("mapped-directory-filter");
@@ -1100,10 +1128,18 @@ fn mapped_directory_mode_excludes_files() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json");
     assert_eq!(parsed["action"], "replace");
-    assert_eq!(parsed["value"], "./alpha-dir/");
+    assert_eq!(
+        parsed["value"],
+        format!(
+            ".{}alpha-dir{}",
+            std::path::MAIN_SEPARATOR,
+            std::path::MAIN_SEPARATOR
+        )
+    );
     assert_eq!(parsed["terminal"], "clean");
 }
 
+#[cfg(unix)]
 #[test]
 fn mapped_file_mode_excludes_directories() {
     let explicit_cwd = common::temp_dir("mapped-file-filter");
@@ -1135,6 +1171,7 @@ fn mapped_file_mode_excludes_directories() {
     assert_eq!(parsed["terminal"], "clean");
 }
 
+#[cfg(unix)]
 #[test]
 fn menu_flagged_cd_replace_span_starts_at_path_token() {
     let explicit_cwd = common::temp_dir("explicit-cwd-flagged-replace");
@@ -1188,8 +1225,8 @@ fn menu_flagged_cd_replace_span_starts_at_path_token() {
     );
 
     let replaced_path = value
-        .strip_suffix('/')
-        .expect("replacement should end with slash");
+        .strip_suffix(std::path::MAIN_SEPARATOR)
+        .expect("replacement should end with the native separator");
     let replaced_abs = if std::path::Path::new(replaced_path).is_relative() {
         explicit_cwd.path().join(replaced_path)
     } else {

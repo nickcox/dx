@@ -84,11 +84,19 @@ fn navigate_back_and_forward_use_stack_entries() {
     let temp = common::temp_dir("navigate-back-forward");
     let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
+    let now = temp.path().join("now");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    let x = temp.path().join("x");
+    let y = temp.path().join("y");
+    for path in [&now, &a, &b, &x, &y] {
+        fs::create_dir_all(path).expect("create session path");
+    }
 
     let state = SessionStack {
-        cwd: Some(PathBuf::from("/now")),
-        undo: vec![PathBuf::from("/a"), PathBuf::from("/b")],
-        redo: vec![PathBuf::from("/x"), PathBuf::from("/y")],
+        cwd: Some(now),
+        undo: vec![a, b.clone()],
+        redo: vec![x, y.clone()],
     };
     write_session(&runtime, "s1", &state);
 
@@ -99,7 +107,7 @@ fn navigate_back_and_forward_use_stack_entries() {
         .output()
         .expect("run navigate back");
     assert!(back.status.success());
-    assert_eq!(String::from_utf8_lossy(&back.stdout).trim(), "/b");
+    common::assert_same_path(String::from_utf8_lossy(&back.stdout).trim(), &b);
 
     let forward = Command::new(dx_bin())
         .args(["navigate", "forward", "--session", "s1"])
@@ -108,7 +116,7 @@ fn navigate_back_and_forward_use_stack_entries() {
         .output()
         .expect("run navigate forward");
     assert!(forward.status.success());
-    assert_eq!(String::from_utf8_lossy(&forward.stdout).trim(), "/y");
+    common::assert_same_path(String::from_utf8_lossy(&forward.stdout).trim(), &y);
 }
 
 #[test]
@@ -116,10 +124,14 @@ fn navigate_fails_for_out_of_range_and_no_match() {
     let temp = common::temp_dir("navigate-errors");
     let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
+    let now = temp.path().join("now");
+    let a = temp.path().join("a");
+    fs::create_dir_all(&now).expect("create current path");
+    fs::create_dir_all(&a).expect("create stack path");
 
     let state = SessionStack {
-        cwd: Some(PathBuf::from("/now")),
-        undo: vec![PathBuf::from("/a")],
+        cwd: Some(now),
+        undo: vec![a],
         redo: vec![],
     };
     write_session(&runtime, "s1", &state);

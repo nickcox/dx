@@ -8,8 +8,7 @@ pub fn complete(resolver: &Resolver, query: &str) -> Vec<PathBuf> {
     let mut output = Vec::new();
 
     for path in resolver.collect_completion_candidates(query) {
-        let key = path.display().to_string();
-        if seen.insert(key) {
+        if seen.insert(path.clone()) {
             output.push(path);
         }
     }

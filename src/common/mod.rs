@@ -48,10 +48,7 @@ pub enum AtomicWriteError {
     Replace(io::Error),
 }
 
-pub fn write_atomic_replace(
-    target: &Path,
-    payload: &[u8],
-) -> Result<(), AtomicWriteError> {
+pub fn write_atomic_replace(target: &Path, payload: &[u8]) -> Result<(), AtomicWriteError> {
     let (temp, mut file) = create_temp_file(target).map_err(AtomicWriteError::Write)?;
     if let Err(source) = file.write_all(payload).and_then(|()| file.sync_all()) {
         let _ = fs::remove_file(&temp);
@@ -79,7 +76,11 @@ fn create_temp_file(target: &Path) -> io::Result<(PathBuf, fs::File)> {
     for _ in 0..32 {
         let nonce = COUNTER.fetch_add(1, Ordering::Relaxed);
         let temp = parent.join(format!(".{name}.{}.{}.tmp", std::process::id(), nonce));
-        match fs::OpenOptions::new().write(true).create_new(true).open(&temp) {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+        {
             Ok(file) => return Ok((temp, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
@@ -132,7 +133,11 @@ fn replace_file_platform(from: &Path, to: &Path) -> io::Result<()> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    let to = to.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+    let to = to
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
     // SAFETY: both buffers are NUL-terminated UTF-16 paths that remain alive for the call.
     if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_REPLACE_EXISTING) } != 0 {
         Ok(())

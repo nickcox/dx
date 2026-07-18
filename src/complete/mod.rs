@@ -85,7 +85,7 @@ pub(super) fn complete_session_paths(
     query: Option<&str>,
     select_paths: impl FnOnce(SessionStack) -> Vec<PathBuf>,
 ) -> Vec<PathBuf> {
-    let Some(session) = session.filter(|value| !value.trim().is_empty()) else {
+    let Some(session) = session.filter(|value| !value.is_empty()) else {
         return Vec::new();
     };
 
@@ -98,7 +98,7 @@ pub(super) fn complete_session_paths(
     let mut output = select_paths(stack);
     output.reverse();
 
-    match query.map(str::trim).filter(|value| !value.is_empty()) {
+    match query.filter(|value| !value.is_empty()) {
         Some(value) => filter::filter_candidates(&output, value),
         None => output,
     }
@@ -112,7 +112,7 @@ pub fn select_candidate(
         return Err(SelectorError::EmptyCandidates);
     }
 
-    let selector = selector.map(str::trim).filter(|value| !value.is_empty());
+    let selector = selector.filter(|value| !value.is_empty());
     let Some(selector) = selector else {
         return Ok(candidates[0].clone());
     };
@@ -182,10 +182,6 @@ pub fn to_candidates(paths: &[PathBuf]) -> Vec<Candidate> {
 }
 
 pub fn label_for_path(path: &Path) -> String {
-    if path == Path::new("/") {
-        return "/".to_string();
-    }
-
     let components = path
         .components()
         .filter_map(|component| match component {
@@ -204,14 +200,94 @@ pub fn label_for_path(path: &Path) -> String {
     }
 }
 
+pub fn sanitize_relative_components(path: &Path) -> PathBuf {
+    let mut cleaned = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => cleaned.push(part),
+            Component::ParentDir => cleaned.push(".."),
+            Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    cleaned
+}
+
+pub fn relative_path_from(cwd: &Path, path: &Path) -> Option<PathBuf> {
+    let (cwd_prefix, cwd_root, cwd_parts) = path_parts(cwd)?;
+    let (path_prefix, path_root, path_parts) = path_parts(path)?;
+    if cwd_prefix != path_prefix || cwd_root != path_root {
+        return None;
+    }
+
+    let common_len = cwd_parts
+        .iter()
+        .zip(&path_parts)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut relative = PathBuf::new();
+    for _ in common_len..cwd_parts.len() {
+        relative.push("..");
+    }
+    for part in &path_parts[common_len..] {
+        relative.push(part);
+    }
+    if relative.as_os_str().is_empty() {
+        relative.push(".");
+    }
+    Some(relative)
+}
+
+pub fn cwd_relative_label(path: &Path, cwd: &Path, dot_prefix: bool) -> Option<String> {
+    let rel = path.strip_prefix(cwd).ok()?;
+    let cleaned = sanitize_relative_components(rel);
+    if cleaned.as_os_str().is_empty() {
+        return Some(if dot_prefix { "./" } else { "." }.to_string());
+    }
+    Some(if dot_prefix {
+        format!(".{}{}", std::path::MAIN_SEPARATOR, cleaned.display())
+    } else {
+        cleaned.display().to_string()
+    })
+}
+
+pub fn home_relative_label(path: &Path, home: Option<&Path>) -> Option<String> {
+    let rel = path.strip_prefix(home?).ok()?;
+    if rel.as_os_str().is_empty() {
+        Some("~".to_string())
+    } else {
+        Some(format!("~{}{}", std::path::MAIN_SEPARATOR, rel.display()))
+    }
+}
+
+fn path_parts(path: &Path) -> Option<(Option<std::ffi::OsString>, bool, Vec<std::ffi::OsString>)> {
+    let mut prefix = None;
+    let mut root = false;
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(value) => prefix = Some(value.as_os_str().to_os_string()),
+            Component::RootDir => root = true,
+            Component::Normal(part) => parts.push(part.to_os_string()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+        }
+    }
+    Some((prefix, root, parts))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::path::PathBuf;
 
+    #[cfg(windows)]
+    use super::relative_path_from;
     use super::{
         SelectorError, complete_frecents, complete_session_paths, format_json, format_plain,
-        label_for_path, select_candidate,
+        label_for_path, select_candidate, to_candidates,
     };
     use crate::frecency::FrecencyProvider;
     use crate::stacks::{SessionStack, storage};
@@ -255,6 +331,48 @@ mod tests {
         );
         assert_eq!(label_for_path(PathBuf::from("/home").as_path()), "home");
         assert_eq!(label_for_path(PathBuf::from("/").as_path()), "/");
+    }
+
+    #[test]
+    fn duplicate_labels_preserve_distinct_candidate_paths() {
+        let paths = vec![
+            PathBuf::from("/one/project/src"),
+            PathBuf::from("/two/project/src"),
+        ];
+        let candidates = to_candidates(&paths);
+
+        assert_eq!(candidates[0].label, candidates[1].label);
+        assert_eq!(candidates[0].path, paths[0]);
+        assert_eq!(candidates[1].path, paths[1]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn labels_preserve_windows_root_prefixes() {
+        assert_eq!(label_for_path(std::path::Path::new(r"C:\")), r"C:\");
+        assert_eq!(
+            label_for_path(std::path::Path::new(r"\\server\share\")),
+            r"\\server\share\"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn relative_rendering_requires_a_matching_drive() {
+        assert_eq!(
+            relative_path_from(
+                std::path::Path::new(r"C:\work\dx"),
+                std::path::Path::new(r"C:\work\other")
+            ),
+            Some(PathBuf::from(r"..\other"))
+        );
+        assert_eq!(
+            relative_path_from(
+                std::path::Path::new(r"C:\work"),
+                std::path::Path::new(r"D:\work")
+            ),
+            None
+        );
     }
 
     #[test]
@@ -307,6 +425,23 @@ mod tests {
     }
 
     #[test]
+    fn selector_whitespace_is_matched_literally() {
+        let candidates = vec![
+            PathBuf::from("/tmp/ project "),
+            PathBuf::from("/tmp/project"),
+        ];
+
+        assert_eq!(
+            select_candidate(&candidates, Some(" project ")).expect("select whitespace path"),
+            candidates[0]
+        );
+        assert_eq!(
+            select_candidate(&candidates, Some(" ")).expect("select literal whitespace"),
+            candidates[0]
+        );
+    }
+
+    #[test]
     fn frecents_returns_provider_data_when_available() {
         let provider = MockProvider {
             available: true,
@@ -353,25 +488,42 @@ mod tests {
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
-            cwd: Some(PathBuf::from("/now")),
-            undo: vec![
-                PathBuf::from("/tmp/scratch"),
-                PathBuf::from("/home/user/projects/dx"),
-            ],
-            redo: vec![PathBuf::from("/redo/a"), PathBuf::from("/redo/b")],
+            cwd: Some(temp.path().join("now")),
+            undo: vec![temp.path().join("scratch"), temp.path().join("projects/dx")],
+            redo: vec![temp.path().join("redo/a"), temp.path().join("redo/b")],
         };
         storage::write_session(&dir, "s1", &stack).expect("write session");
 
         let undo_output = complete_session_paths(Some("s1"), None, |stack| stack.undo);
         assert_eq!(
             undo_output,
-            vec![
-                PathBuf::from("/home/user/projects/dx"),
-                PathBuf::from("/tmp/scratch")
-            ]
+            vec![temp.path().join("projects/dx"), temp.path().join("scratch")]
         );
 
         let redo_filtered = complete_session_paths(Some("s1"), Some("redo/b"), |stack| stack.redo);
-        assert_eq!(redo_filtered, vec![PathBuf::from("/redo/b")]);
+        assert_eq!(redo_filtered, vec![temp.path().join("redo/b")]);
+    }
+
+    #[test]
+    fn session_filter_preserves_whitespace() {
+        let temp = test_support::temp_dir("complete-session-whitespace-filter");
+        let mut process = test_support::ScopedProcess::new();
+        let runtime = temp.path().join("runtime");
+        fs::create_dir_all(&runtime).expect("create runtime");
+        process.set("XDG_RUNTIME_DIR", &runtime);
+        let dir = storage::ensure_session_dir().expect("session dir");
+        storage::write_session(
+            &dir,
+            "session",
+            &SessionStack {
+                redo: vec![temp.path().join(" project "), temp.path().join("project")],
+                ..SessionStack::default()
+            },
+        )
+        .expect("write session");
+
+        let output = complete_session_paths(Some("session"), Some(" project "), |stack| stack.redo);
+
+        assert_eq!(output, vec![temp.path().join(" project ")]);
     }
 }

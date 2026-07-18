@@ -117,37 +117,27 @@ fn format_selected_path(path: &str, mode: MenuMode) -> String {
         mode,
         MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory
     );
-    format_selected_path_with_trailing_slash(path, append_trailing_slash, MenuShellArg::Bash)
-        .expect("test path has no control characters")
+    format_selected_path_with_trailing_separator(
+        Path::new(path),
+        append_trailing_slash,
+        MenuShellArg::Bash,
+    )
+    .expect("test path has no control characters")
 }
 
-fn format_selected_path_with_trailing_slash(
-    path: &str,
-    append_trailing_slash: bool,
+fn format_selected_path_with_trailing_separator(
+    path: &Path,
+    append_trailing_separator: bool,
     shell: MenuShellArg,
 ) -> Option<String> {
-    let path = if append_trailing_slash {
-        format!("{path}/")
+    let path = if append_trailing_separator {
+        let mut path = path.to_path_buf();
+        path.as_mut_os_string().push(std::path::MAIN_SEPARATOR_STR);
+        path
     } else {
-        path.to_string()
+        path.to_path_buf()
     };
-
-    shell.quote(&path)
-}
-
-fn sanitize_relative_components(path: &Path) -> PathBuf {
-    use std::path::Component;
-
-    let mut cleaned = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::Normal(part) => cleaned.push(part),
-            Component::ParentDir => cleaned.push(".."),
-            Component::RootDir | Component::Prefix(_) => {}
-        }
-    }
-    cleaned
+    shell.quote(path.to_str()?)
 }
 
 fn format_selected_path_for_query_style_checked(
@@ -169,43 +159,26 @@ fn format_selected_path_for_query_style_checked(
         | MenuMode::File
             if prefer_relative_paths =>
         {
-            let selected_str = selected.display().to_string();
-            if let Ok(rel) = selected.strip_prefix(cwd) {
-                use std::path::Component;
-
-                let cleaned = sanitize_relative_components(rel);
-                let rel_text = if cleaned.as_os_str().is_empty() {
-                    "./".to_string()
+            if let Some(relative) = crate::complete::relative_path_from(cwd, selected) {
+                let rel_path = if relative == Path::new(".") {
+                    PathBuf::from(format!(".{}", std::path::MAIN_SEPARATOR))
                 } else {
-                    let starts_with_parent = cleaned
-                        .components()
-                        .next()
-                        .is_some_and(|component| matches!(component, Component::ParentDir));
-                    if starts_with_parent {
-                        format!("{}/", cleaned.display())
+                    if relative.starts_with("..") {
+                        relative
                     } else {
-                        format!("./{}/", cleaned.display())
+                        PathBuf::from(format!(".{}", std::path::MAIN_SEPARATOR)).join(relative)
                     }
                 };
-                let without_trailing = rel_text.trim_end_matches('/');
-                format_selected_path_with_trailing_slash(
-                    without_trailing,
+                format_selected_path_with_trailing_separator(
+                    &rel_path,
                     append_trailing_slash,
                     shell,
                 )
             } else {
-                format_selected_path_with_trailing_slash(
-                    &selected_str,
-                    append_trailing_slash,
-                    shell,
-                )
+                format_selected_path_with_trailing_separator(selected, append_trailing_slash, shell)
             }
         }
-        _ => format_selected_path_with_trailing_slash(
-            &selected.display().to_string(),
-            append_trailing_slash,
-            shell,
-        ),
+        _ => format_selected_path_with_trailing_separator(selected, append_trailing_slash, shell),
     }
 }
 
@@ -227,7 +200,14 @@ fn format_selected_path_for_query_style(
 }
 
 fn has_explicit_absolute_input(query: Option<&str>, mode: MenuMode) -> bool {
-    mode.prefers_query_relative_rendering() && query.is_some_and(|q| q.starts_with('/'))
+    mode.prefers_query_relative_rendering()
+        && query.is_some_and(|query| {
+            matches!(
+                crate::resolve::path_query::PathQuery::new(query).kind,
+                crate::resolve::path_query::QueryKind::Absolute
+                    | crate::resolve::path_query::QueryKind::RootRelative
+            )
+        })
 }
 
 /// Returns true if the string contains characters that require shell quoting.
@@ -628,6 +608,7 @@ mod tests {
 
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn menu_result_to_action_passes_terminal_state_through() {
         let parsed = menu::ParsedBuffer {
@@ -678,6 +659,7 @@ mod tests {
         assert_eq!(terminal, TerminalState::Dirty);
     }
 
+    #[cfg(unix)]
     #[test]
     fn paths_mode_simple_path_gets_trailing_slash() {
         assert_eq!(
@@ -728,6 +710,7 @@ mod tests {
         assert_eq!(action, MenuAction::Cancel);
     }
 
+    #[cfg(unix)]
     #[test]
     fn paths_mode_path_with_spaces_is_quoted_with_trailing_slash_inside() {
         assert_eq!(
@@ -739,6 +722,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn paths_mode_path_with_embedded_single_quote_is_escaped() {
         assert_eq!(
@@ -750,26 +734,90 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn selected_paths_use_shell_specific_quoting() {
         let path = "/tmp/it's here";
 
         assert_eq!(
-            format_selected_path_with_trailing_slash(path, false, MenuShellArg::Bash),
+            format_selected_path_with_trailing_separator(
+                Path::new(path),
+                false,
+                MenuShellArg::Bash
+            ),
             Some("'/tmp/it'\\''s here'".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_slash(path, false, MenuShellArg::Zsh),
+            format_selected_path_with_trailing_separator(Path::new(path), false, MenuShellArg::Zsh),
             Some("'/tmp/it'\\''s here'".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_slash(path, false, MenuShellArg::Fish),
+            format_selected_path_with_trailing_separator(
+                Path::new(path),
+                false,
+                MenuShellArg::Fish
+            ),
             Some("/tmp/it\\'s\\ here".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_slash(path, false, MenuShellArg::Pwsh),
+            format_selected_path_with_trailing_separator(
+                Path::new(path),
+                false,
+                MenuShellArg::Pwsh
+            ),
             Some("'/tmp/it''s here'".to_string())
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn powershell_directory_replacements_preserve_drive_and_unc_prefixes() {
+        assert_eq!(
+            format_selected_path_with_trailing_separator(
+                Path::new(r"C:\Project Files"),
+                true,
+                MenuShellArg::Pwsh,
+            ),
+            Some(r"'C:\Project Files\'".to_string())
+        );
+        assert_eq!(
+            format_selected_path_with_trailing_separator(
+                Path::new(r"\\server\share\folder"),
+                true,
+                MenuShellArg::Pwsh,
+            ),
+            Some(r"'\\server\share\folder\'".to_string())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf_selected_path_returns_noop_at_action_boundary() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let parsed = menu::ParsedBuffer {
+            mode: MenuMode::Path,
+            query: Some("x".to_string()),
+            replace_start: 3,
+            replace_end: 4,
+            needs_space_prefix: false,
+        };
+        let non_utf_path = PathBuf::from(std::ffi::OsString::from_vec(vec![b'/', 0xff]));
+        let action = menu_result_to_action_with_shell(
+            Some(MenuResult::Selected {
+                value: non_utf_path,
+                filter_query: "x".to_string(),
+                changed_query: false,
+                terminal: TerminalState::Clean,
+            }),
+            &parsed,
+            parsed.mode,
+            Path::new("/tmp"),
+            false,
+            MenuShellArg::Bash,
+        );
+
+        assert_eq!(action, MenuAction::Noop);
     }
 
     #[test]
@@ -859,6 +907,7 @@ mod tests {
         assert_eq!((replace_start, replace_end), (3, 5));
     }
 
+    #[cfg(unix)]
     #[test]
     fn paths_mode_path_without_special_chars_is_not_quoted() {
         let result = format_selected_path(
@@ -869,6 +918,7 @@ mod tests {
         assert!(!result.contains('\''));
     }
 
+    #[cfg(unix)]
     #[test]
     fn stack_mode_returns_raw_path_no_slash() {
         let result = format_selected_path(
@@ -878,6 +928,7 @@ mod tests {
         assert_eq!(result, "/Users/nick/code");
     }
 
+    #[cfg(unix)]
     #[test]
     fn stack_mode_path_with_spaces_is_quoted() {
         let result = format_selected_path(
@@ -887,6 +938,7 @@ mod tests {
         assert_eq!(result, "'/Users/nick/My Project'");
     }
 
+    #[cfg(unix)]
     #[test]
     fn ancestors_mode_returns_raw_path_no_slash() {
         let result = format_selected_path(
@@ -896,6 +948,7 @@ mod tests {
         assert_eq!(result, "/Users/nick");
     }
 
+    #[cfg(unix)]
     #[test]
     fn frecents_mode_returns_raw_path_no_slash() {
         let result = format_selected_path(
@@ -905,6 +958,7 @@ mod tests {
         assert_eq!(result, "/Users/nick/projects");
     }
 
+    #[cfg(unix)]
     #[test]
     fn frecents_mode_path_with_spaces_is_quoted_no_slash() {
         let result = format_selected_path(
@@ -914,6 +968,7 @@ mod tests {
         assert_eq!(result, "'/Users/nick/Dropbox (Maestral)/Obsidian/Notes'");
     }
 
+    #[cfg(unix)]
     #[test]
     fn recents_mode_returns_raw_path_no_slash() {
         let result =
@@ -921,6 +976,7 @@ mod tests {
         assert_eq!(result, "/tmp/work");
     }
 
+    #[cfg(unix)]
     #[test]
     fn paths_mode_relative_cwd_descendant_formats_as_dot_slash() {
         let cwd = Path::new("/tmp/work");
@@ -934,6 +990,7 @@ mod tests {
         assert_eq!(result, "./benches/");
     }
 
+    #[cfg(unix)]
     #[test]
     fn menu_result_to_action_preserves_relative_replacement_formatting() {
         let parsed = menu::ParsedBuffer {
@@ -969,6 +1026,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn paths_mode_parent_relative_prefix_preserved_in_replacement() {
         let cwd = Path::new("/tmp/work");
@@ -982,6 +1040,7 @@ mod tests {
         assert_eq!(result, "../sibling/");
     }
 
+    #[cfg(unix)]
     #[test]
     fn paths_mode_multi_parent_relative_prefix_preserved_in_replacement() {
         let cwd = Path::new("/tmp/work");
@@ -995,6 +1054,7 @@ mod tests {
         assert_eq!(result, "../../outer/");
     }
 
+    #[cfg(unix)]
     #[test]
     fn paths_mode_explicit_absolute_input_preserves_absolute_output() {
         let cwd = Path::new("/tmp/work");
@@ -1008,6 +1068,7 @@ mod tests {
         assert_eq!(result, "/tmp/work/./benches/");
     }
 
+    #[cfg(unix)]
     #[test]
     fn mapped_path_mode_directory_gets_trailing_slash() {
         let temp = temp_dir("menu-path-mode-dir");
@@ -1020,6 +1081,7 @@ mod tests {
         assert_eq!(result, selected.display().to_string() + "/");
     }
 
+    #[cfg(unix)]
     #[test]
     fn mapped_path_mode_directory_relative_to_cwd_gets_dot_slash() {
         let temp = temp_dir("menu-path-mode-relative-dir");
@@ -1032,6 +1094,7 @@ mod tests {
         assert_eq!(result, "./src/");
     }
 
+    #[cfg(unix)]
     #[test]
     fn mapped_path_mode_file_does_not_get_trailing_slash() {
         let temp = temp_dir("menu-path-mode-file");
@@ -1044,6 +1107,7 @@ mod tests {
         assert_eq!(result, selected.display().to_string());
     }
 
+    #[cfg(unix)]
     #[test]
     fn mapped_path_mode_quoted_directory_keeps_trailing_slash_inside_quotes() {
         let temp = temp_dir("menu-path-mode-quoted-dir");

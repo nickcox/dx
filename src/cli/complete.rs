@@ -170,11 +170,9 @@ pub(super) fn resolve_session(cli_session: Option<&str>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::PathBuf;
-
     use crate::stacks::{SessionStack, storage};
     use crate::test_support::{ScopedProcess, temp_dir};
+    use std::fs;
 
     use super::{NavigateMode, run_navigate};
 
@@ -188,8 +186,8 @@ mod tests {
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
-            cwd: Some(PathBuf::from("/now")),
-            undo: vec![PathBuf::from("/a")],
+            cwd: Some(temp.path().join("now")),
+            undo: vec![temp.path().join("a")],
             redo: Vec::new(),
         };
         storage::write_session(&dir, "s1", &stack).expect("write session");

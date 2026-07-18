@@ -26,7 +26,6 @@ pub enum MenuResult {
 // fallback paths without enabling the inline TUI yet.
 #[cfg(unix)]
 mod imp {
-    use std::ffi::OsString;
     use std::fs::OpenOptions;
     use std::io::{BufWriter, Write, stderr};
     use std::path::{Path, PathBuf};
@@ -354,25 +353,6 @@ mod imp {
             .unwrap_or_else(|| "(no matches)".to_string())
     }
 
-    /// Compute a compact display label for a path:
-    /// - relative to `cwd` if the path is under it (e.g. `Desktop`)
-    /// - tilde-contracted if under `$HOME` (e.g. `~/code/dx`)
-    /// - full absolute path otherwise
-    fn sanitize_relative_components(path: &Path) -> PathBuf {
-        use std::path::Component;
-
-        let mut cleaned = PathBuf::new();
-        for component in path.components() {
-            match component {
-                Component::CurDir => {}
-                Component::Normal(part) => cleaned.push(part),
-                Component::ParentDir => cleaned.push(".."),
-                Component::RootDir | Component::Prefix(_) => {}
-            }
-        }
-        cleaned
-    }
-
     fn display_label(
         path: &Path,
         cwd: &Path,
@@ -382,7 +362,7 @@ mod imp {
         if prefer_relative_paths && let Ok(rel) = path.strip_prefix(cwd) {
             use std::path::Component;
 
-            let cleaned = sanitize_relative_components(rel);
+            let cleaned = crate::complete::sanitize_relative_components(rel);
             if cleaned.as_os_str().is_empty() {
                 "./".to_string()
             } else {
@@ -444,86 +424,21 @@ mod imp {
     ) -> String {
         match style {
             CandidateLabelStyle::Compact => display_label(path, cwd, home, true),
-            CandidateLabelStyle::BareRelative => cwd_relative_label(path, cwd, false)
-                .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            CandidateLabelStyle::DotRelative => cwd_relative_label(path, cwd, true)
-                .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            CandidateLabelStyle::ParentRelative => relative_path_from(cwd, path)
+            CandidateLabelStyle::BareRelative => {
+                crate::complete::cwd_relative_label(path, cwd, false)
+                    .unwrap_or_else(|| display_label(path, cwd, home, false))
+            }
+            CandidateLabelStyle::DotRelative => {
+                crate::complete::cwd_relative_label(path, cwd, true)
+                    .unwrap_or_else(|| display_label(path, cwd, home, false))
+            }
+            CandidateLabelStyle::ParentRelative => crate::complete::relative_path_from(cwd, path)
                 .map(|relative| relative.display().to_string())
                 .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            CandidateLabelStyle::HomeRelative => home_relative_label(path, home)
+            CandidateLabelStyle::HomeRelative => crate::complete::home_relative_label(path, home)
                 .unwrap_or_else(|| display_label(path, cwd, home, false)),
             CandidateLabelStyle::Absolute => path.display().to_string(),
         }
-    }
-
-    fn cwd_relative_label(path: &Path, cwd: &Path, dot_prefix: bool) -> Option<String> {
-        let rel = path.strip_prefix(cwd).ok()?;
-        let cleaned = sanitize_relative_components(rel);
-        if cleaned.as_os_str().is_empty() {
-            return Some(if dot_prefix { "./" } else { "." }.to_string());
-        }
-
-        Some(if dot_prefix {
-            format!("./{}", cleaned.display())
-        } else {
-            cleaned.display().to_string()
-        })
-    }
-
-    fn home_relative_label(path: &Path, home: Option<&Path>) -> Option<String> {
-        let rel = path.strip_prefix(home?).ok()?;
-        if rel.as_os_str().is_empty() {
-            Some("~".to_string())
-        } else {
-            Some(format!("~/{}", rel.display()))
-        }
-    }
-
-    fn path_parts(path: &Path) -> Option<(bool, Vec<OsString>)> {
-        use std::path::Component;
-
-        let mut absolute = false;
-        let mut parts = Vec::new();
-        for component in path.components() {
-            match component {
-                Component::RootDir => absolute = true,
-                Component::Normal(part) => parts.push(part.to_os_string()),
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    parts.pop()?;
-                }
-                Component::Prefix(_) => return None,
-            }
-        }
-        Some((absolute, parts))
-    }
-
-    fn relative_path_from(cwd: &Path, path: &Path) -> Option<PathBuf> {
-        let (cwd_abs, cwd_parts) = path_parts(cwd)?;
-        let (path_abs, path_parts) = path_parts(path)?;
-        if cwd_abs != path_abs {
-            return None;
-        }
-
-        let common_len = cwd_parts
-            .iter()
-            .zip(path_parts.iter())
-            .take_while(|(left, right)| left == right)
-            .count();
-
-        let mut relative = PathBuf::new();
-        for _ in common_len..cwd_parts.len() {
-            relative.push("..");
-        }
-        for part in &path_parts[common_len..] {
-            relative.push(part);
-        }
-
-        if relative.as_os_str().is_empty() {
-            relative.push(".");
-        }
-        Some(relative)
     }
 
     pub fn select(

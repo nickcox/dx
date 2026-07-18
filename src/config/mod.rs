@@ -138,7 +138,6 @@ fn parse_bool(input: &str, default: bool) -> bool {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -181,7 +180,14 @@ case_sensitive = false
         let raw = env::join_paths([Path::new("/a"), Path::new("/b"), Path::new("/c")])
             .expect("join paths");
         let roots = env::split_paths(&raw).collect::<Vec<_>>();
-        assert_eq!(roots, vec![PathBuf::from("/a"), PathBuf::from("/b"), PathBuf::from("/c")]);
+        assert_eq!(
+            roots,
+            vec![
+                PathBuf::from("/a"),
+                PathBuf::from("/b"),
+                PathBuf::from("/c")
+            ]
+        );
     }
 
     #[test]
@@ -225,14 +231,15 @@ case_sensitive = false
         .expect("write config file");
 
         process.set("DX_CONFIG", &file);
-        process.set("DX_SEARCH_ROOTS", "/tmp/r2:/tmp/r3");
+        let roots = [temp.path().join("r2"), temp.path().join("r3")];
+        process.set(
+            "DX_SEARCH_ROOTS",
+            env::join_paths(&roots).expect("join search roots"),
+        );
         process.set("DX_CASE_SENSITIVE", "false");
 
         let loaded = AppConfig::load().expect("load config");
-        assert_eq!(
-            loaded.search_roots,
-            vec![PathBuf::from("/tmp/r2"), PathBuf::from("/tmp/r3")]
-        );
+        assert_eq!(loaded.search_roots, roots);
         assert!(!loaded.resolve.case_sensitive);
     }
 
@@ -242,7 +249,10 @@ case_sensitive = false
         let temp = make_temp_dir("missing-explicit");
         process.set("DX_CONFIG", temp.path().join("missing.toml"));
 
-        assert!(matches!(AppConfig::load(), Err(ConfigError::MissingExplicit(_))));
+        assert!(matches!(
+            AppConfig::load(),
+            Err(ConfigError::MissingExplicit(_))
+        ));
     }
 
     #[test]
@@ -250,6 +260,9 @@ case_sensitive = false
         let mut process = ScopedProcess::new();
         process.set("DX_CONFIG", "");
 
-        assert_eq!(config_path(), dirs::config_dir().map(|dir| dir.join("dx/config.toml")));
+        assert_eq!(
+            config_path(),
+            dirs::config_dir().map(|dir| dir.join("dx/config.toml"))
+        );
     }
 }

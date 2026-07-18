@@ -1,6 +1,7 @@
 pub mod abbreviation;
 mod completion;
 mod output;
+pub(crate) mod path_query;
 mod pipeline;
 pub mod precedence;
 pub mod roots;
@@ -11,7 +12,10 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::{bookmarks, config::{AppConfig, ConfigError}};
+use crate::{
+    bookmarks,
+    config::{AppConfig, ConfigError},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolveMode {
@@ -37,6 +41,14 @@ pub enum ResolveError {
     EmptyQuery,
     #[error("target path does not exist: {0}")]
     PathNotFound(String),
+    #[error("unsupported drive-relative query: {0}")]
+    DriveRelativePath(String),
+    #[error("failed to access {path}: {source}")]
+    Filesystem {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("query is ambiguous ({count} matches)")]
     Ambiguous {
         candidates: Vec<PathBuf>,
@@ -125,34 +137,6 @@ pub(super) fn prepare_candidates(candidates: &mut Vec<PathBuf>, max: Option<usiz
     }
 }
 
-/// Returns true when the query is a filesystem path prefix that should be
-/// expanded via readdir rather than the search-root / abbreviation pipeline.
-/// Matches: absolute paths (/…), home-relative (~/…), and explicit relative
-/// paths (./… or ../…).
-pub(super) fn is_filesystem_prefix(query: &str) -> bool {
-    query.starts_with('/')
-        || query.starts_with("~/")
-        || query == "~"
-        || query.starts_with("./")
-        || query.starts_with("../")
-}
-
-pub(super) fn strip_filesystem_prefix_for_fallback(query: &str) -> &str {
-    if let Some(stripped) = query.strip_prefix("~/") {
-        stripped
-    } else if query == "~" {
-        ""
-    } else if let Some(stripped) = query.strip_prefix("./") {
-        stripped
-    } else if let Some(stripped) = query.strip_prefix("../") {
-        stripped
-    } else if let Some(stripped) = query.strip_prefix('/') {
-        stripped
-    } else {
-        query
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FilesystemPrefixFallback {
     DirectResolutionOnly,
@@ -176,10 +160,10 @@ impl FallbackPolicy {
     pub fn from_query_context(
         cwd: &Path,
         configured_roots: &[PathBuf],
-        raw_query: &str,
+        query: path_query::PathQuery<'_>,
         uses_prefix_fallback: bool,
     ) -> Self {
-        let scope = if uses_prefix_fallback && raw_query.starts_with('/') {
+        let scope = if uses_prefix_fallback && query.root_anchor(cwd).is_some() {
             FallbackScope::RootAnchored
         } else {
             FallbackScope::Standard
@@ -192,7 +176,7 @@ impl FallbackPolicy {
                 allow_bookmark_lookup: true,
             },
             FallbackScope::RootAnchored => Self {
-                effective_roots: vec![PathBuf::from("/")],
+                effective_roots: vec![query.root_anchor(cwd).expect("root-anchored query")],
                 allow_step_up: false,
                 allow_bookmark_lookup: false,
             },
@@ -205,8 +189,8 @@ impl FallbackPolicy {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct PreparedQuery<'a> {
-    pub effective_query: &'a str,
+pub(super) struct PreparedQuery {
+    pub effective_query: String,
     pub direct_dir: Option<PathBuf>,
     pub fallback_policy: FallbackPolicy,
 }
@@ -216,21 +200,48 @@ pub(super) fn prepare_search_query<'a>(
     configured_roots: &[PathBuf],
     raw_query: &'a str,
     prefix_fallback: FilesystemPrefixFallback,
-) -> Result<PreparedQuery<'a>, ResolveError> {
-    let trimmed = raw_query.trim();
-    if trimmed.is_empty() {
+) -> Result<PreparedQuery, ResolveError> {
+    if raw_query.is_empty() {
         return Err(ResolveError::EmptyQuery);
     }
 
-    let mut effective_query = trimmed;
+    let query = path_query::PathQuery::new(raw_query);
+    if query.kind == path_query::QueryKind::DriveRelative {
+        return Err(ResolveError::DriveRelativePath(raw_query.to_string()));
+    }
+
+    let mut effective_query = raw_query.to_string();
     let mut uses_prefix_fallback = false;
     let mut direct_dir = None;
 
-    if let Some(path) = precedence::resolve_direct(cwd, trimmed) {
-        if path.is_dir() {
+    #[cfg(windows)]
+    let step_up_alias = traversal::resolve_step_up(cwd, raw_query).is_some();
+    #[cfg(not(windows))]
+    let step_up_alias = false;
+
+    if !step_up_alias
+        && let Some(path) =
+            precedence::resolve_direct(cwd, query).map_err(|source| ResolveError::Filesystem {
+                path: PathBuf::from(raw_query),
+                source,
+            })?
+    {
+        let is_dir = match std::fs::metadata(&path) {
+            Ok(metadata) => metadata.is_dir(),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => false,
+            Err(source) => {
+                return Err(ResolveError::Filesystem {
+                    path: path.clone(),
+                    source,
+                });
+            }
+        };
+        if is_dir {
             direct_dir = Some(path);
-        } else if is_filesystem_prefix(trimmed) {
-            effective_query = strip_filesystem_prefix_for_fallback(trimmed);
+        } else if query.is_filesystem_prefix() {
+            effective_query = query
+                .fallback_segments()
+                .join(std::path::MAIN_SEPARATOR_STR);
             if effective_query.is_empty() {
                 return Err(ResolveError::PathNotFound(path.display().to_string()));
             }
@@ -239,17 +250,19 @@ pub(super) fn prepare_search_query<'a>(
             return Err(ResolveError::PathNotFound(path.display().to_string()));
         }
     } else if prefix_fallback == FilesystemPrefixFallback::AlwaysForFilesystemPrefix
-        && is_filesystem_prefix(trimmed)
+        && query.is_filesystem_prefix()
     {
-        effective_query = strip_filesystem_prefix_for_fallback(trimmed);
+        effective_query = query
+            .fallback_segments()
+            .join(std::path::MAIN_SEPARATOR_STR);
         if effective_query.is_empty() {
-            return Err(ResolveError::PathNotFound(trimmed.to_string()));
+            return Err(ResolveError::PathNotFound(raw_query.to_string()));
         }
         uses_prefix_fallback = true;
     }
 
     let fallback_policy =
-        FallbackPolicy::from_query_context(cwd, configured_roots, trimmed, uses_prefix_fallback);
+        FallbackPolicy::from_query_context(cwd, configured_roots, query, uses_prefix_fallback);
 
     Ok(PreparedQuery {
         effective_query,
@@ -268,4 +281,19 @@ pub(super) fn resolve_search_candidates(
         candidates = roots::resolve_fallbacks(effective_roots, query, case_sensitive);
     }
     candidates
+}
+
+pub(super) fn resolve_search_candidates_exact(
+    effective_roots: &[PathBuf],
+    query: &str,
+    case_sensitive: bool,
+) -> Result<Vec<PathBuf>, ResolveError> {
+    let mut candidates =
+        abbreviation::resolve_abbreviation_exact(effective_roots, query, case_sensitive)
+            .map_err(|(path, source)| ResolveError::Filesystem { path, source })?;
+    if candidates.is_empty() {
+        candidates = roots::resolve_fallbacks_exact(effective_roots, query, case_sensitive)
+            .map_err(|(path, source)| ResolveError::Filesystem { path, source })?;
+    }
+    Ok(candidates)
 }

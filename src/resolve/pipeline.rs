@@ -1,6 +1,6 @@
 use super::{
     FilesystemPrefixFallback, ResolveError, ResolveQuery, ResolveResult, Resolver,
-    prepare_candidates, prepare_search_query, resolve_search_candidates, traversal,
+    prepare_candidates, prepare_search_query, resolve_search_candidates_exact, traversal,
 };
 
 impl Resolver {
@@ -17,20 +17,20 @@ impl Resolver {
         }
 
         if prepared.fallback_policy.allow_step_up
-            && let Some(path) = traversal::resolve_step_up(query.cwd, prepared.effective_query)
+            && let Some(path) = traversal::resolve_step_up(query.cwd, &prepared.effective_query)
         {
             return Ok(ResolveResult { path });
         }
 
-        let mut candidates = resolve_search_candidates(
+        let mut candidates = resolve_search_candidates_exact(
             &prepared.fallback_policy.effective_roots,
-            prepared.effective_query,
+            &prepared.effective_query,
             self.config.resolve.case_sensitive,
-        );
+        )?;
 
         if candidates.is_empty() {
             if prepared.fallback_policy.allow_bookmark_lookup
-                && let Some(path) = (self.bookmark_lookup)(prepared.effective_query)
+                && let Some(path) = (self.bookmark_lookup)(&prepared.effective_query)
             {
                 return Ok(ResolveResult { path });
             }
@@ -116,6 +116,73 @@ mod tests {
 
         let result = resolver.resolve(query).expect("resolve");
         assert_eq!(result.path, child);
+    }
+
+    #[test]
+    fn resolves_direct_path_with_significant_whitespace() {
+        let temp = test_support::temp_dir("resolve-whitespace");
+        let child = temp.path().join("project notes");
+        fs::create_dir_all(&child).expect("create dir");
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let result = resolver
+            .resolve(ResolveQuery {
+                raw: "./project notes",
+                cwd: temp.path(),
+            })
+            .expect("resolve");
+
+        assert_eq!(
+            fs::canonicalize(result.path).expect("canonical result"),
+            fs::canonicalize(child).expect("canonical expected")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_unix_backslash_filename_without_splitting_it() {
+        let temp = test_support::temp_dir("resolve-backslash-name");
+        let child = temp.path().join(r"project\source");
+        fs::create_dir_all(&child).expect("create dir");
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let result = resolver
+            .resolve(ResolveQuery {
+                raw: r"project\source",
+                cwd: temp.path(),
+            })
+            .expect("resolve");
+
+        assert_eq!(
+            fs::canonicalize(result.path).expect("canonical result"),
+            fs::canonicalize(child).expect("canonical expected")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_drive_relative_queries() {
+        let temp = test_support::temp_dir("resolve-drive-relative");
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let err = resolver
+            .resolve(ResolveQuery {
+                raw: "C:work",
+                cwd: temp.path(),
+            })
+            .expect_err("drive-relative paths are unsupported");
+        assert!(matches!(err, ResolveError::DriveRelativePath(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn propagates_non_not_found_direct_filesystem_errors() {
+        let temp = test_support::temp_dir("resolve-filesystem-error");
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let err = resolver
+            .resolve(ResolveQuery {
+                raw: "/dev/null/child",
+                cwd: temp.path(),
+            })
+            .expect_err("non-directory traversal must fail explicitly");
+        assert!(matches!(err, ResolveError::Filesystem { .. }));
     }
 
     #[test]

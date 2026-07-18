@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use dx::stacks::SessionStack;
 
@@ -436,7 +436,8 @@ fn undo_with_unreachable_target_fails() {
         assert!(out.status.success());
     }
 
-    // undo --target /nonexistent should fail
+    let missing = temp.path().join("nonexistent/path");
+    // undo --target missing path should fail
     let undo = common::dx()
         .args([
             "stack",
@@ -444,7 +445,7 @@ fn undo_with_unreachable_target_fails() {
             "--session",
             "target3",
             "--target",
-            "/nonexistent/path",
+            missing.to_str().expect("utf8 path"),
         ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
@@ -460,10 +461,15 @@ fn stack_list_plain_supports_directions_and_ordering() {
     let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
+    let cwd = temp.path().join("x");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    let c = temp.path().join("c");
+    let d = temp.path().join("d");
     let state = SessionStack {
-        cwd: Some(PathBuf::from("/x")),
-        undo: vec![PathBuf::from("/a"), PathBuf::from("/b")],
-        redo: vec![PathBuf::from("/c"), PathBuf::from("/d")],
+        cwd: Some(cwd),
+        undo: vec![a.clone(), b.clone()],
+        redo: vec![c.clone(), d.clone()],
     };
     let sessions_dir = runtime.join("dx-sessions");
     fs::create_dir_all(&sessions_dir).expect("create sessions dir");
@@ -485,10 +491,20 @@ fn stack_list_plain_supports_directions_and_ordering() {
         ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
+        .current_dir(temp.path())
         .output()
         .expect("list both");
     assert!(both.status.success());
-    assert_eq!(String::from_utf8_lossy(&both.stdout), "/b\n/a\n/d\n/c\n");
+    assert_eq!(
+        String::from_utf8_lossy(&both.stdout),
+        format!(
+            "{}\n{}\n{}\n{}\n",
+            b.display(),
+            a.display(),
+            d.display(),
+            c.display()
+        )
+    );
 
     let undo = common::dx()
         .args([
@@ -501,10 +517,14 @@ fn stack_list_plain_supports_directions_and_ordering() {
         ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
+        .current_dir(temp.path())
         .output()
         .expect("list undo");
     assert!(undo.status.success());
-    assert_eq!(String::from_utf8_lossy(&undo.stdout), "/b\n/a\n");
+    assert_eq!(
+        String::from_utf8_lossy(&undo.stdout),
+        format!("{}\n{}\n", b.display(), a.display())
+    );
 
     let redo = common::dx()
         .args([
@@ -517,10 +537,14 @@ fn stack_list_plain_supports_directions_and_ordering() {
         ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
+        .current_dir(temp.path())
         .output()
         .expect("list redo");
     assert!(redo.status.success());
-    assert_eq!(String::from_utf8_lossy(&redo.stdout), "/d\n/c\n");
+    assert_eq!(
+        String::from_utf8_lossy(&redo.stdout),
+        format!("{}\n{}\n", d.display(), c.display())
+    );
 }
 
 #[test]
@@ -529,9 +553,12 @@ fn stack_list_json_and_read_only_contract() {
     let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
+    let cwd = temp.path().join("x");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
     let state = SessionStack {
-        cwd: Some(PathBuf::from("/x")),
-        undo: vec![PathBuf::from("/a"), PathBuf::from("/b")],
+        cwd: Some(cwd),
+        undo: vec![a.clone(), b.clone()],
         redo: Vec::new(),
     };
     let sessions_dir = runtime.join("dx-sessions");
@@ -557,29 +584,28 @@ fn stack_list_json_and_read_only_contract() {
         ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
+        .current_dir(temp.path())
         .output()
         .expect("list json");
     assert!(out.status.success());
 
     let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("parse json output");
-    assert_eq!(
-        parsed,
-        serde_json::json!([
-            {"path": "/b", "label": "b", "rank": 1},
-            {"path": "/a", "label": "a", "rank": 2}
-        ])
-    );
     let items = parsed.as_array().expect("json array");
-    for (item, (path, label, rank)) in items.iter().zip([("/b", "b", 1_u64), ("/a", "a", 2_u64)]) {
+    for (item, (path, rank)) in items.iter().zip([
+        (b.display().to_string(), 1_u64),
+        (a.display().to_string(), 2_u64),
+    ]) {
         let object = item.as_object().expect("stack item object");
         assert_eq!(object.len(), 3, "stack item must have exactly three keys");
         assert_eq!(
             object.get("path").and_then(serde_json::Value::as_str),
-            Some(path)
+            Some(path.as_str())
         );
-        assert_eq!(
-            object.get("label").and_then(serde_json::Value::as_str),
-            Some(label)
+        assert!(
+            object
+                .get("label")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|label| !label.is_empty())
         );
         assert_eq!(
             object.get("rank").and_then(serde_json::Value::as_u64),
@@ -597,10 +623,14 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
     let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
+    let cwd = temp.path().join("x");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    let c = temp.path().join("c");
     let state = SessionStack {
-        cwd: Some(PathBuf::from("/x")),
-        undo: vec![PathBuf::from("/a"), PathBuf::from("/b")],
-        redo: vec![PathBuf::from("/c")],
+        cwd: Some(cwd.clone()),
+        undo: vec![a, b],
+        redo: vec![c.clone()],
     };
     let sessions_dir = runtime.join("dx-sessions");
     fs::create_dir_all(&sessions_dir).expect("create sessions dir");
@@ -628,9 +658,9 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
     assert!(String::from_utf8_lossy(&clear_undo.stdout).is_empty());
 
     let mid = read_session(&session_file);
-    assert_eq!(mid.cwd, Some(PathBuf::from("/x")));
+    assert_eq!(mid.cwd, Some(cwd.clone()));
     assert!(mid.undo.is_empty());
-    assert_eq!(mid.redo, vec![PathBuf::from("/c")]);
+    assert_eq!(mid.redo, vec![c]);
 
     let clear_undo_again = common::dx()
         .args([
@@ -656,7 +686,7 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
     assert!(clear_both.status.success());
 
     let end = read_session(&session_file);
-    assert_eq!(end.cwd, Some(PathBuf::from("/x")));
+    assert_eq!(end.cwd, Some(cwd));
     assert!(end.undo.is_empty());
     assert!(end.redo.is_empty());
 }

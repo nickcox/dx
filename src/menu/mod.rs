@@ -12,6 +12,8 @@ use crate::complete::{
     self, CompletionMode, ancestors, recents as recents_mode, stack as stack_mode,
 };
 use crate::frecency::ZoxideProvider;
+use crate::resolve::path_query::{PathQuery, QueryKind};
+use crate::resolve::precedence;
 use crate::resolve::{CompletionCandidates, Resolver};
 
 pub use action::MenuAction;
@@ -117,11 +119,14 @@ fn source_mapped_filesystem_candidates(
         },
     };
 
-    let raw_query = query.unwrap_or("").trim();
+    let raw_query = query.unwrap_or("");
     let mut combined = Vec::new();
     let mut seen = HashSet::new();
 
-    if !raw_query.is_empty() && matches!(mode, MenuMode::Path | MenuMode::Directory) {
+    if !raw_query.is_empty()
+        && matches!(mode, MenuMode::Path | MenuMode::Directory)
+        && !PathQuery::new(raw_query).is_filesystem_prefix()
+    {
         let smart_dirs = resolver.collect_completion_candidates_with_limit_and_cwd(
             raw_query,
             None,
@@ -155,34 +160,48 @@ fn mapped_parent_directories(
         return (vec![cwd.to_path_buf()], String::new());
     }
 
-    let is_rooted = query.starts_with('/');
-    let (parent_query, leaf_prefix) = if query.ends_with('/') {
-        (query.trim_end_matches('/'), "")
-    } else if let Some((parent, leaf)) = query.rsplit_once('/') {
-        (parent, leaf)
+    let path_query = PathQuery::new(query);
+    if path_query.kind == QueryKind::DriveRelative {
+        return (Vec::new(), String::new());
+    }
+    let query_path = Path::new(query);
+    let (parent_query, leaf_prefix) = if path_query.has_trailing_separator() {
+        (Some(query_path), String::new())
     } else {
-        return (vec![cwd.to_path_buf()], query.to_string());
+        let parent = query_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty());
+        let leaf = query_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_string();
+        (parent, leaf)
+    };
+    let Some(parent_query) = parent_query else {
+        return (vec![cwd.to_path_buf()], leaf_prefix);
+    };
+    let Some(parent_query) = parent_query.to_str() else {
+        return (Vec::new(), leaf_prefix);
     };
 
-    if parent_query.is_empty() {
-        if is_rooted {
-            return (vec![PathBuf::from("/")], leaf_prefix.to_string());
+    if !PathQuery::new(parent_query).is_filesystem_prefix() {
+        let smart_dirs = resolver.collect_completion_candidates_with_limit_and_cwd(
+            parent_query,
+            None,
+            Some(cwd),
+        );
+        if !smart_dirs.paths.is_empty() {
+            return (smart_dirs.paths, leaf_prefix);
         }
-        return (vec![cwd.to_path_buf()], leaf_prefix.to_string());
     }
 
-    let smart_dirs =
-        resolver.collect_completion_candidates_with_limit_and_cwd(parent_query, None, Some(cwd));
-    if !smart_dirs.paths.is_empty() {
-        return (smart_dirs.paths, leaf_prefix.to_string());
-    }
-
-    let fallback = expand_query_path(cwd, parent_query)
+    let fallback = expand_query_path(cwd, PathQuery::new(parent_query))
         .filter(|path| path.is_dir())
         .into_iter()
         .collect::<Vec<_>>();
 
-    (fallback, leaf_prefix.to_string())
+    (fallback, leaf_prefix)
 }
 
 fn list_filesystem_children(parent: &Path, leaf_prefix: &str, mode: MenuMode) -> Vec<PathBuf> {
@@ -217,20 +236,8 @@ fn list_filesystem_children(parent: &Path, leaf_prefix: &str, mode: MenuMode) ->
     results
 }
 
-fn expand_query_path(cwd: &Path, query: &str) -> Option<PathBuf> {
-    let expanded = if query == "~" {
-        std::env::var("HOME").ok()?
-    } else if let Some(rest) = query.strip_prefix("~/") {
-        format!("{}/{rest}", std::env::var("HOME").ok()?)
-    } else {
-        query.to_string()
-    };
-
-    Some(if expanded.starts_with('/') {
-        PathBuf::from(expanded)
-    } else {
-        cwd.join(expanded)
-    })
+fn expand_query_path(cwd: &Path, query: PathQuery<'_>) -> Option<PathBuf> {
+    precedence::resolve_direct(cwd, query).ok().flatten()
 }
 
 fn sort_filesystem_candidates_by_basename(results: &mut [PathBuf]) {
@@ -305,6 +312,7 @@ mod tests {
         assert_eq!(menu, completion.paths);
     }
 
+    #[cfg(unix)]
     #[test]
     fn mapped_path_root_slash_lists_root_without_cwd_children() {
         let temp = test_support::temp_dir("menu-source-order-mapped-root-slash");
@@ -333,6 +341,7 @@ mod tests {
         assert!(!candidates.paths.is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
     fn mapped_path_rooted_prefix_filters_root_without_cwd_children() {
         let temp = test_support::temp_dir("menu-source-order-mapped-root-prefix");
@@ -408,5 +417,47 @@ mod tests {
 
         assert!(candidates.paths.contains(&matching));
         assert!(!candidates.paths.contains(&nonmatching));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mapped_path_query_preserves_whitespace() {
+        let temp = test_support::temp_dir("menu-mapped-whitespace");
+        let cwd = temp.path().join("work");
+        let child = cwd.join(" project ").join("source");
+        fs::create_dir_all(&child).expect("create whitespace path");
+
+        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let candidates = source_candidates_with_meta(
+            &resolver,
+            MenuMode::Path,
+            Some(" project /s"),
+            None,
+            Some(cwd.as_path()),
+            None,
+        );
+
+        assert!(candidates.paths.contains(&child));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn mapped_path_query_accepts_backslash_separator() {
+        let temp = test_support::temp_dir("menu-mapped-backslash");
+        let cwd = temp.path().join("work");
+        let child = cwd.join("project").join("source");
+        fs::create_dir_all(&child).expect("create nested path");
+
+        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let candidates = source_candidates_with_meta(
+            &resolver,
+            MenuMode::Path,
+            Some(r"project\s"),
+            None,
+            Some(cwd.as_path()),
+            None,
+        );
+
+        assert!(candidates.paths.contains(&child));
     }
 }

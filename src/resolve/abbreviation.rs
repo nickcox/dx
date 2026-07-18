@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use super::traversal;
+use super::{path_query, traversal};
 
 pub fn resolve_abbreviation(roots: &[PathBuf], query: &str, case_sensitive: bool) -> Vec<PathBuf> {
-    if !query.contains('/') {
+    if !path_query::has_separator(query) {
         return Vec::new();
     }
 
@@ -24,9 +24,38 @@ pub fn resolve_abbreviation(roots: &[PathBuf], query: &str, case_sensitive: bool
         .collect()
 }
 
+pub fn resolve_abbreviation_exact(
+    roots: &[PathBuf],
+    query: &str,
+    case_sensitive: bool,
+) -> Result<Vec<PathBuf>, (PathBuf, std::io::Error)> {
+    if !path_query::has_separator(query) {
+        return Ok(Vec::new());
+    }
+    let segments = parse_query_segments(query, case_sensitive);
+    if segments.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut matches = Vec::new();
+    for root in roots {
+        // Configured roots are optional search locations, so an unavailable one
+        // must not prevent another root from resolving the query.
+        if !root.is_dir() {
+            continue;
+        }
+        matches.extend(traversal::try_traverse_segment_paths(
+            vec![root.clone()],
+            &segments,
+            |name, segment| segment.matches(name),
+        )?);
+    }
+    Ok(matches)
+}
+
 fn parse_query_segments(query: &str, case_sensitive: bool) -> Vec<ParsedSegment> {
     query
-        .split('/')
+        .split(std::path::is_separator)
         .filter(|segment| !segment.is_empty())
         .map(|segment| ParsedSegment::new(segment, case_sensitive))
         .collect()

@@ -24,22 +24,32 @@ pub fn resolve_step_up(cwd: &Path, query: &str) -> Option<PathBuf> {
 
 pub fn normalize_path(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
+    let mut normal_components = 0;
+    let mut anchored = false;
 
     for component in path.components() {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                normalized.pop();
+                if normal_components > 0 {
+                    normalized.pop();
+                    normal_components -= 1;
+                } else if !anchored {
+                    normalized.push(component.as_os_str());
+                }
             }
-            other => normalized.push(other.as_os_str()),
+            Component::Prefix(_) | Component::RootDir => {
+                anchored = true;
+                normalized.push(component.as_os_str());
+            }
+            Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+                normal_components += 1;
+            }
         }
     }
 
-    if normalized.as_os_str().is_empty() {
-        PathBuf::from("/")
-    } else {
-        normalized
-    }
+    normalized
 }
 
 pub fn traverse_segment_paths<S, F>(
@@ -83,6 +93,43 @@ where
     current
 }
 
+pub fn try_traverse_segment_paths<S, F>(
+    bases: Vec<PathBuf>,
+    segments: &[S],
+    matches_segment: F,
+) -> Result<Vec<PathBuf>, (PathBuf, std::io::Error)>
+where
+    F: Fn(&str, &S) -> bool,
+{
+    let mut current = bases;
+
+    for segment in segments {
+        let mut next = Vec::new();
+        for base in &current {
+            let entries = fs::read_dir(base).map_err(|source| (base.clone(), source))?;
+            for entry in entries {
+                let entry = entry.map_err(|source| (base.clone(), source))?;
+                let path = entry.path();
+                let name = entry.file_name();
+                if let Some(name) = name.to_str()
+                    && matches_segment(name, segment)
+                {
+                    let metadata = entry.metadata().map_err(|source| (path.clone(), source))?;
+                    if metadata.is_dir() {
+                        next.push(path);
+                    }
+                }
+            }
+        }
+        current = next;
+        if current.is_empty() {
+            break;
+        }
+    }
+
+    Ok(current)
+}
+
 fn is_multi_dot_alias(input: &str) -> bool {
     input.len() >= 3 && input.chars().all(|c| c == '.')
 }
@@ -119,6 +166,37 @@ mod tests {
         let cwd = PathBuf::from("/");
         let result = resolve_step_up(&cwd, "......").expect("should resolve");
         assert_eq!(result, PathBuf::from("/"));
+    }
+
+    #[test]
+    fn lexical_normalization_preserves_empty_relative_paths() {
+        assert_eq!(normalize_path(Path::new(".")), PathBuf::new());
+        assert_eq!(
+            normalize_path(Path::new("../../work")),
+            PathBuf::from("../../work")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lexical_normalization_does_not_escape_unix_root() {
+        assert_eq!(
+            normalize_path(Path::new("/../../work")),
+            PathBuf::from("/work")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn lexical_normalization_preserves_windows_roots() {
+        assert_eq!(
+            normalize_path(Path::new(r"C:\..\work")),
+            PathBuf::from(r"C:\work")
+        );
+        assert_eq!(
+            normalize_path(Path::new(r"\\server\share\..\work")),
+            PathBuf::from(r"\\server\share\work")
+        );
     }
 
     #[test]
