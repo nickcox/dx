@@ -65,9 +65,12 @@ fn init_pwsh_prints_non_empty_output() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.trim().is_empty());
     assert!(stdout.contains("Register-ArgumentCompleter -CommandName dx"));
-    assert!(stdout.contains("function up"));
-    assert!(stdout.contains("function back"));
-    assert!(stdout.contains("function forward"));
+    assert!(stdout.contains("function Step-Up"));
+    assert!(stdout.contains("function Undo-Location"));
+    assert!(stdout.contains("function Redo-Location"));
+    assert!(stdout.contains("__dx_set_alias up Step-Up"));
+    assert!(stdout.contains("__dx_set_alias back Undo-Location"));
+    assert!(stdout.contains("__dx_set_alias forward Redo-Location"));
 }
 
 #[test]

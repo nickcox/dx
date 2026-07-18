@@ -451,6 +451,47 @@ fn init_pwsh_menu_key_change_removes_old_dx_binding() {
 }
 
 #[test]
+fn init_pwsh_uses_idiomatic_functions_and_restores_dot_dot_alias() {
+    if !pwsh_available() {
+        eprintln!("skipping PowerShell evaluation test: pwsh not available");
+        return;
+    }
+
+    let output = Command::new("pwsh")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Set-Alias -Name '..' -Value Get-Location; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh | Out-String)); $functions = @('Set-DxLocation', 'Step-Up', 'Undo-Location', 'Redo-Location', 'Set-FrecentLocation', 'Set-RecentLocation'); $functionNames = (Get-Command -Module dx -CommandType Function | Select-Object -ExpandProperty Name); \"functions=$($functionNames -join ',')\"; foreach ($name in @('up', '..', 'back', 'cd-', 'forward', 'cd+', 'cdf', 'z', 'cdr')) { \"$name=$((Get-Alias -Name $name).Definition)\" }; Remove-Module dx; \"dotdotAfterUnload=$((Get-Alias -Name '..').Definition)\"",
+        ])
+        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .output()
+        .expect("pwsh should run");
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.is_empty(), "unexpected stderr: {stderr}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Set-DxLocation"));
+    assert!(stdout.contains("Step-Up"));
+    assert!(stdout.contains("Undo-Location"));
+    assert!(stdout.contains("Redo-Location"));
+    assert!(stdout.contains("Set-FrecentLocation"));
+    assert!(stdout.contains("Set-RecentLocation"));
+    assert!(stdout.contains("up=Step-Up"));
+    assert!(stdout.contains("..=Step-Up"));
+    assert!(stdout.contains("back=Undo-Location"));
+    assert!(stdout.contains("cd-=Undo-Location"));
+    assert!(stdout.contains("forward=Redo-Location"));
+    assert!(stdout.contains("cd+=Redo-Location"));
+    assert!(stdout.contains("cdf=Set-FrecentLocation"));
+    assert!(stdout.contains("z=Set-FrecentLocation"));
+    assert!(stdout.contains("cdr=Set-RecentLocation"));
+    assert!(stdout.contains("dotdotAfterUnload=Get-Location"));
+}
+
+#[test]
 fn init_with_invalid_menu_mappings_fails_when_menu_enabled() {
     let output = dx()
         .args(["init", "bash", "--menu"])

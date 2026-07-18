@@ -40,16 +40,34 @@ pub fn generate_with_mappings_and_menu_key(
 
 Get-Module -Name dx | Remove-Module -ErrorAction SilentlyContinue
 
-New-Module -Name dx -ScriptBlock {
-$script:__dx_previous_aliases = @{}
-foreach ($__dx_alias_name in @('cd', 'z', 'cd-', 'cd+')) {
+$__dx_previous_aliases = @{}
+foreach ($__dx_alias_name in @('cd', 'up', '..', 'back', 'forward', 'cd-', 'cd+', 'cdf', 'cdr', 'z')) {
     $__dx_alias = Get-Alias -Name $__dx_alias_name -ErrorAction SilentlyContinue
     if ($__dx_alias) {
-        $script:__dx_previous_aliases[$__dx_alias_name] = $__dx_alias.Definition
+        $__dx_previous_aliases[$__dx_alias_name] = [PSCustomObject]@{
+            Definition = $__dx_alias.Definition
+            Options = $__dx_alias.Options
+        }
     } else {
-        $script:__dx_previous_aliases[$__dx_alias_name] = $null
+        $__dx_previous_aliases[$__dx_alias_name] = $null
     }
 }
+
+$Global:__dx_previous_aliases_for_cleanup = $__dx_previous_aliases
+function global:__dx_restore_aliases {
+    foreach ($__dx_alias_name in @('cd', 'up', '..', 'back', 'forward', 'cd-', 'cd+', 'cdf', 'cdr', 'z')) {
+        $__dx_previous = $Global:__dx_previous_aliases_for_cleanup[$__dx_alias_name]
+        if ($null -ne $__dx_previous) {
+            Set-Alias -Name $__dx_alias_name -Value $__dx_previous.Definition -Scope Global -Option $__dx_previous.Options -Force
+        } else {
+            Remove-Item -LiteralPath "Alias:\$__dx_alias_name" -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Remove-Variable -Name __dx_previous_aliases_for_cleanup -Scope Global -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:global:__dx_restore_aliases -Force -ErrorAction SilentlyContinue
+}
+
+New-Module -Name dx -ScriptBlock {
 
 $script:__dx_oldpwd = $PWD.Path
 $script:__dx_has_command_not_found_action = $ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandNotFoundAction'
@@ -179,11 +197,18 @@ function __dx_set_location_native {
 function __dx_set_alias {
     param(
         [string]$Name,
-        [string]$Value
+        [string]$Value,
+        [object]$Options
     )
 
-    if (Get-Alias -Name $Name -ErrorAction SilentlyContinue) {
-        Set-Item -Path "Alias:$Name" -Value $Value -Force
+    if ($PSBoundParameters.ContainsKey('Options')) {
+        Set-Alias -Name $Name -Value $Value -Scope Global -Option $Options -Force
+        return
+    }
+
+    $existing = Get-Alias -Name $Name -ErrorAction SilentlyContinue
+    if ($existing) {
+        Set-Alias -Name $Name -Value $Value -Scope Global -Option $existing.Options -Force
     } else {
         Set-Alias -Name $Name -Value $Value -Scope Global -Force
     }
@@ -245,25 +270,29 @@ function Set-DxLocation {
 
 __dx_set_alias cd Set-DxLocation
 
-function up {
+function Step-Up {
     param([string]$Selector)
     __dx_nav_wrapper -Mode up -Selector $Selector
 }
 
-function back {
+function Undo-Location {
     param([string]$Selector)
     __dx_stack_wrapper -Mode back -Selector $Selector
 }
 
-function forward {
+function Redo-Location {
     param([string]$Selector)
     __dx_stack_wrapper -Mode forward -Selector $Selector
 }
 
-__dx_set_alias 'cd-' back
-__dx_set_alias 'cd+' forward
+__dx_set_alias up Step-Up
+__dx_set_alias '..' Step-Up
+__dx_set_alias back Undo-Location
+__dx_set_alias 'cd-' Undo-Location
+__dx_set_alias forward Redo-Location
+__dx_set_alias 'cd+' Redo-Location
 
-function cdf {
+function Set-FrecentLocation {
     param([string]$Query)
     $target = __dx_complete_first (__dx_complete_mode -Mode frecents -Word $Query)
     if ($target) {
@@ -273,9 +302,10 @@ function cdf {
     }
 }
 
-__dx_set_alias z cdf
+__dx_set_alias cdf Set-FrecentLocation
+__dx_set_alias z Set-FrecentLocation
 
-function cdr {
+function Set-RecentLocation {
     param([string]$Query)
     $target = __dx_complete_first (__dx_complete_mode -Mode recents -Word $Query)
     if ($target) {
@@ -284,6 +314,8 @@ function cdr {
         if ($?) { __dx_push_pwd }
     }
 }
+
+__dx_set_alias cdr Set-RecentLocation
 
 function __dx_emit_completion {
     param([string[]]$Values)
@@ -559,14 +591,7 @@ if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandN
     script.push_str(
         r#"
 $ExecutionContext.SessionState.Module.OnRemove += {
-    foreach ($__dx_alias_name in @('cd', 'z', 'cd-', 'cd+')) {
-        $__dx_previous = $script:__dx_previous_aliases[$__dx_alias_name]
-        if ($null -ne $__dx_previous) {
-            __dx_set_alias $__dx_alias_name $__dx_previous
-        } else {
-            Remove-Item -Path "Alias:$__dx_alias_name" -Force -ErrorAction SilentlyContinue
-        }
-    }
+    __dx_restore_aliases
 "#,
     );
 
@@ -614,7 +639,7 @@ $ExecutionContext.SessionState.Module.OnRemove += {
     }
 }
 
-Export-ModuleMember -Function Set-DxLocation, up, back, forward, cdf, cdr
+Export-ModuleMember -Function Set-DxLocation, Step-Up, Undo-Location, Redo-Location, Set-FrecentLocation, Set-RecentLocation
 } | Import-Module -Global
 "#,
     );

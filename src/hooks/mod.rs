@@ -315,7 +315,7 @@ mod tests {
     fn pwsh_jump_wrappers_seed_origin_before_set_location_and_record_destination() {
         let output = generate(Shell::Pwsh, false, false);
 
-        let cdf = section_between(&output, "function cdf {", "\n__dx_set_alias z");
+        let cdf = section_between(&output, "function Set-FrecentLocation {", "\n__dx_set_alias cdf");
         assert_eq!(cdf.matches("__dx_push_pwd").count(), 2);
         assert_contains_in_order(
             cdf,
@@ -328,7 +328,11 @@ mod tests {
             ],
         );
 
-        let cdr = section_between(&output, "function cdr {", "\nfunction __dx_emit_completion");
+        let cdr = section_between(
+            &output,
+            "function Set-RecentLocation {",
+            "\n__dx_set_alias cdr",
+        );
         assert_eq!(cdr.matches("__dx_push_pwd").count(), 2);
         assert_contains_in_order(
             cdr,
@@ -416,7 +420,8 @@ mod tests {
     fn generate_pwsh_with_command_not_found_includes_guard_and_action() {
         let output = generate(Shell::Pwsh, true, false);
         assert!(output.contains("Set-Location"));
-        assert!(output.contains("function up"));
+        assert!(output.contains("function Step-Up"));
+        assert!(output.contains("__dx_set_alias up Step-Up"));
         assert!(output.contains("Register-ArgumentCompleter -CommandName dx"));
         assert!(output.contains("CommandNotFoundAction"));
         assert!(output.contains("DX_RESOLVE_GUARD"));
@@ -434,10 +439,15 @@ mod tests {
     fn pwsh_imports_in_memory_module_with_cleanup() {
         let output = generate(Shell::Pwsh, false, false);
         assert!(output.contains("Get-Module -Name dx | Remove-Module -ErrorAction SilentlyContinue"));
+        assert!(output.contains("$Global:__dx_previous_aliases_for_cleanup = $__dx_previous_aliases"));
+        assert!(output.contains("function global:__dx_restore_aliases {"));
         assert!(output.contains("New-Module -Name dx -ScriptBlock {"));
         assert!(output.contains("$ExecutionContext.SessionState.Module.OnRemove += {"));
         assert!(!output.contains("$MyInvocation.MyCommand.ScriptBlock.Module.OnRemove"));
-        assert!(output.contains("Export-ModuleMember -Function Set-DxLocation, up, back, forward, cdf, cdr"));
+        assert!(output.contains("Export-ModuleMember -Function Set-DxLocation, Step-Up, Undo-Location, Redo-Location, Set-FrecentLocation, Set-RecentLocation"));
+        assert!(output.contains("foreach ($__dx_alias_name in @('cd', 'up', '..', 'back', 'forward', 'cd-', 'cd+', 'cdf', 'cdr', 'z'))"));
+        assert!(output.contains("Remove-Item -LiteralPath \"Alias:\\$__dx_alias_name\" -Force -ErrorAction SilentlyContinue"));
+        assert!(output.contains("__dx_restore_aliases"));
         assert!(output.contains("} | Import-Module -Global"));
     }
 
@@ -446,9 +456,38 @@ mod tests {
         let output = generate(Shell::Pwsh, false, false);
         assert!(output.contains("function Set-DxLocation"));
         assert!(output.contains("__dx_set_alias cd Set-DxLocation"));
-        assert!(output.contains("Set-Item -Path \"Alias:$Name\" -Value $Value -Force"));
+        assert!(output.contains("Set-Alias -Name $Name -Value $Value -Scope Global -Option $existing.Options -Force"));
         assert!(!output.contains("function cd {"));
         assert!(!output.contains("Remove-Item Alias:cd -ErrorAction SilentlyContinue"));
+    }
+
+    #[test]
+    fn pwsh_uses_idiomatic_primary_navigation_function_names() {
+        let output = generate(Shell::Pwsh, false, false);
+        assert!(output.contains("function Step-Up"));
+        assert!(output.contains("function Undo-Location"));
+        assert!(output.contains("function Redo-Location"));
+        assert!(output.contains("function Set-FrecentLocation"));
+        assert!(output.contains("function Set-RecentLocation"));
+        assert!(!output.contains("function up {"));
+        assert!(!output.contains("function back {"));
+        assert!(!output.contains("function forward {"));
+        assert!(!output.contains("function cdf {"));
+        assert!(!output.contains("function cdr {"));
+    }
+
+    #[test]
+    fn pwsh_installs_short_navigation_aliases() {
+        let output = generate(Shell::Pwsh, false, false);
+        assert!(output.contains("__dx_set_alias up Step-Up"));
+        assert!(output.contains("__dx_set_alias '..' Step-Up"));
+        assert!(output.contains("__dx_set_alias back Undo-Location"));
+        assert!(output.contains("__dx_set_alias 'cd-' Undo-Location"));
+        assert!(output.contains("__dx_set_alias forward Redo-Location"));
+        assert!(output.contains("__dx_set_alias 'cd+' Redo-Location"));
+        assert!(output.contains("__dx_set_alias cdf Set-FrecentLocation"));
+        assert!(output.contains("__dx_set_alias z Set-FrecentLocation"));
+        assert!(output.contains("__dx_set_alias cdr Set-RecentLocation"));
     }
 
     #[test]
@@ -531,14 +570,20 @@ mod tests {
         let pwsh = generate(Shell::Pwsh, false, false);
         assert!(pwsh.contains("function Set-DxLocation"));
         assert!(pwsh.contains("__dx_set_alias cd Set-DxLocation"));
-        assert!(pwsh.contains("function up"));
-        assert!(pwsh.contains("function cdf"));
-        assert!(pwsh.contains("__dx_set_alias z cdf"));
-        assert!(pwsh.contains("function cdr"));
-        assert!(pwsh.contains("function back"));
-        assert!(pwsh.contains("__dx_set_alias 'cd-' back"));
-        assert!(pwsh.contains("function forward"));
-        assert!(pwsh.contains("__dx_set_alias 'cd+' forward"));
+        assert!(pwsh.contains("function Step-Up"));
+        assert!(pwsh.contains("__dx_set_alias up Step-Up"));
+        assert!(pwsh.contains("__dx_set_alias '..' Step-Up"));
+        assert!(pwsh.contains("function Set-FrecentLocation"));
+        assert!(pwsh.contains("__dx_set_alias cdf Set-FrecentLocation"));
+        assert!(pwsh.contains("__dx_set_alias z Set-FrecentLocation"));
+        assert!(pwsh.contains("function Set-RecentLocation"));
+        assert!(pwsh.contains("__dx_set_alias cdr Set-RecentLocation"));
+        assert!(pwsh.contains("function Undo-Location"));
+        assert!(pwsh.contains("__dx_set_alias back Undo-Location"));
+        assert!(pwsh.contains("__dx_set_alias 'cd-' Undo-Location"));
+        assert!(pwsh.contains("function Redo-Location"));
+        assert!(pwsh.contains("__dx_set_alias forward Redo-Location"));
+        assert!(pwsh.contains("__dx_set_alias 'cd+' Redo-Location"));
         assert!(pwsh.contains("$resolved = (dx resolve $pathArg 2>$null)"));
         assert!(pwsh.contains("__dx_complete_mode -Mode paths -Word $wordToComplete"));
         assert_pwsh_root_dx_completion_contract(&pwsh);
