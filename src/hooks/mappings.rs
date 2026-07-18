@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt;
 
 use thiserror::Error;
 
@@ -30,8 +31,45 @@ impl MenuMappingMode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuCommandMapping {
-    pub command: String,
-    pub mode: MenuMappingMode,
+    command: MenuCommandName,
+    mode: MenuMappingMode,
+}
+
+impl MenuCommandMapping {
+    pub fn command(&self) -> &str {
+        self.command.as_str()
+    }
+
+    pub fn mode(&self) -> MenuMappingMode {
+        self.mode
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MenuCommandName(String);
+
+impl MenuCommandName {
+    fn parse(raw: &str) -> Option<Self> {
+        let mut bytes = raw.bytes();
+        let first = bytes.next()?;
+        if !first.is_ascii_alphanumeric() && first != b'_' {
+            return None;
+        }
+
+        bytes
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+            .then(|| Self(raw.to_string()))
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for MenuCommandName {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -40,6 +78,10 @@ pub enum MenuCommandMappingError {
     InvalidEntry(String),
     #[error("mapping command cannot be empty in entry '{0}'")]
     EmptyCommand(String),
+    #[error(
+        "invalid mapping command '{command}' in entry '{entry}' (expected an ASCII command name starting with a letter, digit, or '_', followed only by letters, digits, '_', '-', or '.')"
+    )]
+    InvalidCommand { entry: String, command: String },
     #[error("invalid mapping mode '{mode}' in entry '{entry}' (expected path, directory, or file)")]
     InvalidMode { entry: String, mode: String },
     #[error("duplicate mapping for command '{0}'")]
@@ -72,6 +114,13 @@ pub fn parse_menu_command_mappings(
             return Err(MenuCommandMappingError::EmptyCommand(entry.to_string()));
         }
 
+        let Some(command) = MenuCommandName::parse(command) else {
+            return Err(MenuCommandMappingError::InvalidCommand {
+                entry: entry.to_string(),
+                command: command.to_string(),
+            });
+        };
+
         let Some(mode) = MenuMappingMode::parse(mode) else {
             return Err(MenuCommandMappingError::InvalidMode {
                 entry: entry.to_string(),
@@ -79,16 +128,13 @@ pub fn parse_menu_command_mappings(
             });
         };
 
-        if !seen.insert(command.to_string()) {
+        if !seen.insert(command.clone()) {
             return Err(MenuCommandMappingError::DuplicateCommand(
                 command.to_string(),
             ));
         }
 
-        mappings.push(MenuCommandMapping {
-            command: command.to_string(),
-            mode,
-        });
+        mappings.push(MenuCommandMapping { command, mode });
     }
 
     Ok(mappings)
@@ -96,30 +142,23 @@ pub fn parse_menu_command_mappings(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        MenuCommandMapping, MenuCommandMappingError, MenuMappingMode, parse_menu_command_mappings,
-    };
+    use super::{MenuCommandMappingError, MenuMappingMode, parse_menu_command_mappings};
 
     #[test]
     fn parses_valid_menu_mappings() {
         let parsed = parse_menu_command_mappings("ls=path, open=directory , cat=file")
             .expect("mappings should parse");
 
+        let values = parsed
+            .iter()
+            .map(|mapping| (mapping.command(), mapping.mode()))
+            .collect::<Vec<_>>();
         assert_eq!(
-            parsed,
+            values,
             vec![
-                MenuCommandMapping {
-                    command: "ls".to_string(),
-                    mode: MenuMappingMode::Path,
-                },
-                MenuCommandMapping {
-                    command: "open".to_string(),
-                    mode: MenuMappingMode::Directory,
-                },
-                MenuCommandMapping {
-                    command: "cat".to_string(),
-                    mode: MenuMappingMode::File,
-                },
+                ("ls", MenuMappingMode::Path),
+                ("open", MenuMappingMode::Directory),
+                ("cat", MenuMappingMode::File),
             ]
         );
     }
@@ -148,6 +187,54 @@ mod tests {
         assert_eq!(
             err,
             MenuCommandMappingError::EmptyCommand("=path".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_commands_that_are_unsafe_in_generated_shell_code() {
+        let unsafe_commands = [
+            "-option",
+            "two words",
+            "line\nbreak",
+            "close)",
+            "semi;colon",
+            "dollar$var",
+            "sub$(command)",
+            "back`tick",
+            "single'quote",
+            "double\"quote",
+            "back\\slash",
+            "colon:name",
+            "nonascii-é",
+        ];
+
+        for command in unsafe_commands {
+            let entry = format!("{command}=path");
+            let err = parse_menu_command_mappings(&entry).expect_err("command must fail");
+            assert_eq!(
+                err,
+                MenuCommandMappingError::InvalidCommand {
+                    entry: entry.clone(),
+                    command: command.to_string(),
+                },
+                "unexpected result for {entry:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_conservative_cross_shell_command_names() {
+        let parsed = parse_menu_command_mappings(
+            "ls=path,Get-ChildItem=directory,git.status=file,_private=path,7z=path",
+        )
+        .expect("safe commands should parse");
+
+        assert_eq!(
+            parsed
+                .iter()
+                .map(|mapping| mapping.command())
+                .collect::<Vec<_>>(),
+            ["ls", "Get-ChildItem", "git.status", "_private", "7z"]
         );
     }
 

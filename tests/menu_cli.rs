@@ -1,4 +1,5 @@
-use std::process::Command;
+use std::io::Write;
+use std::process::{Command, Stdio};
 use std::{
     fs,
     time::{SystemTime, UNIX_EPOCH},
@@ -18,6 +19,53 @@ fn pwsh_available() -> bool {
         ])
         .output()
         .is_ok_and(|output| output.status.success())
+}
+
+fn command_available(command: &str) -> bool {
+    Command::new(command)
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+fn assert_hook_parses_with(shell: &str, command: &str, args: &[&str]) {
+    if !command_available(command) {
+        return;
+    }
+
+    let generated = dx()
+        .args(["init", shell, "--menu"])
+        .env(
+            "DX_MENU_COMMAND_MAPPINGS",
+            "Get-ChildItem=path,git.status=file",
+        )
+        .output()
+        .expect("generate hook for syntax check");
+    assert!(
+        generated.status.success(),
+        "failed to generate {shell} hook: {}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+
+    let mut child = Command::new(command)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn shell syntax checker");
+    child
+        .stdin
+        .take()
+        .expect("syntax checker stdin")
+        .write_all(&generated.stdout)
+        .expect("write generated hook");
+    let checked = child.wait_with_output().expect("wait for syntax checker");
+    assert!(
+        checked.status.success(),
+        "generated {shell} hook failed syntax check: {}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
 }
 
 fn make_temp_dir(label: &str) -> std::path::PathBuf {
@@ -505,6 +553,73 @@ fn init_with_invalid_menu_mappings_fails_when_menu_enabled() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("invalid DX_MENU_COMMAND_MAPPINGS"));
+}
+
+#[test]
+fn init_rejects_shell_injection_in_menu_mappings() {
+    let cases = [
+        ("bash", "bad); echo injected=path"),
+        ("zsh", "bad); echo injected=path"),
+        ("fish", "bad; echo injected=path"),
+        ("pwsh", "bad'; Write-Output injected=path"),
+    ];
+
+    for (shell, mappings) in cases {
+        let output = dx()
+            .args(["init", shell, "--menu"])
+            .env("DX_MENU_COMMAND_MAPPINGS", mappings)
+            .output()
+            .expect("dx init should run");
+
+        assert!(
+            !output.status.success(),
+            "{shell} accepted unsafe mappings: {mappings:?}"
+        );
+        assert!(
+            output.stdout.is_empty(),
+            "{shell} emitted a script for unsafe mappings"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("invalid DX_MENU_COMMAND_MAPPINGS"),
+            "{shell} did not explain the invalid mapping"
+        );
+    }
+}
+
+#[test]
+fn generated_hooks_with_safe_mappings_pass_available_shell_parsers() {
+    assert_hook_parses_with("bash", "bash", &["-n"]);
+    assert_hook_parses_with("zsh", "zsh", &["-n"]);
+    assert_hook_parses_with("fish", "fish", &["--no-execute"]);
+
+    if pwsh_available() {
+        let generated = dx()
+            .args(["init", "pwsh", "--menu"])
+            .env(
+                "DX_MENU_COMMAND_MAPPINGS",
+                "Get-ChildItem=path,git.status=file",
+            )
+            .output()
+            .expect("generate PowerShell hook for syntax check");
+        assert!(generated.status.success());
+
+        let source = String::from_utf8(generated.stdout).expect("PowerShell hook should be UTF-8");
+        let checked = Command::new("pwsh")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseInput($env:DX_HOOK_SOURCE, [ref]$tokens, [ref]$errors) > $null; if ($errors.Count -gt 0) { $errors | ForEach-Object { [Console]::Error.WriteLine($_) }; exit 1 }",
+            ])
+            .env("DX_HOOK_SOURCE", source)
+            .output()
+            .expect("run PowerShell parser");
+        assert!(
+            checked.status.success(),
+            "generated PowerShell hook failed syntax check: {}",
+            String::from_utf8_lossy(&checked.stderr)
+        );
+    }
 }
 
 #[test]

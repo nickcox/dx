@@ -412,7 +412,7 @@ command_not_found_handle() {
                 "__DX_BASH_MAPPED_MENU_BINDINGS__",
                 _mappings
                     .iter()
-                    .map(|mapping| format!("complete -F _dx_menu_wrapper {}", mapping.command))
+                    .map(|mapping| format!("complete -F _dx_menu_wrapper {}", mapping.command()))
                     .collect::<Vec<_>>()
                     .join("\n"),
             ),

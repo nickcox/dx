@@ -241,8 +241,8 @@ pub fn render_bash_menu_mapping_case(mappings: &[MenuCommandMapping]) -> String 
         .map(|mapping| {
             format!(
                 "    {}) __dx_menu_mode=\"{}\" ;;&",
-                bash_case_pattern(&[mapping.command.as_str()]),
-                mapping.mode.as_cli_arg()
+                bash_case_pattern(&[mapping.command()]),
+                mapping.mode().as_cli_arg()
             )
         })
         .collect::<Vec<_>>()
@@ -253,10 +253,10 @@ pub fn render_zsh_menu_mapping_case(mappings: &[MenuCommandMapping]) -> String {
     mappings
         .iter()
         .map(|mapping| {
-            let command = quote_if_special(&mapping.command);
+            let command = quote_if_special(mapping.command());
             format!(
                 "    {command}) __dx_menu_mode=\"{}\" ;;",
-                mapping.mode.as_cli_arg()
+                mapping.mode().as_cli_arg()
             )
         })
         .collect::<Vec<_>>()
@@ -267,10 +267,10 @@ pub fn render_fish_menu_mapping_cases(mappings: &[MenuCommandMapping]) -> String
     mappings
         .iter()
         .map(|mapping| {
-            let command = quote_if_special(&mapping.command);
+            let command = quote_if_special(mapping.command());
             format!(
                 "    case {command}\n      set -l dx_menu_mode {}",
-                mapping.mode.as_cli_arg()
+                mapping.mode().as_cli_arg()
             )
         })
         .collect::<Vec<_>>()
@@ -280,7 +280,7 @@ pub fn render_fish_menu_mapping_cases(mappings: &[MenuCommandMapping]) -> String
 pub fn render_pwsh_menu_mapping_list(mappings: &[MenuCommandMapping]) -> String {
     mappings
         .iter()
-        .map(|mapping| format!("'{}={}'", mapping.command, mapping.mode.as_cli_arg()))
+        .map(|mapping| format!("'{}={}'", mapping.command(), mapping.mode().as_cli_arg()))
         .collect::<Vec<_>>()
         .join(", ")
 }

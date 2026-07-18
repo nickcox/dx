@@ -70,8 +70,8 @@ pub fn generate_with_mappings_and_pwsh_key(
 #[cfg(test)]
 mod tests {
     use super::{
-        MenuCommandMapping, MenuMappingMode, Shell, generate, generate_with_mappings,
-        generate_with_mappings_and_pwsh_key, parse_pwsh_menu_key,
+        Shell, generate, generate_with_mappings, generate_with_mappings_and_pwsh_key,
+        parse_menu_command_mappings, parse_pwsh_menu_key,
     };
 
     fn count_unescaped(script: &str, needle: char) -> usize {
@@ -690,10 +690,7 @@ mod tests {
 
     #[test]
     fn pwsh_menu_mappings_expand_aliases_at_hook_load() {
-        let mappings = [MenuCommandMapping {
-            command: "Get-ChildItem".to_string(),
-            mode: MenuMappingMode::Path,
-        }];
+        let mappings = parse_menu_command_mappings("Get-ChildItem=path").expect("valid mapping");
         let pwsh = generate_with_mappings(Shell::Pwsh, false, true, &mappings);
 
         assert!(pwsh.contains("$dxMappingSeeds = @('Get-ChildItem=path')"));
@@ -713,16 +710,8 @@ mod tests {
 
     #[test]
     fn pwsh_menu_mapping_precedence_prefers_explicit_over_derived() {
-        let mappings = [
-            MenuCommandMapping {
-                command: "Get-ChildItem".to_string(),
-                mode: MenuMappingMode::Path,
-            },
-            MenuCommandMapping {
-                command: "gci".to_string(),
-                mode: MenuMappingMode::File,
-            },
-        ];
+        let mappings =
+            parse_menu_command_mappings("Get-ChildItem=path,gci=file").expect("valid mappings");
         let pwsh = generate_with_mappings(Shell::Pwsh, false, true, &mappings);
 
         assert!(pwsh.contains("$dxMappingSeeds = @('Get-ChildItem=path', 'gci=file')"));
