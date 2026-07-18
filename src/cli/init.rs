@@ -52,13 +52,9 @@ pub fn run_init(shell: &str, command_not_found: bool, menu: bool) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support;
+    use crate::test_support::ScopedProcess;
 
     use super::run_init;
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        test_support::env_lock()
-    }
 
     #[test]
     fn init_rejects_unknown_shell() {
@@ -68,23 +64,21 @@ mod tests {
 
     #[test]
     fn init_rejects_invalid_menu_mappings_when_menu_enabled() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry");
 
         let code = run_init("bash", false, true);
 
-        unsafe { std::env::remove_var("DX_MENU_COMMAND_MAPPINGS") };
         assert_eq!(code, 1);
     }
 
     #[test]
     fn init_ignores_invalid_menu_mappings_when_menu_disabled() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry");
 
         let code = run_init("bash", false, false);
 
-        unsafe { std::env::remove_var("DX_MENU_COMMAND_MAPPINGS") };
         assert_eq!(code, 0);
     }
 }

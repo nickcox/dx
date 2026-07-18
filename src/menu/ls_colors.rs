@@ -302,6 +302,8 @@ fn bright_color(n: u8) -> Color {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support;
+
     use super::*;
 
     #[test]
@@ -378,41 +380,45 @@ mod tests {
 
     #[test]
     fn style_for_path_extension_match() {
+        let temp = test_support::temp_dir("ls-colors-extension-match");
         let config = parse_ls_colors("*.rs=01;31:di=01;34");
-        let path = Path::new("/tmp/main.rs");
-        let style = config.style_for_path(path);
+        let path = temp.path().join("main.rs");
+        let style = config.style_for_path(&path);
         assert_eq!(style.and_then(|s| s.fg), Some(Color::Red));
     }
 
     #[test]
     fn style_for_path_directory() {
-        let dir = std::env::temp_dir();
+        let temp = test_support::temp_dir("ls-colors-directory");
         let config = parse_ls_colors("di=01;34:ex=01;32");
-        let style = config.style_for_path(&dir);
+        let style = config.style_for_path(temp.path());
         assert_eq!(style.and_then(|s| s.fg), Some(Color::Blue));
     }
 
     #[test]
     fn style_for_path_nonexistent_file() {
+        let temp = test_support::temp_dir("ls-colors-nonexistent-file");
         let config = parse_ls_colors("di=01;34:mi=01;31");
-        let path = Path::new("/tmp/nonexistent_file_xyzzy");
-        let style = config.style_for_path(path);
+        let path = temp.path().join("missing");
+        let style = config.style_for_path(&path);
         assert_eq!(style.and_then(|s| s.fg), Some(Color::Red));
     }
 
     #[test]
     fn style_for_path_nonexistent_file_can_still_match_extension() {
+        let temp = test_support::temp_dir("ls-colors-nonexistent-extension");
         let config = parse_ls_colors("*.rs=01;31");
-        let path = Path::new("/tmp/nonexistent_file_xyzzy.rs");
-        let style = config.style_for_path(path);
+        let path = temp.path().join("missing.rs");
+        let style = config.style_for_path(&path);
         assert_eq!(style.and_then(|s| s.fg), Some(Color::Red));
     }
 
     #[test]
     fn style_for_path_longest_suffix_wins() {
+        let temp = test_support::temp_dir("ls-colors-longest-suffix");
         let config = parse_ls_colors("*.rs=01;31:*.test.rs=01;32");
-        let path = Path::new("/tmp/main.test.rs");
-        let style = config.style_for_path(path);
+        let path = temp.path().join("main.test.rs");
+        let style = config.style_for_path(&path);
         assert_eq!(style.and_then(|s| s.fg), Some(Color::Green));
     }
 

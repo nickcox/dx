@@ -118,22 +118,13 @@ fn is_valid_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use crate::test_support::{self, TempDir};
 
     use super::{BookmarkError, BookmarkStore, validate_name};
 
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "dx-bookmarks-{label}-{nonce}-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
+    fn make_temp_dir(label: &str) -> TempDir {
+        test_support::temp_dir(&format!("bookmarks-{label}"))
     }
 
     #[test]
@@ -155,7 +146,7 @@ mod tests {
     #[test]
     fn set_with_explicit_path_succeeds() {
         let temp = make_temp_dir("set-explicit");
-        let target = temp.join("project");
+        let target = temp.path().join("project");
         fs::create_dir_all(&target).expect("create project dir");
 
         let mut store = BookmarkStore::default();
@@ -163,15 +154,13 @@ mod tests {
 
         assert_eq!(output, fs::canonicalize(&target).expect("canonical target"));
         assert_eq!(store.get("proj"), Some(output));
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn set_overwrites_existing_bookmark() {
         let temp = make_temp_dir("set-overwrite");
-        let first = temp.join("first");
-        let second = temp.join("second");
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
         fs::create_dir_all(&first).expect("create first dir");
         fs::create_dir_all(&second).expect("create second dir");
 
@@ -181,28 +170,24 @@ mod tests {
 
         assert_eq!(output, fs::canonicalize(&second).expect("canonical second"));
         assert_eq!(store.get("proj"), Some(output));
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn set_rejects_nonexistent_path() {
         let temp = make_temp_dir("set-missing");
-        let missing = temp.join("missing");
+        let missing = temp.path().join("missing");
 
         let mut store = BookmarkStore::default();
         let err = store
             .set("proj", &missing)
             .expect_err("missing path should fail");
         assert!(matches!(err, BookmarkError::PathNotFound(_)));
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn remove_existing_bookmark_succeeds() {
         let temp = make_temp_dir("remove-existing");
-        let target = temp.join("target");
+        let target = temp.path().join("target");
         fs::create_dir_all(&target).expect("create target");
 
         let mut store = BookmarkStore::default();
@@ -211,8 +196,6 @@ mod tests {
 
         assert_eq!(removed, canonical);
         assert!(store.get("proj").is_none());
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
@@ -225,7 +208,7 @@ mod tests {
     #[test]
     fn get_returns_none_for_stale_path() {
         let temp = make_temp_dir("stale");
-        let target = temp.join("target");
+        let target = temp.path().join("target");
         fs::create_dir_all(&target).expect("create target");
 
         let mut store = BookmarkStore::default();
@@ -233,14 +216,13 @@ mod tests {
         fs::remove_dir_all(&target).expect("remove target");
 
         assert!(store.get("proj").is_none());
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn list_is_sorted_by_name() {
         let temp = make_temp_dir("list-sorted");
-        let a = temp.join("a");
-        let b = temp.join("b");
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
         fs::create_dir_all(&a).expect("create a");
         fs::create_dir_all(&b).expect("create b");
 
@@ -251,7 +233,5 @@ mod tests {
         let entries = store.list();
         assert_eq!(entries[0].0, "alpha");
         assert_eq!(entries[1].0, "zeta");
-
-        let _ = fs::remove_dir_all(temp);
     }
 }

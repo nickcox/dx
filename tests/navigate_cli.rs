@@ -1,41 +1,29 @@
-use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use dx::stacks::{SessionStack, storage};
-use dx::test_support;
+use dx::stacks::SessionStack;
 
-fn make_temp_dir(label: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "dx-it-navigate-{label}-{nonce}-{}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&path).expect("create temp dir");
-    path
-}
+mod common;
 
 fn dx_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_dx"))
 }
 
-fn canonical(path: &PathBuf) -> PathBuf {
-    fs::canonicalize(path).expect("canonical path")
-}
-
-fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-    test_support::env_lock()
+fn write_session(runtime: &Path, session: &str, state: &SessionStack) {
+    let dir = runtime.join("dx-sessions");
+    fs::create_dir_all(&dir).expect("create session dir");
+    fs::write(
+        dir.join(format!("{session}.json")),
+        serde_json::to_vec(state).expect("serialize session"),
+    )
+    .expect("write session");
 }
 
 #[test]
 fn navigate_up_without_selector_returns_first_ancestor() {
-    let temp = make_temp_dir("up-default");
-    let cwd = temp.join("a/b/c");
+    let temp = common::temp_dir("navigate-up-default");
+    let cwd = temp.path().join("a/b/c");
     fs::create_dir_all(&cwd).expect("create cwd");
 
     let output = Command::new(dx_bin())
@@ -45,18 +33,16 @@ fn navigate_up_without_selector_returns_first_ancestor() {
         .expect("run navigate up");
 
     assert!(output.status.success());
-    let expected = canonical(&cwd.parent().expect("parent").to_path_buf());
-    let actual = fs::canonicalize(String::from_utf8_lossy(&output.stdout).trim())
-        .expect("canonical output path");
-    assert_eq!(actual, expected);
-
-    let _ = fs::remove_dir_all(temp);
+    common::assert_same_path(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        cwd.parent().expect("parent"),
+    );
 }
 
 #[test]
 fn navigate_up_numeric_selector_returns_nth_ancestor() {
-    let temp = make_temp_dir("up-numeric");
-    let cwd = temp.join("a/b/c");
+    let temp = common::temp_dir("navigate-up-numeric");
+    let cwd = temp.path().join("a/b/c");
     fs::create_dir_all(&cwd).expect("create cwd");
 
     let output = Command::new(dx_bin())
@@ -66,23 +52,18 @@ fn navigate_up_numeric_selector_returns_nth_ancestor() {
         .expect("run navigate up 2");
 
     assert!(output.status.success());
-    let expected = canonical(
-        &cwd.parent()
+    common::assert_same_path(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        cwd.parent()
             .and_then(|value| value.parent())
-            .expect("second parent")
-            .to_path_buf(),
+            .expect("second parent"),
     );
-    let actual = fs::canonicalize(String::from_utf8_lossy(&output.stdout).trim())
-        .expect("canonical output path");
-    assert_eq!(actual, expected);
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn navigate_up_path_selector_uses_best_match() {
-    let temp = make_temp_dir("up-path");
-    let cwd = temp.join("code/projects/dx");
+    let temp = common::temp_dir("navigate-up-path");
+    let cwd = temp.path().join("code/projects/dx");
     fs::create_dir_all(&cwd).expect("create cwd");
 
     let output = Command::new(dx_bin())
@@ -92,33 +73,29 @@ fn navigate_up_path_selector_uses_best_match() {
         .expect("run navigate up code");
 
     assert!(output.status.success());
-    let expected = canonical(&temp.join("code"));
-    let actual = fs::canonicalize(String::from_utf8_lossy(&output.stdout).trim())
-        .expect("canonical output path");
-    assert_eq!(actual, expected);
-
-    let _ = fs::remove_dir_all(temp);
+    common::assert_same_path(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        temp.path().join("code"),
+    );
 }
 
 #[test]
 fn navigate_back_and_forward_use_stack_entries() {
-    let _guard = env_lock();
-    let temp = make_temp_dir("back-forward");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("navigate-back-forward");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
-    unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
-    let dir = storage::ensure_session_dir().expect("session dir");
     let state = SessionStack {
         cwd: Some(PathBuf::from("/now")),
         undo: vec![PathBuf::from("/a"), PathBuf::from("/b")],
         redo: vec![PathBuf::from("/x"), PathBuf::from("/y")],
     };
-    storage::write_session(&dir, "s1", &state).expect("write session");
+    write_session(&runtime, "s1", &state);
 
     let back = Command::new(dx_bin())
         .args(["navigate", "back", "--session", "s1"])
-        .current_dir(&temp)
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .current_dir(temp.path())
         .output()
         .expect("run navigate back");
     assert!(back.status.success());
@@ -126,35 +103,31 @@ fn navigate_back_and_forward_use_stack_entries() {
 
     let forward = Command::new(dx_bin())
         .args(["navigate", "forward", "--session", "s1"])
-        .current_dir(&temp)
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .current_dir(temp.path())
         .output()
         .expect("run navigate forward");
     assert!(forward.status.success());
     assert_eq!(String::from_utf8_lossy(&forward.stdout).trim(), "/y");
-
-    unsafe { env::remove_var("XDG_RUNTIME_DIR") };
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn navigate_fails_for_out_of_range_and_no_match() {
-    let _guard = env_lock();
-    let temp = make_temp_dir("errors");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("navigate-errors");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
-    unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
 
-    let dir = storage::ensure_session_dir().expect("session dir");
     let state = SessionStack {
         cwd: Some(PathBuf::from("/now")),
         undo: vec![PathBuf::from("/a")],
         redo: vec![],
     };
-    storage::write_session(&dir, "s1", &state).expect("write session");
+    write_session(&runtime, "s1", &state);
 
     let out_of_range = Command::new(dx_bin())
         .args(["navigate", "back", "2", "--session", "s1"])
-        .current_dir(&temp)
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .current_dir(temp.path())
         .output()
         .expect("run out of range");
     assert!(!out_of_range.status.success());
@@ -162,12 +135,10 @@ fn navigate_fails_for_out_of_range_and_no_match() {
 
     let no_match = Command::new(dx_bin())
         .args(["navigate", "back", "zzz", "--session", "s1"])
-        .current_dir(&temp)
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .current_dir(temp.path())
         .output()
         .expect("run no match");
     assert!(!no_match.status.success());
     assert!(String::from_utf8_lossy(&no_match.stderr).contains("did not match any candidate"));
-
-    unsafe { env::remove_var("XDG_RUNTIME_DIR") };
-    let _ = fs::remove_dir_all(temp);
 }

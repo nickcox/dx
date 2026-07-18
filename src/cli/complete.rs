@@ -172,37 +172,19 @@ pub(super) fn resolve_session(cli_session: Option<&str>) -> Option<String> {
 mod tests {
     use std::fs;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::stacks::{SessionStack, storage};
-    use crate::test_support;
+    use crate::test_support::{ScopedProcess, temp_dir};
 
     use super::{NavigateMode, run_navigate};
 
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "dx-navigate-{label}-{nonce}-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        test_support::env_lock()
-    }
-
     #[test]
     fn navigate_back_out_of_range_fails() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("out-of-range");
-        let runtime = temp.join("runtime");
+        let mut process = ScopedProcess::new();
+        let temp = temp_dir("navigate-out-of-range");
+        let runtime = temp.path().join("runtime");
         fs::create_dir_all(&runtime).expect("create runtime");
-        unsafe { std::env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
+        process.set("XDG_RUNTIME_DIR", runtime.as_os_str());
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
@@ -214,8 +196,5 @@ mod tests {
 
         let code = run_navigate(NavigateMode::Back, Some("2"), Some("s1"));
         assert_eq!(code, 1);
-
-        unsafe { std::env::remove_var("XDG_RUNTIME_DIR") };
-        let _ = fs::remove_dir_all(temp);
     }
 }

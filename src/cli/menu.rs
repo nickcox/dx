@@ -482,20 +482,9 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
 mod tests {
     use crate::complete::StackDirection;
     use crate::menu::action::TerminalState;
-    use crate::test_support::env_lock;
+    use crate::test_support::{ScopedProcess, temp_dir};
 
     use super::*;
-
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock should be after epoch")
-            .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("dx-menu-{label}-{nonce}-{}", std::process::id()));
-        std::fs::create_dir_all(&path).expect("temp directory should be created");
-        path
-    }
 
     #[test]
     fn menu_result_to_action_passes_terminal_state_through() {
@@ -770,44 +759,48 @@ mod tests {
 
     #[test]
     fn mapped_path_mode_directory_gets_trailing_slash() {
-        let temp = make_temp_dir("path-mode-dir");
-        let selected = temp.join("src");
+        let temp = temp_dir("menu-path-mode-dir");
+        let selected = temp.path().join("src");
         std::fs::create_dir_all(&selected).expect("selected directory should be created");
 
-        let result = format_selected_path_for_query_style(&selected, MenuMode::Path, &temp, false);
+        let result =
+            format_selected_path_for_query_style(&selected, MenuMode::Path, temp.path(), false);
 
         assert_eq!(result, selected.display().to_string() + "/");
     }
 
     #[test]
     fn mapped_path_mode_directory_relative_to_cwd_gets_dot_slash() {
-        let temp = make_temp_dir("path-mode-relative-dir");
-        let selected = temp.join("src");
+        let temp = temp_dir("menu-path-mode-relative-dir");
+        let selected = temp.path().join("src");
         std::fs::create_dir_all(&selected).expect("selected directory should be created");
 
-        let result = format_selected_path_for_query_style(&selected, MenuMode::Path, &temp, true);
+        let result =
+            format_selected_path_for_query_style(&selected, MenuMode::Path, temp.path(), true);
 
         assert_eq!(result, "./src/");
     }
 
     #[test]
     fn mapped_path_mode_file_does_not_get_trailing_slash() {
-        let temp = make_temp_dir("path-mode-file");
-        let selected = temp.join("readme.md");
+        let temp = temp_dir("menu-path-mode-file");
+        let selected = temp.path().join("readme.md");
         std::fs::write(&selected, "test").expect("selected file should be created");
 
-        let result = format_selected_path_for_query_style(&selected, MenuMode::Path, &temp, false);
+        let result =
+            format_selected_path_for_query_style(&selected, MenuMode::Path, temp.path(), false);
 
         assert_eq!(result, selected.display().to_string());
     }
 
     #[test]
     fn mapped_path_mode_quoted_directory_keeps_trailing_slash_inside_quotes() {
-        let temp = make_temp_dir("path-mode-quoted-dir");
-        let selected = temp.join("Project Files");
+        let temp = temp_dir("menu-path-mode-quoted-dir");
+        let selected = temp.path().join("Project Files");
         std::fs::create_dir_all(&selected).expect("selected directory should be created");
 
-        let result = format_selected_path_for_query_style(&selected, MenuMode::Path, &temp, false);
+        let result =
+            format_selected_path_for_query_style(&selected, MenuMode::Path, temp.path(), false);
         let expected = format!("'{}/'", selected.display());
 
         assert_eq!(result, expected);
@@ -815,157 +808,157 @@ mod tests {
 
     #[test]
     fn parse_item_max_len_unset_uses_default_cap() {
-        let _guard = env_lock();
-        unsafe { std::env::remove_var("DX_MENU_ITEM_MAX_LEN") };
+        let mut process = ScopedProcess::new();
+        process.remove("DX_MENU_ITEM_MAX_LEN");
         assert_eq!(parse_menu_item_max_len(), Some(80));
     }
 
     #[test]
     fn parse_item_max_len_invalid_uses_default_cap() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "abc") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MENU_ITEM_MAX_LEN", "abc");
         assert_eq!(parse_menu_item_max_len(), Some(80));
-        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "0") };
+        process.set("DX_MENU_ITEM_MAX_LEN", "0");
         assert_eq!(parse_menu_item_max_len(), None);
-        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "-3") };
+        process.set("DX_MENU_ITEM_MAX_LEN", "-3");
         assert_eq!(parse_menu_item_max_len(), None);
-        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "") };
+        process.set("DX_MENU_ITEM_MAX_LEN", "");
         assert_eq!(parse_menu_item_max_len(), Some(80));
     }
 
     #[test]
     fn parse_item_max_len_positive_value() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MENU_ITEM_MAX_LEN", "24") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MENU_ITEM_MAX_LEN", "24");
         assert_eq!(parse_menu_item_max_len(), Some(24));
     }
 
     #[test]
     fn parse_menu_border_defaults_off() {
-        let _guard = env_lock();
-        unsafe { std::env::remove_var("DX_MENU_BORDER") };
+        let mut process = ScopedProcess::new();
+        process.remove("DX_MENU_BORDER");
         assert!(!parse_menu_border());
-        unsafe { std::env::set_var("DX_MENU_BORDER", "") };
+        process.set("DX_MENU_BORDER", "");
         assert!(!parse_menu_border());
     }
 
     #[test]
     fn parse_menu_border_truthy_values_enable_border() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         for value in ["1", "true", "TRUE", "yes", "on", " On "] {
-            unsafe { std::env::set_var("DX_MENU_BORDER", value) };
+            process.set("DX_MENU_BORDER", value);
             assert!(parse_menu_border(), "expected truthy value: {value}");
         }
     }
 
     #[test]
     fn parse_menu_border_falsy_values_keep_border_off() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         for value in ["0", "false", "FALSE", "no", "off", "random"] {
-            unsafe { std::env::set_var("DX_MENU_BORDER", value) };
+            process.set("DX_MENU_BORDER", value);
             assert!(!parse_menu_border(), "expected falsy value: {value}");
         }
     }
 
     #[test]
     fn parse_menu_max_results_defaults_to_1000() {
-        let _guard = env_lock();
-        unsafe { std::env::remove_var("DX_MAX_MENU_RESULTS") };
+        let mut process = ScopedProcess::new();
+        process.remove("DX_MAX_MENU_RESULTS");
         assert_eq!(parse_menu_max_results(), 1000);
     }
 
     #[test]
     fn parse_menu_max_results_uses_valid_positive_value() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MAX_MENU_RESULTS", "250") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MAX_MENU_RESULTS", "250");
         assert_eq!(parse_menu_max_results(), 250);
     }
 
     #[test]
     fn parse_menu_max_results_invalid_falls_back() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MAX_MENU_RESULTS", "0") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MAX_MENU_RESULTS", "0");
         assert_eq!(parse_menu_max_results(), 1000);
-        unsafe { std::env::set_var("DX_MAX_MENU_RESULTS", "abc") };
+        process.set("DX_MAX_MENU_RESULTS", "abc");
         assert_eq!(parse_menu_max_results(), 1000);
     }
 
     #[test]
     fn parse_menu_max_rows_defaults_to_20() {
-        let _guard = env_lock();
-        unsafe { std::env::remove_var("DX_MENU_MAX_ROWS") };
+        let mut process = ScopedProcess::new();
+        process.remove("DX_MENU_MAX_ROWS");
         assert_eq!(parse_menu_max_rows(), 20);
     }
 
     #[test]
     fn parse_menu_max_rows_uses_valid_positive_value() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "24") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MENU_MAX_ROWS", "24");
         assert_eq!(parse_menu_max_rows(), 24);
     }
 
     #[test]
     fn parse_menu_max_rows_invalid_falls_back() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
 
-        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "") };
+        process.set("DX_MENU_MAX_ROWS", "");
         assert_eq!(parse_menu_max_rows(), 20);
 
-        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "abc") };
+        process.set("DX_MENU_MAX_ROWS", "abc");
         assert_eq!(parse_menu_max_rows(), 20);
 
-        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "0") };
+        process.set("DX_MENU_MAX_ROWS", "0");
         assert_eq!(parse_menu_max_rows(), 20);
 
-        unsafe { std::env::set_var("DX_MENU_MAX_ROWS", "-3") };
+        process.set("DX_MENU_MAX_ROWS", "-3");
         assert_eq!(parse_menu_max_rows(), 20);
     }
 
     #[test]
     fn parse_menu_ls_colors_missing_both_env_vars_returns_none() {
-        let _guard = env_lock();
-        unsafe { std::env::remove_var("DX_MENU_LS_COLORS") };
-        unsafe { std::env::remove_var("LS_COLORS") };
+        let mut process = ScopedProcess::new();
+        process.remove("DX_MENU_LS_COLORS");
+        process.remove("LS_COLORS");
         assert_eq!(parse_menu_ls_colors(), None);
     }
 
     #[test]
     fn parse_menu_ls_colors_missing_flag_returns_none() {
-        let _guard = env_lock();
-        unsafe { std::env::remove_var("DX_MENU_LS_COLORS") };
-        unsafe { std::env::set_var("LS_COLORS", "di=01;34") };
+        let mut process = ScopedProcess::new();
+        process.remove("DX_MENU_LS_COLORS");
+        process.set("LS_COLORS", "di=01;34");
         assert_eq!(parse_menu_ls_colors(), None);
     }
 
     #[test]
     fn parse_menu_ls_colors_non_one_flag_returns_none() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MENU_LS_COLORS", "0") };
-        unsafe { std::env::set_var("LS_COLORS", "di=01;34") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MENU_LS_COLORS", "0");
+        process.set("LS_COLORS", "di=01;34");
         assert_eq!(parse_menu_ls_colors(), None);
     }
 
     #[test]
     fn parse_menu_ls_colors_missing_ls_colors_returns_none() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MENU_LS_COLORS", "1") };
-        unsafe { std::env::remove_var("LS_COLORS") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MENU_LS_COLORS", "1");
+        process.remove("LS_COLORS");
         assert_eq!(parse_menu_ls_colors(), None);
     }
 
     #[test]
     fn parse_menu_ls_colors_empty_ls_colors_returns_none() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MENU_LS_COLORS", "1") };
-        unsafe { std::env::set_var("LS_COLORS", "") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MENU_LS_COLORS", "1");
+        process.set("LS_COLORS", "");
         assert_eq!(parse_menu_ls_colors(), None);
     }
 
     #[test]
     fn parse_menu_ls_colors_both_set_returns_config() {
-        let _guard = env_lock();
-        unsafe { std::env::set_var("DX_MENU_LS_COLORS", "1") };
-        unsafe { std::env::set_var("LS_COLORS", "di=01;34") };
+        let mut process = ScopedProcess::new();
+        process.set("DX_MENU_LS_COLORS", "1");
+        process.set("LS_COLORS", "di=01;34");
         assert!(parse_menu_ls_colors().is_some());
     }
 }

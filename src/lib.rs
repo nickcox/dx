@@ -8,4 +8,5 @@ pub mod hooks;
 pub mod menu;
 pub mod resolve;
 pub mod stacks;
-pub mod test_support;
+#[cfg(test)]
+pub(crate) mod test_support;

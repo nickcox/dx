@@ -208,9 +208,8 @@ pub fn label_for_path(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    use std::{env, fs};
 
     use super::{
         SelectorError, complete_frecents, complete_session_paths, format_json, format_plain,
@@ -329,23 +328,6 @@ mod tests {
         assert!(output.is_empty());
     }
 
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "dx-complete-shared-{label}-{nonce}-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        test_support::env_lock()
-    }
-
     #[test]
     fn session_helper_returns_empty_for_missing_session() {
         assert!(complete_session_paths(None, None, |stack| stack.undo).is_empty());
@@ -353,11 +335,11 @@ mod tests {
 
     #[test]
     fn session_helper_reverses_selected_paths_and_applies_filter() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("session-helper-filter");
-        let runtime = temp.join("runtime");
+        let temp = test_support::temp_dir("complete-shared-session-helper-filter");
+        let mut process = test_support::ScopedProcess::new();
+        let runtime = temp.path().join("runtime");
         fs::create_dir_all(&runtime).expect("create runtime");
-        unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
+        process.set("XDG_RUNTIME_DIR", &runtime);
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
@@ -381,8 +363,5 @@ mod tests {
 
         let redo_filtered = complete_session_paths(Some("s1"), Some("redo/b"), |stack| stack.redo);
         assert_eq!(redo_filtered, vec![PathBuf::from("/redo/b")]);
-
-        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
-        let _ = fs::remove_dir_all(temp);
     }
 }

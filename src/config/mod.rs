@@ -136,25 +136,13 @@ fn split_paths(raw: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::test_support;
+    use crate::test_support::{self, ScopedProcess, TempDir};
 
     use super::*;
 
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("dx-config-{label}-{nonce}-{}", std::process::id()));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        test_support::env_lock()
+    fn make_temp_dir(label: &str) -> TempDir {
+        test_support::temp_dir(&format!("config-{label}"))
     }
 
     #[test]
@@ -199,41 +187,38 @@ case_sensitive = false
 
     #[test]
     fn loads_from_toml_file_path() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         let temp = make_temp_dir("load-file");
-        let file = temp.join("dx.toml");
+        let file = temp.path().join("dx.toml");
         fs::write(
             &file,
             "search_roots=[\"/tmp/r1\"]\n[resolve]\ncase_sensitive=false\n",
         )
         .expect("write config file");
 
-        unsafe { env::set_var("DX_CONFIG", file.display().to_string()) };
-        unsafe { env::remove_var("DX_SEARCH_ROOTS") };
-        unsafe { env::remove_var("DX_CASE_SENSITIVE") };
+        process.set("DX_CONFIG", &file);
+        process.remove("DX_SEARCH_ROOTS");
+        process.remove("DX_CASE_SENSITIVE");
 
         let loaded = AppConfig::load().expect("load config");
         assert_eq!(loaded.search_roots, vec![PathBuf::from("/tmp/r1")]);
         assert!(!loaded.resolve.case_sensitive);
-
-        unsafe { env::remove_var("DX_CONFIG") };
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn environment_overrides_toml_values() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         let temp = make_temp_dir("load-env");
-        let file = temp.join("dx.toml");
+        let file = temp.path().join("dx.toml");
         fs::write(
             &file,
             "search_roots=[\"/tmp/r1\"]\n[resolve]\ncase_sensitive=true\n",
         )
         .expect("write config file");
 
-        unsafe { env::set_var("DX_CONFIG", file.display().to_string()) };
-        unsafe { env::set_var("DX_SEARCH_ROOTS", "/tmp/r2:/tmp/r3") };
-        unsafe { env::set_var("DX_CASE_SENSITIVE", "false") };
+        process.set("DX_CONFIG", &file);
+        process.set("DX_SEARCH_ROOTS", "/tmp/r2:/tmp/r3");
+        process.set("DX_CASE_SENSITIVE", "false");
 
         let loaded = AppConfig::load().expect("load config");
         assert_eq!(
@@ -241,10 +226,5 @@ case_sensitive = false
             vec![PathBuf::from("/tmp/r2"), PathBuf::from("/tmp/r3")]
         );
         assert!(!loaded.resolve.case_sensitive);
-
-        unsafe { env::remove_var("DX_CONFIG") };
-        unsafe { env::remove_var("DX_SEARCH_ROOTS") };
-        unsafe { env::remove_var("DX_CASE_SENSITIVE") };
-        let _ = fs::remove_dir_all(temp);
     }
 }

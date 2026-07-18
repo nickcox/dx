@@ -1,35 +1,39 @@
+mod common;
+
+use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
-use std::{
-    fs,
-    time::{SystemTime, UNIX_EPOCH},
-};
 
 fn dx() -> Command {
     Command::new(env!("CARGO_BIN_EXE_dx"))
 }
 
 fn pwsh_available() -> bool {
-    Command::new("pwsh")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "$PSVersionTable.PSVersion.ToString()",
-        ])
-        .output()
-        .is_ok_and(|output| output.status.success())
+    optional_tool_available("pwsh")
 }
 
-fn command_available(command: &str) -> bool {
-    Command::new(command)
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
+fn optional_tool_available(command: &str) -> bool {
+    if common::tool_available(command) {
+        return true;
+    }
+
+    let diagnostic =
+        format!("{command} is required for this external-shell test but is unavailable");
+    if std::env::var_os("CI").is_some() || std::env::var_os("DX_REQUIRE_EXTERNAL_TOOLS").is_some() {
+        panic!("{diagnostic}");
+    }
+
+    eprintln!("skipping external-shell test: {diagnostic}");
+    false
 }
 
 fn assert_hook_parses_with(shell: &str, command: &str, args: &[&str]) {
-    if !command_available(command) {
+    if command == "bash" {
+        assert!(
+            common::tool_available(command),
+            "bash is required for syntax checks"
+        );
+    } else if !optional_tool_available(command) {
         return;
     }
 
@@ -68,29 +72,16 @@ fn assert_hook_parses_with(shell: &str, command: &str, args: &[&str]) {
     );
 }
 
-fn make_temp_dir(label: &str) -> std::path::PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "dx-menu-cli-{label}-{nonce}-{}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&path).expect("create temp dir");
-    path
-}
-
 // --- 4.2 Non-interactive / noop behavior ---
 
 #[test]
 fn menu_without_tty_outputs_noop_json() {
     // When run non-interactively (no TTY), dx menu should output {"action":"noop"}
     // unless the single-candidate fast path applies.
-    let cwd = make_temp_dir("without-tty-noop");
+    let cwd = common::temp_dir("without-tty-noop");
     let output = dx()
         .args(["menu", "--buffer", "cd foo", "--cursor", "6"])
-        .current_dir(&cwd)
+        .current_dir(cwd.path())
         .output()
         .expect("dx menu should run");
 
@@ -98,7 +89,7 @@ fn menu_without_tty_outputs_noop_json() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
-    assert_eq!(parsed["action"], "noop");
+    assert_eq!(parsed, serde_json::json!({ "action": "noop" }));
 }
 
 #[test]
@@ -108,12 +99,11 @@ fn menu_unrecognized_command_outputs_noop() {
         .output()
         .expect("dx menu should run");
 
-    assert!(output.status.success());
+    assert!(output.status.success(), "exit code should be 0");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains(r#""action":"noop"#),
-        "unrecognized command should produce noop"
-    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
+    assert_eq!(parsed, serde_json::json!({ "action": "noop" }));
 }
 
 #[test]
@@ -123,11 +113,11 @@ fn menu_empty_buffer_outputs_noop() {
         .output()
         .expect("dx menu should run");
 
-    assert!(output.status.success());
+    assert!(output.status.success(), "exit code should be 0");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
-    assert_eq!(parsed["action"], "noop");
+    assert_eq!(parsed, serde_json::json!({ "action": "noop" }));
 }
 
 // --- 4.2 Selection output contract ---
@@ -139,15 +129,11 @@ fn menu_noop_json_has_only_action_field() {
         .output()
         .expect("dx menu should run");
 
+    assert!(output.status.success(), "exit code should be 0");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
-    assert_eq!(parsed["action"], "noop");
-    // noop should not have replaceStart/replaceEnd/value fields
-    assert!(parsed.get("replaceStart").is_none());
-    assert!(parsed.get("replaceEnd").is_none());
-    assert!(parsed.get("value").is_none());
-    assert!(parsed.get("terminal").is_none());
+    assert_eq!(parsed, serde_json::json!({ "action": "noop" }));
 }
 
 // --- 4.2 Shell hook invocation / action application contracts ---
@@ -361,7 +347,6 @@ fn init_pwsh_menu_emits_previous_function_fallback_and_custom_action_warning() {
 #[test]
 fn init_pwsh_menu_loads_under_strict_mode() {
     if !pwsh_available() {
-        eprintln!("skipping PowerShell evaluation test: pwsh not available");
         return;
     }
 
@@ -387,7 +372,6 @@ fn init_pwsh_menu_loads_under_strict_mode() {
 #[test]
 fn init_pwsh_menu_warns_when_evaluated_over_custom_action() {
     if !pwsh_available() {
-        eprintln!("skipping PowerShell evaluation test: pwsh not available");
         return;
     }
 
@@ -412,7 +396,6 @@ fn init_pwsh_menu_warns_when_evaluated_over_custom_action() {
 #[test]
 fn init_pwsh_menu_does_not_warn_when_evaluated_over_menu_complete() {
     if !pwsh_available() {
-        eprintln!("skipping PowerShell evaluation test: pwsh not available");
         return;
     }
 
@@ -440,7 +423,6 @@ fn init_pwsh_menu_does_not_warn_when_evaluated_over_menu_complete() {
 #[test]
 fn init_pwsh_menu_reload_does_not_warn_over_own_handler() {
     if !pwsh_available() {
-        eprintln!("skipping PowerShell evaluation test: pwsh not available");
         return;
     }
 
@@ -471,7 +453,6 @@ fn init_pwsh_menu_reload_does_not_warn_over_own_handler() {
 #[test]
 fn init_pwsh_menu_key_change_removes_old_dx_binding() {
     if !pwsh_available() {
-        eprintln!("skipping PowerShell evaluation test: pwsh not available");
         return;
     }
 
@@ -501,7 +482,6 @@ fn init_pwsh_menu_key_change_removes_old_dx_binding() {
 #[test]
 fn init_pwsh_uses_idiomatic_functions_and_restores_dot_dot_alias() {
     if !pwsh_available() {
-        eprintln!("skipping PowerShell evaluation test: pwsh not available");
         return;
     }
 
@@ -813,10 +793,11 @@ fn menu_with_valid_dx_command_without_tty_returns_noop() {
     // should return noop when the single-candidate fast path does not apply.
     // This proves the TTY gate is effective — without TTY the menu
     // does not attempt to open, and falls back cleanly.
-    let cwd = make_temp_dir("valid-without-tty-noop");
+    let cwd = common::temp_dir("valid-without-tty-noop");
     let miss = format!(
         "__dx_no_candidate_{}",
-        cwd.file_name()
+        cwd.path()
+            .file_name()
             .expect("temp cwd should have a file name")
             .to_string_lossy()
     );
@@ -836,9 +817,15 @@ fn menu_with_valid_dx_command_without_tty_returns_noop() {
         let cursor = cmd.len().to_string();
         let output = dx()
             .args([
-                "menu", "--buffer", &cmd, "--cursor", &cursor, "--session", &session,
+                "menu",
+                "--buffer",
+                &cmd,
+                "--cursor",
+                &cursor,
+                "--session",
+                &session,
             ])
-            .current_dir(&cwd)
+            .current_dir(cwd.path())
             .output()
             .unwrap_or_else(|_| panic!("dx menu should run for buffer '{}'", cmd));
 
@@ -847,7 +834,8 @@ fn menu_with_valid_dx_command_without_tty_returns_noop() {
         let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
             .unwrap_or_else(|_| panic!("should be valid JSON for '{}': {stdout}", cmd));
         assert_eq!(
-            parsed["action"], "noop",
+            parsed,
+            serde_json::json!({ "action": "noop" }),
             "non-TTY context should produce noop for '{}'",
             cmd
         );
@@ -862,6 +850,7 @@ fn menu_stderr_is_silent_on_noop() {
         .output()
         .expect("dx menu should run");
 
+    assert!(output.status.success(), "exit code should be 0");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.is_empty(),
@@ -871,10 +860,10 @@ fn menu_stderr_is_silent_on_noop() {
 
 #[test]
 fn menu_paths_mode_honors_explicit_cwd() {
-    let process_cwd = make_temp_dir("process-cwd-empty");
-    let explicit_cwd = make_temp_dir("explicit-cwd-with-child");
-    let child_a = explicit_cwd.join("alpha");
-    let child_b = explicit_cwd.join("beta");
+    let process_cwd = common::temp_dir("process-cwd-empty");
+    let explicit_cwd = common::temp_dir("explicit-cwd-with-child");
+    let child_a = explicit_cwd.path().join("alpha");
+    let child_b = explicit_cwd.path().join("beta");
     fs::create_dir_all(&child_a).expect("create alpha child dir in explicit cwd");
     fs::create_dir_all(&child_b).expect("create beta child dir in explicit cwd");
 
@@ -887,10 +876,11 @@ fn menu_paths_mode_honors_explicit_cwd() {
             "4",
             "--cwd",
             explicit_cwd
+                .path()
                 .to_str()
                 .expect("explicit cwd path should be valid utf-8"),
         ])
-        .current_dir(&process_cwd)
+        .current_dir(process_cwd.path())
         .output()
         .expect("dx menu should run");
 
@@ -918,7 +908,7 @@ fn menu_paths_mode_honors_explicit_cwd() {
         .strip_suffix('/')
         .expect("replacement should end with slash");
     let replaced_abs = if std::path::Path::new(replaced_path).is_relative() {
-        explicit_cwd.join(replaced_path)
+        explicit_cwd.path().join(replaced_path)
     } else {
         std::path::PathBuf::from(replaced_path)
     };
@@ -930,15 +920,12 @@ fn menu_paths_mode_honors_explicit_cwd() {
         replaced_canon, expected_alpha,
         "expected explicit cwd candidate identity to be selected"
     );
-
-    let _ = fs::remove_dir_all(process_cwd);
-    let _ = fs::remove_dir_all(explicit_cwd);
 }
 
 #[test]
 fn menu_paths_mode_relative_query_uses_dot_slash_replacement() {
-    let explicit_cwd = make_temp_dir("explicit-cwd-relative-rendering");
-    let child = explicit_cwd.join("benches");
+    let explicit_cwd = common::temp_dir("explicit-cwd-relative-rendering");
+    let child = explicit_cwd.path().join("benches");
     fs::create_dir_all(&child).expect("create benches child dir");
 
     let output = dx()
@@ -950,6 +937,7 @@ fn menu_paths_mode_relative_query_uses_dot_slash_replacement() {
             "4",
             "--cwd",
             explicit_cwd
+                .path()
                 .to_str()
                 .expect("explicit cwd path should be valid utf-8"),
         ])
@@ -969,17 +957,15 @@ fn menu_paths_mode_relative_query_uses_dot_slash_replacement() {
         .as_str()
         .expect("replace action should include value");
     assert_eq!(value, "./benches/");
-
-    let _ = fs::remove_dir_all(explicit_cwd);
 }
 
 #[test]
 fn menu_paths_mode_explicit_absolute_query_preserves_absolute_replacement() {
-    let explicit_cwd = make_temp_dir("explicit-cwd-absolute-query");
-    let child = explicit_cwd.join("benches");
+    let explicit_cwd = common::temp_dir("explicit-cwd-absolute-query");
+    let child = explicit_cwd.path().join("benches");
     fs::create_dir_all(&child).expect("create benches child dir");
 
-    let query = format!("{}/b", explicit_cwd.display());
+    let query = format!("{}/b", explicit_cwd.path().display());
     let buffer = format!("cd {query}");
     let output = dx()
         .args([
@@ -990,6 +976,7 @@ fn menu_paths_mode_explicit_absolute_query_preserves_absolute_replacement() {
             &buffer.len().to_string(),
             "--cwd",
             explicit_cwd
+                .path()
                 .to_str()
                 .expect("explicit cwd path should be valid utf-8"),
         ])
@@ -1010,15 +997,13 @@ fn menu_paths_mode_explicit_absolute_query_preserves_absolute_replacement() {
         .expect("replace action should include value");
     let expected = format!("{}/", child.display());
     assert_eq!(value, expected);
-
-    let _ = fs::remove_dir_all(explicit_cwd);
 }
 
 #[test]
 fn menu_paths_mode_parent_relative_query_preserves_parent_prefix_replacement() {
-    let root = make_temp_dir("explicit-cwd-parent-relative");
-    let explicit_cwd = root.join("work");
-    let sibling = root.join("sibling");
+    let root = common::temp_dir("explicit-cwd-parent-relative");
+    let explicit_cwd = root.path().join("work");
+    let sibling = root.path().join("sibling");
     fs::create_dir_all(&explicit_cwd).expect("create explicit cwd dir");
     fs::create_dir_all(&sibling).expect("create sibling dir");
 
@@ -1051,14 +1036,12 @@ fn menu_paths_mode_parent_relative_query_preserves_parent_prefix_replacement() {
         .as_str()
         .expect("replace action should include value");
     assert_eq!(value, "../sibling/");
-
-    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
 fn mapped_path_mode_returns_single_file_candidate_replace() {
-    let explicit_cwd = make_temp_dir("mapped-path-file");
-    let file = explicit_cwd.join("alpha.txt");
+    let explicit_cwd = common::temp_dir("mapped-path-file");
+    let file = explicit_cwd.path().join("alpha.txt");
     fs::write(&file, "hello").expect("create file candidate");
 
     let output = dx()
@@ -1071,7 +1054,7 @@ fn mapped_path_mode_returns_single_file_candidate_replace() {
             "--cursor",
             "5",
             "--cwd",
-            explicit_cwd.to_str().expect("cwd utf-8"),
+            explicit_cwd.path().to_str().expect("cwd utf-8"),
         ])
         .output()
         .expect("dx menu should run");
@@ -1082,15 +1065,13 @@ fn mapped_path_mode_returns_single_file_candidate_replace() {
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["value"], "./alpha.txt");
     assert_eq!(parsed["terminal"], "clean");
-
-    let _ = fs::remove_dir_all(explicit_cwd);
 }
 
 #[test]
 fn mapped_directory_mode_excludes_files() {
-    let explicit_cwd = make_temp_dir("mapped-directory-filter");
-    let dir = explicit_cwd.join("alpha-dir");
-    let file = explicit_cwd.join("alpha.txt");
+    let explicit_cwd = common::temp_dir("mapped-directory-filter");
+    let dir = explicit_cwd.path().join("alpha-dir");
+    let file = explicit_cwd.path().join("alpha.txt");
     fs::create_dir_all(&dir).expect("create dir candidate");
     fs::write(&file, "hello").expect("create file candidate");
 
@@ -1104,7 +1085,7 @@ fn mapped_directory_mode_excludes_files() {
             "--cursor",
             "10",
             "--cwd",
-            explicit_cwd.to_str().expect("cwd utf-8"),
+            explicit_cwd.path().to_str().expect("cwd utf-8"),
         ])
         .output()
         .expect("dx menu should run");
@@ -1115,15 +1096,13 @@ fn mapped_directory_mode_excludes_files() {
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["value"], "./alpha-dir/");
     assert_eq!(parsed["terminal"], "clean");
-
-    let _ = fs::remove_dir_all(explicit_cwd);
 }
 
 #[test]
 fn mapped_file_mode_excludes_directories() {
-    let explicit_cwd = make_temp_dir("mapped-file-filter");
-    let dir = explicit_cwd.join("alpha-dir");
-    let file = explicit_cwd.join("alpha.txt");
+    let explicit_cwd = common::temp_dir("mapped-file-filter");
+    let dir = explicit_cwd.path().join("alpha-dir");
+    let file = explicit_cwd.path().join("alpha.txt");
     fs::create_dir_all(&dir).expect("create dir candidate");
     fs::write(&file, "hello").expect("create file candidate");
 
@@ -1137,7 +1116,7 @@ fn mapped_file_mode_excludes_directories() {
             "--cursor",
             "9",
             "--cwd",
-            explicit_cwd.to_str().expect("cwd utf-8"),
+            explicit_cwd.path().to_str().expect("cwd utf-8"),
         ])
         .output()
         .expect("dx menu should run");
@@ -1148,14 +1127,12 @@ fn mapped_file_mode_excludes_directories() {
     assert_eq!(parsed["action"], "replace");
     assert_eq!(parsed["value"], "./alpha.txt");
     assert_eq!(parsed["terminal"], "clean");
-
-    let _ = fs::remove_dir_all(explicit_cwd);
 }
 
 #[test]
 fn menu_flagged_cd_replace_span_starts_at_path_token() {
-    let explicit_cwd = make_temp_dir("explicit-cwd-flagged-replace");
-    let child = explicit_cwd.join("foo");
+    let explicit_cwd = common::temp_dir("explicit-cwd-flagged-replace");
+    let child = explicit_cwd.path().join("foo");
     fs::create_dir_all(&child).expect("create child dir in explicit cwd");
 
     let buffer = "cd -P f";
@@ -1168,6 +1145,7 @@ fn menu_flagged_cd_replace_span_starts_at_path_token() {
             &buffer.len().to_string(),
             "--cwd",
             explicit_cwd
+                .path()
                 .to_str()
                 .expect("explicit cwd path should be valid utf-8"),
         ])
@@ -1207,7 +1185,7 @@ fn menu_flagged_cd_replace_span_starts_at_path_token() {
         .strip_suffix('/')
         .expect("replacement should end with slash");
     let replaced_abs = if std::path::Path::new(replaced_path).is_relative() {
-        explicit_cwd.join(replaced_path)
+        explicit_cwd.path().join(replaced_path)
     } else {
         std::path::PathBuf::from(replaced_path)
     };
@@ -1215,8 +1193,6 @@ fn menu_flagged_cd_replace_span_starts_at_path_token() {
         fs::canonicalize(replaced_abs).expect("replacement value path should exist");
     let expected_child = fs::canonicalize(&child).expect("expected child path should canonicalize");
     assert_eq!(replaced_canon, expected_child);
-
-    let _ = fs::remove_dir_all(explicit_cwd);
 }
 
 #[test]
@@ -1239,7 +1215,7 @@ fn menu_psreadline_mode_keeps_posix_flagged_cd_as_fallback() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("stdout should be valid JSON");
-    assert_eq!(parsed["action"], "noop");
+    assert_eq!(parsed, serde_json::json!({ "action": "noop" }));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(

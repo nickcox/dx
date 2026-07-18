@@ -1,27 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use dx::stacks::SessionStack;
 
-fn make_temp_dir(label: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!("dx-it-{label}-{nonce}-{}", std::process::id()));
-    fs::create_dir_all(&path).expect("create temp dir");
-    path
-}
-
-fn dx_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_dx"))
-}
-
-fn canonical(path: &Path) -> PathBuf {
-    fs::canonicalize(path).expect("canonical path")
-}
+mod common;
 
 fn read_session(path: &Path) -> SessionStack {
     let raw = fs::read_to_string(path).expect("read session file");
@@ -30,22 +12,22 @@ fn read_session(path: &Path) -> SessionStack {
 
 #[test]
 fn full_push_undo_redo_push_cycle_updates_session_file() {
-    let temp = make_temp_dir("stacks-cycle");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("stacks-cycle");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
-    let a = temp.join("a");
-    let b = temp.join("b");
-    let d = temp.join("d");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    let d = temp.path().join("d");
     fs::create_dir_all(&a).expect("create a");
     fs::create_dir_all(&b).expect("create b");
     fs::create_dir_all(&d).expect("create d");
 
-    let a = canonical(&a);
-    let b = canonical(&b);
-    let d = canonical(&d);
+    let a = common::canonical(&a);
+    let b = common::canonical(&b);
+    let d = common::canonical(&d);
 
-    let push_a = Command::new(dx_bin())
+    let push_a = common::dx()
         .args([
             "stack",
             "push",
@@ -55,7 +37,7 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
         ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
-        .current_dir(&temp)
+        .current_dir(temp.path())
         .output()
         .expect("push a");
     assert!(push_a.status.success());
@@ -64,7 +46,7 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
         a.display().to_string()
     );
 
-    let push_b = Command::new(dx_bin())
+    let push_b = common::dx()
         .args([
             "stack",
             "push",
@@ -74,7 +56,7 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
         ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
-        .current_dir(&temp)
+        .current_dir(temp.path())
         .output()
         .expect("push b");
     assert!(push_b.status.success());
@@ -83,11 +65,11 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
         b.display().to_string()
     );
 
-    let undo = Command::new(dx_bin())
+    let undo = common::dx()
         .args(["stack", "undo", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
-        .current_dir(&temp)
+        .current_dir(temp.path())
         .output()
         .expect("undo");
     assert!(undo.status.success());
@@ -96,11 +78,11 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
         a.display().to_string()
     );
 
-    let redo = Command::new(dx_bin())
+    let redo = common::dx()
         .args(["stack", "redo", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
-        .current_dir(&temp)
+        .current_dir(temp.path())
         .output()
         .expect("redo");
     assert!(redo.status.success());
@@ -109,7 +91,7 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
         b.display().to_string()
     );
 
-    let push_d = Command::new(dx_bin())
+    let push_d = common::dx()
         .args([
             "stack",
             "push",
@@ -119,7 +101,7 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
         ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
-        .current_dir(&temp)
+        .current_dir(temp.path())
         .output()
         .expect("push d");
     assert!(push_d.status.success());
@@ -132,59 +114,55 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
     assert_eq!(state.cwd, Some(d));
     assert_eq!(state.undo, vec![a, b]);
     assert!(state.redo.is_empty());
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn missing_session_id_returns_error() {
-    let temp = make_temp_dir("stacks-missing-session");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("stacks-missing-session");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
-    let target = temp.join("target");
+    let target = temp.path().join("target");
     fs::create_dir_all(&target).expect("create target");
-    let target = canonical(&target);
+    let target = common::canonical(&target);
 
-    let output = Command::new(dx_bin())
+    let output = common::dx()
         .args(["stack", "push", target.to_str().expect("utf8 path")])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
-        .current_dir(&temp)
+        .current_dir(temp.path())
         .output()
         .expect("run dx stack push");
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("missing session id"));
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn dx_session_env_is_used_and_cli_flag_overrides() {
-    let temp = make_temp_dir("stacks-session-source");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("stacks-session-source");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
-    let env_dir = temp.join("env-dir");
-    let cli_dir = temp.join("cli-dir");
+    let env_dir = temp.path().join("env-dir");
+    let cli_dir = temp.path().join("cli-dir");
     fs::create_dir_all(&env_dir).expect("create env dir");
     fs::create_dir_all(&cli_dir).expect("create cli dir");
 
-    let env_dir = canonical(&env_dir);
-    let cli_dir = canonical(&cli_dir);
+    let env_dir = common::canonical(&env_dir);
+    let cli_dir = common::canonical(&cli_dir);
 
-    let by_env = Command::new(dx_bin())
+    let by_env = common::dx()
         .args(["stack", "push", env_dir.to_str().expect("utf8 path")])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env("DX_SESSION", "env-session")
-        .current_dir(&temp)
+        .current_dir(temp.path())
         .output()
         .expect("push by env session");
     assert!(by_env.status.success());
 
-    let by_cli = Command::new(dx_bin())
+    let by_cli = common::dx()
         .args([
             "stack",
             "push",
@@ -194,7 +172,7 @@ fn dx_session_env_is_used_and_cli_flag_overrides() {
         ])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env("DX_SESSION", "env-session")
-        .current_dir(&temp)
+        .current_dir(temp.path())
         .output()
         .expect("push by cli session");
     assert!(by_cli.status.success());
@@ -204,21 +182,19 @@ fn dx_session_env_is_used_and_cli_flag_overrides() {
 
     assert_eq!(env_state.cwd, Some(env_dir));
     assert_eq!(cli_state.cwd, Some(cli_dir));
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn session_directory_is_auto_created_with_temp_fallback() {
-    let temp = make_temp_dir("stacks-temp-fallback");
-    let temp_root = temp.join("temp-root");
+    let temp = common::temp_dir("stacks-temp-fallback");
+    let temp_root = temp.path().join("temp-root");
     fs::create_dir_all(&temp_root).expect("create temp root");
 
-    let target = temp.join("target");
+    let target = temp.path().join("target");
     fs::create_dir_all(&target).expect("create target");
-    let target = canonical(&target);
+    let target = common::canonical(&target);
 
-    let output = Command::new(dx_bin())
+    let output = common::dx()
         .args([
             "stack",
             "push",
@@ -231,7 +207,7 @@ fn session_directory_is_auto_created_with_temp_fallback() {
         .env("TEMP", temp_root.display().to_string())
         .env("TMP", temp_root.display().to_string())
         .env_remove("DX_SESSION")
-        .current_dir(&temp)
+        .current_dir(temp.path())
         .output()
         .expect("push with temp fallback");
 
@@ -242,34 +218,32 @@ fn session_directory_is_auto_created_with_temp_fallback() {
     assert!(expected_dir.exists());
     assert!(expected_file.exists());
 
-    let expected_canon = canonical(&expected_dir);
-    let actual_canon = canonical(expected_file.parent().expect("session file parent"));
+    let expected_canon = common::canonical(&expected_dir);
+    let actual_canon = common::canonical(expected_file.parent().expect("session file parent"));
     assert_eq!(actual_canon, expected_canon);
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn undo_with_target_jumps_multiple_entries() {
-    let temp = make_temp_dir("stacks-undo-target");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("stacks-undo-target");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
-    let a = temp.join("a");
-    let b = temp.join("b");
-    let c = temp.join("c");
-    let d = temp.join("d");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    let c = temp.path().join("c");
+    let d = temp.path().join("d");
     for dir in [&a, &b, &c, &d] {
         fs::create_dir_all(dir).expect("create dir");
     }
-    let a = canonical(&a);
-    let b = canonical(&b);
-    let c = canonical(&c);
-    let d = canonical(&d);
+    let a = common::canonical(&a);
+    let b = common::canonical(&b);
+    let c = common::canonical(&c);
+    let d = common::canonical(&d);
 
     // push a -> b -> c -> d
     for dir in [&a, &b, &c, &d] {
-        let out = Command::new(dx_bin())
+        let out = common::dx()
             .args([
                 "stack",
                 "push",
@@ -285,7 +259,7 @@ fn undo_with_target_jumps_multiple_entries() {
     }
 
     // undo --target a (should consume c, b, reach a)
-    let undo = Command::new(dx_bin())
+    let undo = common::dx()
         .args([
             "stack",
             "undo",
@@ -309,29 +283,27 @@ fn undo_with_target_jumps_multiple_entries() {
     assert_eq!(state.cwd, Some(a));
     assert!(state.undo.is_empty());
     assert_eq!(state.redo, vec![d.clone(), c.clone(), b.clone()]);
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn redo_with_target_jumps_multiple_entries() {
-    let temp = make_temp_dir("stacks-redo-target");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("stacks-redo-target");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
-    let a = temp.join("a");
-    let b = temp.join("b");
-    let c = temp.join("c");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
+    let c = temp.path().join("c");
     for dir in [&a, &b, &c] {
         fs::create_dir_all(dir).expect("create dir");
     }
-    let a = canonical(&a);
-    let b = canonical(&b);
-    let c = canonical(&c);
+    let a = common::canonical(&a);
+    let b = common::canonical(&b);
+    let c = common::canonical(&c);
 
     // push a -> b -> c
     for dir in [&a, &b, &c] {
-        let out = Command::new(dx_bin())
+        let out = common::dx()
             .args([
                 "stack",
                 "push",
@@ -347,7 +319,7 @@ fn redo_with_target_jumps_multiple_entries() {
     }
 
     // undo --target a (go back to beginning)
-    let _ = Command::new(dx_bin())
+    let undo = common::dx()
         .args([
             "stack",
             "undo",
@@ -360,9 +332,14 @@ fn redo_with_target_jumps_multiple_entries() {
         .env_remove("DX_SESSION")
         .output()
         .unwrap();
+    assert!(
+        undo.status.success(),
+        "undo setup failed: {}",
+        String::from_utf8_lossy(&undo.stderr)
+    );
 
     // redo --target c (skip b, jump to c)
-    let redo = Command::new(dx_bin())
+    let redo = common::dx()
         .args([
             "stack",
             "redo",
@@ -386,27 +363,25 @@ fn redo_with_target_jumps_multiple_entries() {
     assert_eq!(state.cwd, Some(c));
     assert_eq!(state.undo, vec![a, b]);
     assert!(state.redo.is_empty());
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn undo_with_unreachable_target_fails() {
-    let temp = make_temp_dir("stacks-undo-unreachable");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("stacks-undo-unreachable");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
-    let a = temp.join("a");
-    let b = temp.join("b");
+    let a = temp.path().join("a");
+    let b = temp.path().join("b");
     for dir in [&a, &b] {
         fs::create_dir_all(dir).expect("create dir");
     }
-    let a = canonical(&a);
-    let b = canonical(&b);
+    let a = common::canonical(&a);
+    let b = common::canonical(&b);
 
     // push a -> b
     for dir in [&a, &b] {
-        let out = Command::new(dx_bin())
+        let out = common::dx()
             .args([
                 "stack",
                 "push",
@@ -422,7 +397,7 @@ fn undo_with_unreachable_target_fails() {
     }
 
     // undo --target /nonexistent should fail
-    let undo = Command::new(dx_bin())
+    let undo = common::dx()
         .args([
             "stack",
             "undo",
@@ -437,14 +412,12 @@ fn undo_with_unreachable_target_fails() {
         .unwrap();
     assert!(!undo.status.success());
     assert!(String::from_utf8_lossy(&undo.stderr).contains("target not reachable"));
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn stack_list_plain_supports_directions_and_ordering() {
-    let temp = make_temp_dir("stacks-list-plain");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("stacks-list-plain");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
     let state = SessionStack {
@@ -461,7 +434,7 @@ fn stack_list_plain_supports_directions_and_ordering() {
     )
     .expect("write session file");
 
-    let both = Command::new(dx_bin())
+    let both = common::dx()
         .args([
             "stack",
             "--list",
@@ -477,7 +450,7 @@ fn stack_list_plain_supports_directions_and_ordering() {
     assert!(both.status.success());
     assert_eq!(String::from_utf8_lossy(&both.stdout), "/b\n/a\n/d\n/c\n");
 
-    let undo = Command::new(dx_bin())
+    let undo = common::dx()
         .args([
             "stack",
             "--list",
@@ -493,7 +466,7 @@ fn stack_list_plain_supports_directions_and_ordering() {
     assert!(undo.status.success());
     assert_eq!(String::from_utf8_lossy(&undo.stdout), "/b\n/a\n");
 
-    let redo = Command::new(dx_bin())
+    let redo = common::dx()
         .args([
             "stack",
             "--list",
@@ -508,14 +481,12 @@ fn stack_list_plain_supports_directions_and_ordering() {
         .expect("list redo");
     assert!(redo.status.success());
     assert_eq!(String::from_utf8_lossy(&redo.stdout), "/d\n/c\n");
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn stack_list_json_and_read_only_contract() {
-    let temp = make_temp_dir("stacks-list-json");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("stacks-list-json");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
     let state = SessionStack {
@@ -534,7 +505,7 @@ fn stack_list_json_and_read_only_contract() {
 
     let before = fs::read(&session_file).expect("read before bytes");
 
-    let out = Command::new(dx_bin())
+    let out = common::dx()
         .args([
             "stack",
             "--list",
@@ -551,22 +522,39 @@ fn stack_list_json_and_read_only_contract() {
     assert!(out.status.success());
 
     let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).expect("parse json output");
+    assert_eq!(
+        parsed,
+        serde_json::json!([
+            {"path": "/b", "label": "b", "rank": 1},
+            {"path": "/a", "label": "a", "rank": 2}
+        ])
+    );
     let items = parsed.as_array().expect("json array");
-    assert_eq!(items.len(), 2);
-    assert_eq!(items[0]["path"], "/b");
-    assert_eq!(items[0]["label"], "b");
-    assert_eq!(items[0]["rank"], 1);
+    for (item, (path, label, rank)) in items.iter().zip([("/b", "b", 1_u64), ("/a", "a", 2_u64)]) {
+        let object = item.as_object().expect("stack item object");
+        assert_eq!(object.len(), 3, "stack item must have exactly three keys");
+        assert_eq!(
+            object.get("path").and_then(serde_json::Value::as_str),
+            Some(path)
+        );
+        assert_eq!(
+            object.get("label").and_then(serde_json::Value::as_str),
+            Some(label)
+        );
+        assert_eq!(
+            object.get("rank").and_then(serde_json::Value::as_u64),
+            Some(rank)
+        );
+    }
 
     let after = fs::read(&session_file).expect("read after bytes");
     assert_eq!(before, after, "stack --list must not mutate session file");
-
-    let _ = fs::remove_dir_all(temp);
 }
 
 #[test]
 fn stack_clear_scope_idempotent_and_preserves_cwd() {
-    let temp = make_temp_dir("stacks-clear");
-    let runtime = temp.join("runtime");
+    let temp = common::temp_dir("stacks-clear");
+    let runtime = temp.path().join("runtime");
     fs::create_dir_all(&runtime).expect("create runtime");
 
     let state = SessionStack {
@@ -583,7 +571,7 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
     )
     .expect("write session file");
 
-    let clear_undo = Command::new(dx_bin())
+    let clear_undo = common::dx()
         .args([
             "stack",
             "--clear",
@@ -604,7 +592,7 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
     assert!(mid.undo.is_empty());
     assert_eq!(mid.redo, vec![PathBuf::from("/c")]);
 
-    let clear_undo_again = Command::new(dx_bin())
+    let clear_undo_again = common::dx()
         .args([
             "stack",
             "--clear",
@@ -619,7 +607,7 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
         .expect("clear undo again");
     assert!(clear_undo_again.status.success());
 
-    let clear_both = Command::new(dx_bin())
+    let clear_both = common::dx()
         .args(["stack", "--clear", "--session", "clear1"])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
@@ -631,6 +619,4 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
     assert_eq!(end.cwd, Some(PathBuf::from("/x")));
     assert!(end.undo.is_empty());
     assert!(end.redo.is_empty());
-
-    let _ = fs::remove_dir_all(temp);
 }

@@ -139,98 +139,61 @@ fn temp_store_path(target: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::env;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::test_support;
+    use crate::test_support::{self, ScopedProcess, TempDir};
 
     use super::*;
 
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = env::temp_dir().join(format!(
-            "dx-bookmark-store-{label}-{nonce}-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        test_support::env_lock()
-    }
-
-    fn set_env(name: &str, value: Option<String>) {
-        if let Some(value) = value {
-            unsafe { env::set_var(name, value) };
-        } else {
-            unsafe { env::remove_var(name) };
-        }
-    }
-
-    fn reset_env(dx_bookmarks_file: Option<String>, xdg_data_home: Option<String>) {
-        set_env("DX_BOOKMARKS_FILE", dx_bookmarks_file);
-        set_env("XDG_DATA_HOME", xdg_data_home);
+    fn make_temp_dir(label: &str) -> TempDir {
+        test_support::temp_dir(&format!("bookmark-store-{label}"))
     }
 
     #[test]
     fn bookmark_file_path_prefers_dx_bookmarks_file_override() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         let temp = make_temp_dir("path-override");
-        let override_path = temp.join("custom/bookmarks.toml");
+        let override_path = temp.path().join("custom/bookmarks.toml");
 
-        reset_env(
-            Some(override_path.display().to_string()),
-            Some(temp.join("xdg").display().to_string()),
-        );
+        process.set("DX_BOOKMARKS_FILE", &override_path);
+        process.set("XDG_DATA_HOME", temp.path().join("xdg"));
 
         let path = bookmark_file_path();
         assert_eq!(path, override_path);
-
-        reset_env(None, None);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn bookmark_file_path_uses_xdg_data_home_when_override_unset() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         let temp = make_temp_dir("path-xdg");
 
-        reset_env(None, Some(temp.display().to_string()));
+        process.remove("DX_BOOKMARKS_FILE");
+        process.set("XDG_DATA_HOME", temp.path());
 
         let path = bookmark_file_path();
-        assert_eq!(path, temp.join("dx").join("bookmarks.toml"));
-
-        reset_env(None, None);
-        let _ = fs::remove_dir_all(temp);
+        assert_eq!(path, temp.path().join("dx").join("bookmarks.toml"));
     }
 
     #[test]
     fn read_missing_file_returns_empty_store() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         let temp = make_temp_dir("read-missing");
-        let file = temp.join("bookmarks.toml");
+        let file = temp.path().join("bookmarks.toml");
 
-        reset_env(Some(file.display().to_string()), None);
+        process.set("DX_BOOKMARKS_FILE", &file);
+        process.remove("XDG_DATA_HOME");
 
         let store = read_store().expect("read missing store");
         assert!(store.is_empty());
-
-        reset_env(None, None);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn write_then_read_round_trip_preserves_bookmarks() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         let temp = make_temp_dir("round-trip");
-        let file = temp.join("bookmarks.toml");
+        let file = temp.path().join("bookmarks.toml");
 
-        let first = temp.join("a");
-        let second = temp.join("b");
+        let first = temp.path().join("a");
+        let second = temp.path().join("b");
         fs::create_dir_all(&first).expect("create first");
         fs::create_dir_all(&second).expect("create second");
 
@@ -245,58 +208,52 @@ mod tests {
         );
         let store = BookmarkStore::from_paths(map);
 
-        reset_env(Some(file.display().to_string()), None);
+        process.set("DX_BOOKMARKS_FILE", &file);
+        process.remove("XDG_DATA_HOME");
         write_store(&store).expect("write store");
         let loaded = read_store().expect("read store");
 
         assert_eq!(loaded, store);
-
-        reset_env(None, None);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn read_corrupt_file_returns_error() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         let temp = make_temp_dir("corrupt");
-        let file = temp.join("bookmarks.toml");
+        let file = temp.path().join("bookmarks.toml");
         fs::write(&file, "{invalid toml").expect("write corrupt file");
 
-        reset_env(Some(file.display().to_string()), None);
+        process.set("DX_BOOKMARKS_FILE", &file);
+        process.remove("XDG_DATA_HOME");
 
         let err = read_store().expect_err("corrupt file should fail");
         assert!(matches!(err, StorageError::ParseStore { .. }));
-
-        reset_env(None, None);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn write_store_creates_parent_directory() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         let temp = make_temp_dir("create-parent");
-        let file = temp.join("nested/path/bookmarks.toml");
+        let file = temp.path().join("nested/path/bookmarks.toml");
 
-        reset_env(Some(file.display().to_string()), None);
+        process.set("DX_BOOKMARKS_FILE", &file);
+        process.remove("XDG_DATA_HOME");
 
         let store = BookmarkStore::default();
         write_store(&store).expect("write empty store");
 
         assert!(file.exists());
-
-        reset_env(None, None);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn write_store_replace_failure_preserves_last_known_good_target() {
-        let _guard = env_lock();
+        let mut process = ScopedProcess::new();
         let temp = make_temp_dir("replace-failure");
-        let file = temp.join("bookmarks.toml");
+        let file = temp.path().join("bookmarks.toml");
         let original = "[bookmarks]\nalpha = \"/persisted\"\n";
         fs::write(&file, original).expect("seed existing bookmark store");
 
-        let target = temp.join("next");
+        let target = temp.path().join("next");
         fs::create_dir_all(&target).expect("create bookmark target");
 
         let mut map = BTreeMap::new();
@@ -306,7 +263,8 @@ mod tests {
         );
         let store = BookmarkStore::from_paths(map);
 
-        reset_env(Some(file.display().to_string()), None);
+        process.set("DX_BOOKMARKS_FILE", &file);
+        process.remove("XDG_DATA_HOME");
 
         let err = crate::common::with_replace_failure_injection_for_tests(|| write_store(&store))
             .expect_err("replace failure should surface");
@@ -314,8 +272,5 @@ mod tests {
 
         let raw = fs::read_to_string(&file).expect("read persisted target after failure");
         assert_eq!(raw, original);
-
-        reset_env(None, None);
-        let _ = fs::remove_dir_all(temp);
     }
 }

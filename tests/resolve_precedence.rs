@@ -1,64 +1,40 @@
+mod common;
+
+use std::collections::BTreeSet;
 use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn make_temp_dir(label: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!("dx-it-{label}-{nonce}-{}", std::process::id()));
-    fs::create_dir_all(&path).expect("create temp dir");
-    path
-}
-
-fn dx_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_dx"))
-}
-
-fn canonical_string(path: &PathBuf) -> String {
-    fs::canonicalize(path)
-        .expect("canonical path")
-        .display()
-        .to_string()
-}
+use std::path::Path;
 
 #[test]
 fn direct_child_beats_fallback_root_match() {
-    let cwd = make_temp_dir("precedence-direct");
-    let local = cwd.join("src");
+    let cwd = common::temp_dir("precedence-direct");
+    let local = cwd.path().join("src");
     fs::create_dir_all(&local).expect("create local src");
 
-    let root = cwd.join("root");
+    let root = cwd.path().join("root");
     let fallback = root.join("src");
     fs::create_dir_all(&fallback).expect("create fallback src");
 
-    let output = Command::new(dx_bin())
+    let output = common::dx()
         .arg("resolve")
         .arg("src")
         .env("DX_SEARCH_ROOTS", root.display().to_string())
-        .current_dir(&cwd)
+        .current_dir(cwd.path())
         .output()
         .expect("run dx");
 
     assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        canonical_string(&local)
-    );
-    let _ = fs::remove_dir_all(cwd);
+    common::assert_same_path(String::from_utf8_lossy(&output.stdout).trim(), &local);
 }
 
 #[test]
 fn step_up_alias_wins_over_search_root_name() {
-    let workspace = make_temp_dir("precedence-step-up");
-    let cwd = workspace.join("a/b/c");
+    let workspace = common::temp_dir("precedence-step-up");
+    let cwd = workspace.path().join("a/b/c");
     fs::create_dir_all(&cwd).expect("create nested cwd");
-    let root = workspace.join("root");
+    let root = workspace.path().join("root");
     fs::create_dir_all(root.join("...")).expect("create literal dots directory");
 
-    let output = Command::new(dx_bin())
+    let output = common::dx()
         .arg("resolve")
         .arg("...")
         .env("DX_SEARCH_ROOTS", root.display().to_string())
@@ -67,55 +43,66 @@ fn step_up_alias_wins_over_search_root_name() {
         .expect("run dx");
 
     assert!(output.status.success());
-    assert_eq!(
+    common::assert_same_path(
         String::from_utf8_lossy(&output.stdout).trim(),
-        canonical_string(&workspace.join("a"))
+        workspace.path().join("a"),
     );
-    let _ = fs::remove_dir_all(workspace);
 }
 
 #[test]
 fn ambiguous_default_mode_fails_with_stderr_diagnostic() {
-    let cwd = make_temp_dir("precedence-ambiguous");
-    let root = cwd.join("root");
+    let cwd = common::temp_dir("precedence-ambiguous");
+    let root = cwd.path().join("root");
     fs::create_dir_all(root.join("proj/alpha")).expect("create proj alpha");
     fs::create_dir_all(root.join("prod/alpha")).expect("create prod alpha");
 
-    let output = Command::new(dx_bin())
+    let output = common::dx()
         .arg("resolve")
         .arg("pro/al")
         .env("DX_SEARCH_ROOTS", root.display().to_string())
-        .current_dir(&cwd)
+        .current_dir(cwd.path())
         .output()
         .expect("run dx");
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).trim().is_empty());
     assert!(String::from_utf8_lossy(&output.stderr).contains("ambiguous query"));
-    let _ = fs::remove_dir_all(cwd);
 }
 
 #[test]
 fn ambiguous_json_mode_returns_candidates_and_zero_exit() {
-    let cwd = make_temp_dir("precedence-json-ambiguous");
-    let root = cwd.join("root");
+    let cwd = common::temp_dir("precedence-json-ambiguous");
+    let root = cwd.path().join("root");
     fs::create_dir_all(root.join("proj/alpha")).expect("create proj alpha");
     fs::create_dir_all(root.join("prod/alpha")).expect("create prod alpha");
 
-    let output = Command::new(dx_bin())
+    let output = common::dx()
         .arg("resolve")
         .arg("--json")
         .arg("pro/al")
         .env("DX_SEARCH_ROOTS", root.display().to_string())
-        .current_dir(&cwd)
+        .current_dir(cwd.path())
         .output()
         .expect("run dx");
 
     assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("\"status\":\"error\""));
-    assert!(stdout.contains("\"reason\":\"ambiguous\""));
-    assert!(stdout.contains("proj/alpha"));
-    assert!(stdout.contains("prod/alpha"));
-    let _ = fs::remove_dir_all(cwd);
+    let json = serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("parse json");
+    assert_eq!(json["status"], "error");
+    assert_eq!(json["reason"], "ambiguous");
+
+    let candidates = json["candidates"].as_array().expect("candidate array");
+    assert_eq!(candidates.len(), 2);
+    let actual = candidates
+        .iter()
+        .map(|candidate| {
+            common::canonical(Path::new(
+                candidate.as_str().expect("candidate path string"),
+            ))
+        })
+        .collect::<BTreeSet<_>>();
+    let expected = [root.join("proj/alpha"), root.join("prod/alpha")]
+        .iter()
+        .map(|candidate| common::canonical(candidate))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(actual, expected);
 }

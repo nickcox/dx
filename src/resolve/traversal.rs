@@ -90,6 +90,7 @@ fn is_multi_dot_alias(input: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{TempDir, temp_dir};
     use std::fs;
 
     #[test]
@@ -127,20 +128,10 @@ mod tests {
         assert!(resolve_step_up(&cwd, "abc").is_none());
     }
 
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("dx-{label}-{nonce}-{}", std::process::id()));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
-
     #[test]
     fn traverses_multi_segment_paths_with_callback_matcher() {
-        let temp = make_temp_dir("traversal-case");
-        let base = temp.join("root");
+        let temp: TempDir = temp_dir("traversal-case");
+        let base = temp.path().join("root");
         let target = base.join("Project/Source");
         fs::create_dir_all(&target).expect("create dirs");
 
@@ -150,14 +141,13 @@ mod tests {
         });
 
         assert_eq!(matches, vec![target]);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn preserves_base_order_for_matches() {
-        let temp = make_temp_dir("traversal-order");
-        let root_a = temp.join("a");
-        let root_b = temp.join("b");
+        let temp: TempDir = temp_dir("traversal-order");
+        let root_a = temp.path().join("a");
+        let root_b = temp.path().join("b");
         let target_a = root_a.join("project/src");
         let target_b = root_b.join("project/src");
         fs::create_dir_all(&target_a).expect("create dirs");
@@ -169,6 +159,5 @@ mod tests {
             });
 
         assert_eq!(matches, vec![target_a, target_b]);
-        let _ = fs::remove_dir_all(temp);
     }
 }

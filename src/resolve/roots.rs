@@ -67,66 +67,51 @@ fn resolve_single_segment(root: &Path, segment: &str, case_sensitive: bool) -> V
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
-
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("dx-{label}-{nonce}-{}", std::process::id()));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
+    use crate::test_support::{TempDir, temp_dir};
 
     #[test]
     fn resolves_exact_match_in_root() {
-        let temp = make_temp_dir("roots-exact");
-        let root = temp.join("root");
+        let temp: TempDir = temp_dir("roots-exact");
+        let root = temp.path().join("root");
         let target = root.join("myproject");
         fs::create_dir_all(&target).expect("create dirs");
 
         let matches = resolve_fallbacks(&[root], "myproject", true);
         assert_eq!(matches, vec![target]);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn resolves_abbreviated_path_in_root() {
-        let temp = make_temp_dir("roots-abbrev");
-        let root = temp.join("root");
+        let temp: TempDir = temp_dir("roots-abbrev");
+        let root = temp.path().join("root");
         let target = root.join("project/src/components");
         fs::create_dir_all(&target).expect("create dirs");
 
         let matches = resolve_fallbacks(&[root], "pro/sr/com", true);
         assert_eq!(matches, vec![target]);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn resolves_delimiter_aware_single_segment_match_in_root() {
-        let temp = make_temp_dir("roots-delimiter");
-        let root = temp.join("root");
+        let temp: TempDir = temp_dir("roots-delimiter");
+        let root = temp.path().join("root");
         let target = root.join("cd-extras");
         fs::create_dir_all(&target).expect("create dirs");
 
         let matches = resolve_fallbacks(&[root], "cd-e", true);
         assert_eq!(matches, vec![target]);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn resolves_delimiter_aware_multi_segment_match_in_root() {
-        let temp = make_temp_dir("roots-delimiter-multi");
-        let root = temp.join("root");
+        let temp: TempDir = temp_dir("roots-delimiter-multi");
+        let root = temp.path().join("root");
         let target = root.join("project/PowerShell/src/Microsoft.PowerShell.SDK");
         fs::create_dir_all(&target).expect("create dirs");
 
         let matches = resolve_fallbacks(&[root], "pro/p..shell/s/.sdk", false);
         assert_eq!(matches, vec![target]);
-        let _ = fs::remove_dir_all(temp);
     }
 }

@@ -258,25 +258,10 @@ fn prefix_directory_candidates(path: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::{bookmarks, config::AppConfig, test_support};
 
     use super::*;
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        test_support::env_lock()
-    }
-
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("dx-{label}-{nonce}-{}", std::process::id()));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
 
     fn create_resolver_with_roots_and_bookmarks(roots: Vec<PathBuf>) -> Resolver {
         create_resolver_with_roots_and_bookmarks_and_case_sensitivity(roots, true)
@@ -298,42 +283,36 @@ mod tests {
 
     #[test]
     fn completion_dot_slash_lists_children_when_present() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("complete-dot-slash-children");
-        let child = temp.join("alpha");
+        let temp = test_support::temp_dir("complete-dot-slash-children");
+        let mut process = test_support::ScopedProcess::new();
+        let child = temp.path().join("alpha");
         fs::create_dir_all(&child).expect("create child");
 
         let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
-        let prev = std::env::current_dir().expect("read cwd");
-        std::env::set_current_dir(&temp).expect("set cwd");
+        process.set_current_dir(temp.path());
 
         let out = resolver.collect_completion_candidates("./");
 
-        std::env::set_current_dir(prev).expect("restore cwd");
         assert!(out.iter().any(|p| p.ends_with("alpha")));
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn completion_dot_slash_empty_dir_returns_empty() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("complete-dot-slash-empty");
+        let temp = test_support::temp_dir("complete-dot-slash-empty");
+        let mut process = test_support::ScopedProcess::new();
         let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
 
-        let prev = std::env::current_dir().expect("read cwd");
-        std::env::set_current_dir(&temp).expect("set cwd");
+        process.set_current_dir(temp.path());
         let out = resolver.collect_completion_candidates("./");
-        std::env::set_current_dir(prev).expect("restore cwd");
 
         assert!(out.is_empty());
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn completion_leading_slash_empty_filesystem_falls_back_from_filesystem_root() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("complete-leading-slash-root");
-        let canonical_temp = fs::canonicalize(&temp).expect("canonical temp dir");
+        let temp = test_support::temp_dir("complete-leading-slash-root");
+        let _process = test_support::ScopedProcess::new();
+        let canonical_temp = fs::canonicalize(temp.path()).expect("canonical temp dir");
         let missing_prefix = format!("dx-miss-{}", std::process::id());
         let target = canonical_temp.join(&missing_prefix).join("project");
         fs::create_dir_all(&target).expect("create fallback target");
@@ -343,62 +322,50 @@ mod tests {
         let out = resolver.collect_completion_candidates(&query);
 
         assert!(out.contains(&target));
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn completion_dot_slash_empty_filesystem_falls_back_to_abbreviation() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("complete-dot-slash-fallback");
-        let root = temp.join("root");
+        let temp = test_support::temp_dir("complete-dot-slash-fallback");
+        let mut process = test_support::ScopedProcess::new();
+        let root = temp.path().join("root");
         let missing_prefix = "no-local-hit";
         let target = root.join(missing_prefix).join("project");
         fs::create_dir_all(&target).expect("create fallback target");
 
         let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
-        let prev = std::env::current_dir().expect("read cwd");
-        std::env::set_current_dir(&temp).expect("set cwd");
+        process.set_current_dir(temp.path());
 
         let out = resolver.collect_completion_candidates("./no-local-hit/pro");
 
-        std::env::set_current_dir(prev).expect("restore cwd");
         assert!(out.contains(&target));
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn completion_tilde_slash_empty_filesystem_falls_back_to_abbreviation() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("complete-tilde-slash-fallback");
-        let home = temp.join("home");
+        let temp = test_support::temp_dir("complete-tilde-slash-fallback");
+        let mut process = test_support::ScopedProcess::new();
+        let home = temp.path().join("home");
         fs::create_dir_all(&home).expect("create home");
 
-        let root = temp.join("root");
+        let root = temp.path().join("root");
         let missing_prefix = "no-home-hit";
         let target = root.join(missing_prefix).join("project");
         fs::create_dir_all(&target).expect("create fallback target");
 
-        let prev_home = std::env::var("HOME").ok();
-        unsafe { std::env::set_var("HOME", &home) };
+        process.set("HOME", &home);
 
         let resolver = create_resolver_with_roots_and_bookmarks(vec![root]);
         let out = resolver.collect_completion_candidates("~/no-home-hit/pro");
 
-        if let Some(value) = prev_home {
-            unsafe { std::env::set_var("HOME", value) };
-        } else {
-            unsafe { std::env::remove_var("HOME") };
-        }
-
         assert!(out.contains(&target));
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn completion_matches_resolve_for_dot_slash_prefix_fallback_target() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("complete-resolve-prefix-parity");
-        let root = temp.join("root");
+        let temp = test_support::temp_dir("complete-resolve-prefix-parity");
+        let _process = test_support::ScopedProcess::new();
+        let root = temp.path().join("root");
         let target = root.join("no-local-hit").join("project");
         fs::create_dir_all(&target).expect("create fallback target");
 
@@ -407,42 +374,37 @@ mod tests {
         let resolved = resolver
             .resolve(super::super::ResolveQuery {
                 raw: "./no-local-hit/pro",
-                cwd: &temp,
+                cwd: temp.path(),
             })
             .expect("resolve should succeed");
         let completed = resolver.collect_completion_candidates_with_limit_and_cwd(
             "./no-local-hit/pro",
             None,
-            Some(&temp),
+            Some(temp.path()),
         );
 
         assert!(completed.paths.contains(&resolved.path));
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn mixed_case_path_order_for_filesystem_prefix_and_filtered_siblings() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("complete-mixed-case-order");
-        let cwd = temp.join("work");
+        let temp = test_support::temp_dir("complete-mixed-case-order");
+        let mut process = test_support::ScopedProcess::new();
+        let cwd = temp.path().join("work");
         fs::create_dir_all(&cwd).expect("create cwd");
 
-        let code = temp.join("Code");
-        let cobalt = temp.join("cobalt");
-        let cbravo = temp.join("cbravo");
+        let code = temp.path().join("Code");
+        let cobalt = temp.path().join("cobalt");
+        let cbravo = temp.path().join("cbravo");
         fs::create_dir_all(&code).expect("create Code");
         fs::create_dir_all(&cobalt).expect("create cobalt");
         fs::create_dir_all(&cbravo).expect("create cbravo");
 
         let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
-        let prev = std::env::current_dir().expect("read cwd");
-        std::env::set_current_dir(&cwd).expect("set cwd");
+        process.set_current_dir(&cwd);
 
         let siblings = resolver.collect_completion_candidates("../");
         let filtered = resolver.collect_completion_candidates("../c");
-
-        std::env::set_current_dir(prev).expect("restore cwd");
 
         let sibling_names = siblings
             .iter()
@@ -474,8 +436,6 @@ mod tests {
         );
         assert_eq!(&sibling_names[..expected_prefix.len()], expected_prefix);
         assert_eq!(filtered_names, expected_prefix);
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
@@ -503,8 +463,8 @@ mod tests {
 
     #[test]
     fn completion_returns_delimiter_aware_matches() {
-        let temp = make_temp_dir("complete-delimiter-aware");
-        let root = temp.join("root");
+        let temp = test_support::temp_dir("complete-delimiter-aware");
+        let root = temp.path().join("root");
         let target = root.join("cd-extras");
         fs::create_dir_all(&target).expect("create target");
 
@@ -512,13 +472,12 @@ mod tests {
         let out = resolver.collect_completion_candidates("cd-e");
 
         assert_eq!(out, vec![target]);
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn completion_returns_doubled_period_matches() {
-        let temp = make_temp_dir("complete-gap-aware");
-        let root = temp.join("root");
+        let temp = test_support::temp_dir("complete-gap-aware");
+        let root = temp.path().join("root");
         let target = root.join("PowerShell");
         fs::create_dir_all(&target).expect("create target");
 
@@ -527,6 +486,5 @@ mod tests {
         let out = resolver.collect_completion_candidates("p..shell");
 
         assert_eq!(out, vec![target]);
-        let _ = fs::remove_dir_all(temp);
     }
 }

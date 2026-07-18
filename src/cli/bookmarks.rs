@@ -147,43 +147,18 @@ fn bookmark_error(err: BookmarkError) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    use crate::test_support;
+    use crate::test_support::{ScopedProcess, temp_dir};
 
     use super::*;
 
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "dx-cli-bookmarks-{label}-{nonce}-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        test_support::env_lock()
-    }
-
     #[test]
     fn empty_list_returns_zero() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("empty-list");
-        let file = temp.join("bookmarks.toml");
-        unsafe { env::set_var("DX_BOOKMARKS_FILE", file.display().to_string()) };
+        let mut process = ScopedProcess::new();
+        let temp = temp_dir("cli-bookmarks-empty-list");
+        let file = temp.path().join("bookmarks.toml");
+        process.set("DX_BOOKMARKS_FILE", file.as_os_str());
 
         let code = run_list(false);
         assert_eq!(code, 0);
-
-        unsafe { env::remove_var("DX_BOOKMARKS_FILE") };
-        let _ = fs::remove_dir_all(temp);
     }
 }

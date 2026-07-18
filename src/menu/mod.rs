@@ -269,7 +269,6 @@ fn apply_limit_with_has_more(paths: Vec<PathBuf>, limit: Option<usize>) -> Compl
 mod tests {
     use std::fs;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::complete::CompletionMode;
     use crate::config::AppConfig;
@@ -278,33 +277,15 @@ mod tests {
 
     use super::{MenuMode, source_candidates, source_candidates_with_meta};
 
-    fn make_temp_dir(label: &str) -> PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "dx-menu-source-order-{label}-{nonce}-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        test_support::env_lock()
-    }
-
     #[test]
     fn mixed_case_path_order_menu_paths_matches_completion_order() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("mixed-case-path-order");
-        let cwd = temp.join("work");
+        let temp = test_support::temp_dir("menu-source-order-mixed-case-path-order");
+        let cwd = temp.path().join("work");
         fs::create_dir_all(&cwd).expect("create cwd");
 
-        fs::create_dir_all(temp.join("Calpha")).expect("create Calpha");
-        fs::create_dir_all(temp.join("cAlpha")).expect("create cAlpha");
-        fs::create_dir_all(temp.join("cbravo")).expect("create cbravo");
+        fs::create_dir_all(temp.path().join("Calpha")).expect("create Calpha");
+        fs::create_dir_all(temp.path().join("cAlpha")).expect("create cAlpha");
+        fs::create_dir_all(temp.path().join("cbravo")).expect("create cbravo");
 
         let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
 
@@ -322,15 +303,12 @@ mod tests {
         );
 
         assert_eq!(menu, completion.paths);
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn mapped_path_root_slash_lists_root_without_cwd_children() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("mapped-root-slash");
-        let cwd = temp.join("work");
+        let temp = test_support::temp_dir("menu-source-order-mapped-root-slash");
+        let cwd = temp.path().join("work");
         fs::create_dir_all(&cwd).expect("create cwd");
         let cwd_only = cwd.join("cwd-only-marker");
         fs::write(&cwd_only, "marker").expect("create cwd marker");
@@ -353,15 +331,12 @@ mod tests {
         );
         assert!(!candidates.paths.contains(&cwd_only));
         assert!(!candidates.paths.is_empty());
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn mapped_path_rooted_prefix_filters_root_without_cwd_children() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("mapped-root-prefix");
-        let cwd = temp.join("work");
+        let temp = test_support::temp_dir("menu-source-order-mapped-root-prefix");
+        let cwd = temp.path().join("work");
         fs::create_dir_all(&cwd).expect("create cwd");
         let cwd_only = cwd.join("Users-local-marker");
         fs::write(&cwd_only, "marker").expect("create cwd marker");
@@ -388,15 +363,12 @@ mod tests {
                 .unwrap_or(false)
         }));
         assert!(!candidates.paths.contains(&cwd_only));
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn mapped_path_empty_query_still_lists_cwd_children() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("mapped-empty-cwd");
-        let cwd = temp.join("work");
+        let temp = test_support::temp_dir("menu-source-order-mapped-empty-cwd");
+        let cwd = temp.path().join("work");
         fs::create_dir_all(&cwd).expect("create cwd");
         let cwd_only = cwd.join("cwd-only-marker");
         fs::write(&cwd_only, "marker").expect("create cwd marker");
@@ -412,15 +384,12 @@ mod tests {
         );
 
         assert!(candidates.paths.contains(&cwd_only));
-
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn mapped_path_bare_query_still_filters_cwd_children() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("mapped-bare-cwd");
-        let cwd = temp.join("work");
+        let temp = test_support::temp_dir("menu-source-order-mapped-bare-cwd");
+        let cwd = temp.path().join("work");
         fs::create_dir_all(&cwd).expect("create cwd");
         let matching = cwd.join("src-local-marker");
         let nonmatching = cwd.join("other-marker");
@@ -439,7 +408,5 @@ mod tests {
 
         assert!(candidates.paths.contains(&matching));
         assert!(!candidates.paths.contains(&nonmatching));
-
-        let _ = fs::remove_dir_all(temp);
     }
 }

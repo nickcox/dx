@@ -8,39 +8,20 @@ pub fn complete(session: Option<&str>, query: Option<&str>) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use std::env;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::stacks::{SessionStack, storage};
     use crate::test_support;
 
     use super::complete;
 
-    fn make_temp_dir(label: &str) -> std::path::PathBuf {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "dx-complete-recents-{label}-{nonce}-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&path).expect("create temp dir");
-        path
-    }
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        test_support::env_lock()
-    }
-
     #[test]
     fn recents_history_is_returned_most_recent_first() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("history");
-        let runtime = temp.join("runtime");
+        let temp = test_support::temp_dir("complete-recents-history");
+        let mut process = test_support::ScopedProcess::new();
+        let runtime = temp.path().join("runtime");
         fs::create_dir_all(&runtime).expect("create runtime");
-        unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
+        process.set("XDG_RUNTIME_DIR", &runtime);
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
@@ -63,18 +44,15 @@ mod tests {
                 std::path::PathBuf::from("/a")
             ]
         );
-
-        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn empty_session_returns_empty() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("empty");
-        let runtime = temp.join("runtime");
+        let temp = test_support::temp_dir("complete-recents-empty");
+        let mut process = test_support::ScopedProcess::new();
+        let runtime = temp.path().join("runtime");
         fs::create_dir_all(&runtime).expect("create runtime");
-        unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
+        process.set("XDG_RUNTIME_DIR", &runtime);
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack::default();
@@ -82,18 +60,15 @@ mod tests {
 
         let output = complete(Some("s1"), None);
         assert!(output.is_empty());
-
-        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
     fn query_filter_is_applied() {
-        let _guard = env_lock();
-        let temp = make_temp_dir("filter");
-        let runtime = temp.join("runtime");
+        let temp = test_support::temp_dir("complete-recents-filter");
+        let mut process = test_support::ScopedProcess::new();
+        let runtime = temp.path().join("runtime");
         fs::create_dir_all(&runtime).expect("create runtime");
-        unsafe { env::set_var("XDG_RUNTIME_DIR", runtime.display().to_string()) };
+        process.set("XDG_RUNTIME_DIR", &runtime);
 
         let dir = storage::ensure_session_dir().expect("session dir");
         let stack = SessionStack {
@@ -111,9 +86,6 @@ mod tests {
             output,
             vec![std::path::PathBuf::from("/home/user/projects/dx")]
         );
-
-        unsafe { env::remove_var("XDG_RUNTIME_DIR") };
-        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
