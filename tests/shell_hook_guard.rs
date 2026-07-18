@@ -409,6 +409,35 @@ fn fish_generated_hook_command_not_found_resolves_delimiter_shortened_command_on
 }
 
 #[test]
+fn fish_navigation_wrapper_preserves_native_cd_failure_status() {
+    if !optional_tool_available("fish") {
+        return;
+    }
+    let temp_dir = common::temp_dir("fish-nav-status");
+    let temp = temp_dir.path();
+    let hook = write_generated_hook(temp, "fish");
+    let missing = temp.join("missing");
+    let script = format!(
+        "source \"{hook}\"; function dx; if test \"$argv[1]\" = navigate; printf '%s\\n' \"{missing}\"; return 0; end; return 0; end; up; printf '%s' $status",
+        hook = hook.display(),
+        missing = missing.display(),
+    );
+
+    let output = Command::new("fish")
+        .args(["--no-config", "-c", &script])
+        .current_dir(temp)
+        .env("HOME", temp)
+        .env("XDG_CONFIG_HOME", temp)
+        .env("LANG", "C")
+        .env("LC_ALL", "C")
+        .output()
+        .expect("run fish navigation wrapper");
+
+    assert!(output.status.success());
+    assert_ne!(String::from_utf8_lossy(&output.stdout).trim(), "0");
+}
+
+#[test]
 fn zsh_generated_hook_cd_permission_denied_error_does_not_leak_helper_name() {
     if !optional_tool_available("zsh") {
         return;

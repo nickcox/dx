@@ -55,10 +55,10 @@ __dx_nav_wrapper() {
   else
     __dx_target="$(dx navigate "$__dx_mode")"
   fi
+  local __dx_status=$?
 
-  if [[ -z "$__dx_target" ]]; then
-    return 1
-  fi
+  [[ $__dx_status -eq 0 ]] || return "$__dx_status"
+  [[ -n "$__dx_target" ]] || return 1
 
   __dx_cd_native "$__dx_target" || return $?
   __dx_push_pwd
@@ -97,15 +97,17 @@ __dx_jump_mode() {
   command -v dx >/dev/null 2>&1 || return 1
 
   local __dx_target=""
+  local __dx_output=""
   if [[ -n "$__dx_query" ]]; then
-    __dx_target="$(__dx_complete_first < <(dx complete "$__dx_mode" "$__dx_query" 2>/dev/null))"
+    __dx_output="$(dx complete "$__dx_mode" "$__dx_query" 2>/dev/null)"
   else
-    __dx_target="$(__dx_complete_first < <(dx complete "$__dx_mode" 2>/dev/null))"
+    __dx_output="$(dx complete "$__dx_mode" 2>/dev/null)"
   fi
+  local __dx_status=$?
+  [[ $__dx_status -eq 0 ]] || return "$__dx_status"
+  __dx_target="$(__dx_complete_first <<< "$__dx_output")"
 
-  if [[ -z "$__dx_target" ]]; then
-    return 1
-  fi
+  [[ -n "$__dx_target" ]] || return 1
 
   __dx_push_pwd
   __dx_cd_native "$__dx_target" || return $?
@@ -279,9 +281,9 @@ __dx_try_menu() {
 
   local __dx_json
   if [[ -n "$__dx_mode_override" ]]; then
-    __dx_json="$(dx menu --mode "$__dx_mode_override" --buffer "$COMP_LINE" --cursor "$COMP_POINT" --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)" || return 1
+    __dx_json="$(dx menu --shell bash --mode "$__dx_mode_override" --buffer "$COMP_LINE" --cursor "$COMP_POINT" --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)" || return 1
   else
-    __dx_json="$(dx menu --buffer "$COMP_LINE" --cursor "$COMP_POINT" --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)" || return 1
+    __dx_json="$(dx menu --shell bash --buffer "$COMP_LINE" --cursor "$COMP_POINT" --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)" || return 1
   fi
 
   local __dx_action

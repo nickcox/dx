@@ -125,6 +125,9 @@ mod tests {
             );
         }
 
-        assert_eq!(std::env::current_dir().expect("read restored cwd"), original);
+        assert_eq!(
+            std::env::current_dir().expect("read restored cwd"),
+            original
+        );
     }
 }

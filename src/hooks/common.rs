@@ -240,7 +240,7 @@ pub fn render_bash_menu_mapping_case(mappings: &[MenuCommandMapping]) -> String 
         .iter()
         .map(|mapping| {
             format!(
-                "    {}) __dx_menu_mode=\"{}\" ;;&",
+                "    {}) __dx_menu_mode=\"{}\" ;;",
                 bash_case_pattern(&[mapping.command()]),
                 mapping.mode().as_cli_arg()
             )

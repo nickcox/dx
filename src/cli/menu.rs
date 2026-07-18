@@ -15,6 +15,42 @@ pub enum MenuModeArg {
     File,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum MenuShellArg {
+    Bash,
+    Zsh,
+    Fish,
+    Pwsh,
+}
+
+impl MenuShellArg {
+    fn quote(self, path: &str) -> Option<String> {
+        if path.chars().any(char::is_control) {
+            return None;
+        }
+
+        let quoted = match self {
+            Self::Bash | Self::Zsh => quote_posix(path),
+            Self::Fish => quote_fish(path),
+            Self::Pwsh => quote_pwsh(path),
+        };
+        Some(quoted)
+    }
+
+    fn offset_from_byte(self, buffer: &str, byte_offset: usize) -> Option<usize> {
+        if byte_offset > buffer.len() || !buffer.is_char_boundary(byte_offset) {
+            return None;
+        }
+
+        let prefix = &buffer[..byte_offset];
+        Some(match self {
+            Self::Bash => byte_offset,
+            Self::Zsh | Self::Fish => prefix.chars().count(),
+            Self::Pwsh => prefix.encode_utf16().count(),
+        })
+    }
+}
+
 impl MenuModeArg {
     fn as_str(self) -> &'static str {
         match self {
@@ -54,6 +90,10 @@ pub struct MenuCommand {
     /// Explicit mapped-command menu mode for init-generated external command hooks
     #[arg(long, value_enum)]
     pub mode: Option<MenuModeArg>,
+
+    /// Shell syntax used for replacement text
+    #[arg(long, value_enum, default_value_t = MenuShellArg::Bash)]
+    pub shell: MenuShellArg,
 }
 
 /// Format a resolved path for insertion into the shell buffer.
@@ -77,24 +117,22 @@ fn format_selected_path(path: &str, mode: MenuMode) -> String {
         mode,
         MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory
     );
-    format_selected_path_with_trailing_slash(path, append_trailing_slash)
+    format_selected_path_with_trailing_slash(path, append_trailing_slash, MenuShellArg::Bash)
+        .expect("test path has no control characters")
 }
 
-fn format_selected_path_with_trailing_slash(path: &str, append_trailing_slash: bool) -> String {
+fn format_selected_path_with_trailing_slash(
+    path: &str,
+    append_trailing_slash: bool,
+    shell: MenuShellArg,
+) -> Option<String> {
     let path = if append_trailing_slash {
         format!("{path}/")
     } else {
         path.to_string()
     };
 
-    let formatted = if needs_shell_quoting(&path) {
-        let escaped = path.replace('\'', "'\\''");
-        format!("'{escaped}'")
-    } else {
-        path
-    };
-
-    formatted
+    shell.quote(&path)
 }
 
 fn sanitize_relative_components(path: &Path) -> PathBuf {
@@ -112,12 +150,13 @@ fn sanitize_relative_components(path: &Path) -> PathBuf {
     cleaned
 }
 
-fn format_selected_path_for_query_style(
+fn format_selected_path_for_query_style_checked(
     selected: &Path,
     mode: MenuMode,
     cwd: &Path,
     prefer_relative_paths: bool,
-) -> String {
+    shell: MenuShellArg,
+) -> Option<String> {
     let append_trailing_slash = matches!(
         mode,
         MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory
@@ -149,16 +188,42 @@ fn format_selected_path_for_query_style(
                     }
                 };
                 let without_trailing = rel_text.trim_end_matches('/');
-                format_selected_path_with_trailing_slash(without_trailing, append_trailing_slash)
+                format_selected_path_with_trailing_slash(
+                    without_trailing,
+                    append_trailing_slash,
+                    shell,
+                )
             } else {
-                format_selected_path_with_trailing_slash(&selected_str, append_trailing_slash)
+                format_selected_path_with_trailing_slash(
+                    &selected_str,
+                    append_trailing_slash,
+                    shell,
+                )
             }
         }
         _ => format_selected_path_with_trailing_slash(
             &selected.display().to_string(),
             append_trailing_slash,
+            shell,
         ),
     }
+}
+
+#[cfg(test)]
+fn format_selected_path_for_query_style(
+    selected: &Path,
+    mode: MenuMode,
+    cwd: &Path,
+    prefer_relative_paths: bool,
+) -> String {
+    format_selected_path_for_query_style_checked(
+        selected,
+        mode,
+        cwd,
+        prefer_relative_paths,
+        MenuShellArg::Bash,
+    )
+    .expect("test path has no control characters")
 }
 
 fn has_explicit_absolute_input(query: Option<&str>, mode: MenuMode) -> bool {
@@ -168,32 +233,61 @@ fn has_explicit_absolute_input(query: Option<&str>, mode: MenuMode) -> bool {
 /// Returns true if the string contains characters that require shell quoting.
 fn needs_shell_quoting(s: &str) -> bool {
     s.chars().any(|c| {
-        matches!(
-            c,
-            ' ' | '\t'
-                | '('
-                | ')'
-                | '['
-                | ']'
-                | '{'
-                | '}'
-                | '!'
-                | '#'
-                | '$'
-                | '&'
-                | '*'
-                | '?'
-                | ';'
-                | '<'
-                | '>'
-                | '|'
-                | '\\'
-                | '\''
-                | '"'
-                | '`'
-                | '~'
-        )
+        c.is_whitespace()
+            || matches!(
+                c,
+                '(' | ')'
+                    | '['
+                    | ']'
+                    | '{'
+                    | '}'
+                    | '!'
+                    | '#'
+                    | '$'
+                    | '&'
+                    | '*'
+                    | '?'
+                    | ';'
+                    | '<'
+                    | '>'
+                    | '|'
+                    | '\\'
+                    | '\''
+                    | '"'
+                    | '`'
+                    | '~'
+            )
     })
+}
+
+fn quote_posix(path: &str) -> String {
+    if needs_shell_quoting(path) {
+        format!("'{}'", path.replace('\'', "'\\''"))
+    } else {
+        path.to_string()
+    }
+}
+
+fn quote_fish(path: &str) -> String {
+    if !needs_shell_quoting(path) {
+        return path.to_string();
+    }
+
+    path.chars().fold(String::new(), |mut escaped, ch| {
+        if !(ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-')) {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+        escaped
+    })
+}
+
+fn quote_pwsh(path: &str) -> String {
+    if needs_shell_quoting(path) {
+        format!("'{}'", path.replace('\'', "''"))
+    } else {
+        path.to_string()
+    }
 }
 
 fn parse_menu_item_max_len() -> Option<usize> {
@@ -260,19 +354,27 @@ fn parse_menu_max_results() -> usize {
     }
 }
 
-fn menu_result_to_action(
+fn menu_result_to_action_with_shell(
     result: Option<MenuResult>,
     parsed: &menu::ParsedBuffer,
     mode: MenuMode,
     cwd: &Path,
     prefer_relative_paths: bool,
+    shell: MenuShellArg,
 ) -> MenuAction {
     match result {
         Some(MenuResult::Selected {
             value, terminal, ..
         }) => {
-            let formatted =
-                format_selected_path_for_query_style(&value, mode, cwd, prefer_relative_paths);
+            let Some(formatted) = format_selected_path_for_query_style_checked(
+                &value,
+                mode,
+                cwd,
+                prefer_relative_paths,
+                shell,
+            ) else {
+                return MenuAction::noop();
+            };
             let replacement = if parsed.needs_space_prefix {
                 format!(" {formatted}")
             } else {
@@ -291,6 +393,44 @@ fn menu_result_to_action(
         }) => MenuAction::cancel(),
         None => MenuAction::noop(),
     }
+}
+
+fn action_for_shell(action: MenuAction, buffer: &str, shell: MenuShellArg) -> MenuAction {
+    let MenuAction::Replace {
+        replace_start,
+        replace_end,
+        value,
+        terminal,
+    } = action
+    else {
+        return action;
+    };
+
+    let (Some(replace_start), Some(replace_end)) = (
+        shell.offset_from_byte(buffer, replace_start),
+        shell.offset_from_byte(buffer, replace_end),
+    ) else {
+        return MenuAction::noop();
+    };
+    MenuAction::replace(replace_start, replace_end, value, terminal)
+}
+
+#[cfg(test)]
+fn menu_result_to_action(
+    result: Option<MenuResult>,
+    parsed: &menu::ParsedBuffer,
+    mode: MenuMode,
+    cwd: &Path,
+    prefer_relative_paths: bool,
+) -> MenuAction {
+    menu_result_to_action_with_shell(
+        result,
+        parsed,
+        mode,
+        cwd,
+        prefer_relative_paths,
+        MenuShellArg::Bash,
+    )
 }
 
 pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
@@ -419,13 +559,15 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         ls_colors,
     );
 
-    match menu_result_to_action(
+    let action = menu_result_to_action_with_shell(
         menu_result.clone(),
         &parsed,
         parsed.mode,
         &cwd,
         prefer_relative_paths,
-    ) {
+        cmd.shell,
+    );
+    match action_for_shell(action, &cmd.buffer, cmd.shell) {
         action @ MenuAction::Replace { .. } => {
             if debug {
                 match menu_result {
@@ -606,6 +748,115 @@ mod tests {
             ),
             "'/tmp/it'\\''s here/'"
         );
+    }
+
+    #[test]
+    fn selected_paths_use_shell_specific_quoting() {
+        let path = "/tmp/it's here";
+
+        assert_eq!(
+            format_selected_path_with_trailing_slash(path, false, MenuShellArg::Bash),
+            Some("'/tmp/it'\\''s here'".to_string())
+        );
+        assert_eq!(
+            format_selected_path_with_trailing_slash(path, false, MenuShellArg::Zsh),
+            Some("'/tmp/it'\\''s here'".to_string())
+        );
+        assert_eq!(
+            format_selected_path_with_trailing_slash(path, false, MenuShellArg::Fish),
+            Some("/tmp/it\\'s\\ here".to_string())
+        );
+        assert_eq!(
+            format_selected_path_with_trailing_slash(path, false, MenuShellArg::Pwsh),
+            Some("'/tmp/it''s here'".to_string())
+        );
+    }
+
+    #[test]
+    fn selected_path_with_control_character_returns_noop() {
+        let parsed = menu::ParsedBuffer {
+            mode: MenuMode::Path,
+            query: Some("x".to_string()),
+            replace_start: 3,
+            replace_end: 4,
+            needs_space_prefix: false,
+        };
+        let action = menu_result_to_action_with_shell(
+            Some(MenuResult::Selected {
+                value: PathBuf::from("/tmp/line\nbreak"),
+                filter_query: "x".to_string(),
+                changed_query: false,
+                terminal: TerminalState::Clean,
+            }),
+            &parsed,
+            parsed.mode,
+            Path::new("/tmp"),
+            false,
+            MenuShellArg::Bash,
+        );
+
+        assert_eq!(action, MenuAction::Noop);
+    }
+
+    #[test]
+    fn shell_actions_convert_utf8_byte_ranges_to_native_units() {
+        let action = MenuAction::replace(3, 7, "x".to_string(), TerminalState::Clean);
+        let buffer = "cd \u{00e9}\u{00e9}";
+
+        let zsh = action_for_shell(action.clone(), buffer, MenuShellArg::Zsh);
+        let fish = action_for_shell(action.clone(), buffer, MenuShellArg::Fish);
+        let pwsh = action_for_shell(action.clone(), buffer, MenuShellArg::Pwsh);
+        let bash = action_for_shell(action, buffer, MenuShellArg::Bash);
+
+        for action in [zsh, fish] {
+            let MenuAction::Replace {
+                replace_start,
+                replace_end,
+                ..
+            } = action
+            else {
+                panic!("expected replacement");
+            };
+            assert_eq!((replace_start, replace_end), (3, 5));
+        }
+        let MenuAction::Replace {
+            replace_start,
+            replace_end,
+            ..
+        } = pwsh
+        else {
+            panic!("expected replacement");
+        };
+        assert_eq!((replace_start, replace_end), (3, 5));
+        let MenuAction::Replace {
+            replace_start,
+            replace_end,
+            ..
+        } = bash
+        else {
+            panic!("expected replacement");
+        };
+        assert_eq!((replace_start, replace_end), (3, 7));
+    }
+
+    #[test]
+    fn powershell_actions_use_utf16_offsets_for_astral_characters() {
+        let buffer = "cd \u{1f600}";
+        let action = action_for_shell(
+            MenuAction::replace(3, buffer.len(), "x".to_string(), TerminalState::Clean),
+            buffer,
+            MenuShellArg::Pwsh,
+        );
+
+        let MenuAction::Replace {
+            replace_start,
+            replace_end,
+            ..
+        } = action
+        else {
+            panic!("expected replacement");
+        };
+        assert_eq!((replace_start, replace_end), (3, 5));
     }
 
     #[test]

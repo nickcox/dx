@@ -134,7 +134,9 @@ pub fn parse_buffer_with_mode(
     cursor: usize,
     psreadline_mode: bool,
 ) -> Option<ParsedBuffer> {
-    let cursor = cursor.min(buffer.len());
+    if cursor > buffer.len() || !buffer.is_char_boundary(cursor) {
+        return None;
+    }
 
     // Work only with the portion of the buffer up to the cursor.
     let visible = &buffer[..cursor];
@@ -215,7 +217,9 @@ fn parse_buffer_for_mapped_mode(
     cursor: usize,
     mode: MenuMode,
 ) -> Option<ParsedBuffer> {
-    let cursor = cursor.min(buffer.len());
+    if cursor > buffer.len() || !buffer.is_char_boundary(cursor) {
+        return None;
+    }
     let visible = &buffer[..cursor];
     let trimmed = visible.trim_start();
     if trimmed.is_empty() {
@@ -333,6 +337,24 @@ mod tests {
     }
 
     #[test]
+    fn rejects_cursor_inside_utf8_character_or_past_buffer() {
+        let buffer = "cd caf\u{e9}";
+        let inside_accent = buffer.len() - 1;
+
+        assert_eq!(parse_buffer(buffer, inside_accent), None);
+        assert_eq!(parse_buffer(buffer, buffer.len() + 1), None);
+    }
+
+    #[test]
+    fn accepts_cursor_at_utf8_character_boundary() {
+        let buffer = "cd caf\u{e9}";
+        let parsed = parse_buffer(buffer, buffer.len()).expect("parse UTF-8 query");
+
+        assert_eq!(parsed.query.as_deref(), Some("caf\u{e9}"));
+        assert_eq!(parsed.replace_end, buffer.len());
+    }
+
+    #[test]
     fn cd_with_trailing_space_no_query() {
         let p = parse_buffer("cd ", 3).expect("should parse");
         assert_eq!(p.mode, builtin(CompletionMode::Paths));
@@ -446,10 +468,8 @@ mod tests {
     }
 
     #[test]
-    fn cursor_beyond_buffer_is_clamped() {
-        let p = parse_buffer("cd foo", 100).expect("should parse");
-        assert_eq!(p.replace_end, 6);
-        assert_eq!(p.query.as_deref(), Some("foo"));
+    fn cursor_beyond_buffer_is_rejected() {
+        assert!(parse_buffer("cd foo", 100).is_none());
     }
 
     // --- unquote_shell_quoted tests ---

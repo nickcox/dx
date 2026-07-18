@@ -51,10 +51,10 @@ __dx_nav_wrapper() {
   else
     __dx_target="$(dx navigate "$__dx_mode")"
   fi
+  local __dx_status=$?
 
-  if [[ -z "$__dx_target" ]]; then
-    return 1
-  fi
+  [[ $__dx_status -eq 0 ]] || return $__dx_status
+  [[ -n "$__dx_target" ]] || return 1
 
   builtin cd "$__dx_target" || return $?
   __dx_push_pwd
@@ -93,15 +93,17 @@ __dx_jump_mode() {
   (( $+commands[dx] )) || return 1
 
   local __dx_target=""
+  local __dx_output=""
   if [[ -n "$__dx_query" ]]; then
-    __dx_target="$(__dx_complete_first < <(dx complete "$__dx_mode" "$__dx_query" 2>/dev/null))"
+    __dx_output="$(dx complete "$__dx_mode" "$__dx_query" 2>/dev/null)"
   else
-    __dx_target="$(__dx_complete_first < <(dx complete "$__dx_mode" 2>/dev/null))"
+    __dx_output="$(dx complete "$__dx_mode" 2>/dev/null)"
   fi
+  local __dx_status=$?
+  [[ $__dx_status -eq 0 ]] || return $__dx_status
+  __dx_target="$(__dx_complete_first <<< "$__dx_output")"
 
-  if [[ -z "$__dx_target" ]]; then
-    return 1
-  fi
+  [[ -n "$__dx_target" ]] || return 1
 
   __dx_push_pwd
   builtin cd "$__dx_target" || return $?
@@ -227,10 +229,12 @@ __dx_menu_widget() {
   esac
 
   local __dx_json
+  local __dx_cursor_bytes
+  __dx_cursor_bytes="$(printf '%s' "${BUFFER[1,$CURSOR]}" | wc -c | tr -d ' ')"
   if [[ -n "$__dx_menu_mode" ]]; then
-    __dx_json="$(dx menu --mode "$__dx_menu_mode" --buffer "$BUFFER" --cursor $CURSOR --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
+    __dx_json="$(dx menu --shell zsh --mode "$__dx_menu_mode" --buffer "$BUFFER" --cursor $__dx_cursor_bytes --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
   else
-    __dx_json="$(dx menu --buffer "$BUFFER" --cursor $CURSOR --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
+    __dx_json="$(dx menu --shell zsh --buffer "$BUFFER" --cursor $__dx_cursor_bytes --cwd "$PWD" --session "${DX_SESSION:-}" </dev/tty 2>/dev/tty)"
   fi
   local __dx_exit=$?
 
@@ -265,6 +269,7 @@ __dx_menu_widget() {
   [[ -n "$__dx_re" ]] || { zle expand-or-complete; return }
 
   (( __dx_re >= __dx_rs )) || { zle expand-or-complete; return }
+  (( __dx_re <= ${#BUFFER} )) || { zle expand-or-complete; return }
 
   local __dx_value_marker='"value":"'
   [[ "$__dx_json" == *$__dx_value_marker* ]] || { zle expand-or-complete; return }

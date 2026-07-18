@@ -477,6 +477,7 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         $line = $null
         $cursor = $null
         [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+        $cursorBytes = [System.Text.Encoding]::UTF8.GetByteCount($line.Substring(0, $cursor))
 
         $promptRow = $null
         try {
@@ -504,15 +505,15 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         try {
             if ($null -ne $promptRow) {
                 if ($dxMenuMode) {
-                    $json = (dx menu --mode $dxMenuMode --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow --psreadline-mode)
+                    $json = (dx menu --shell pwsh --mode $dxMenuMode --buffer $line --cursor $cursorBytes --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow --psreadline-mode)
                 } else {
-                    $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow --psreadline-mode)
+                    $json = (dx menu --shell pwsh --buffer $line --cursor $cursorBytes --cwd $PWD.Path --session $env:DX_SESSION --prompt-row $promptRow --psreadline-mode)
                 }
             } else {
                 if ($dxMenuMode) {
-                    $json = (dx menu --mode $dxMenuMode --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --psreadline-mode)
+                    $json = (dx menu --shell pwsh --mode $dxMenuMode --buffer $line --cursor $cursorBytes --cwd $PWD.Path --session $env:DX_SESSION --psreadline-mode)
                 } else {
-                    $json = (dx menu --buffer $line --cursor $cursor --cwd $PWD.Path --session $env:DX_SESSION --psreadline-mode)
+                    $json = (dx menu --shell pwsh --buffer $line --cursor $cursorBytes --cwd $PWD.Path --session $env:DX_SESSION --psreadline-mode)
                 }
             }
         } catch { }
@@ -539,6 +540,10 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         }
 
         if (-not $result.terminal -or ($result.terminal -ne 'clean' -and $result.terminal -ne 'dirty')) {
+            __dx_pwsh_menu_fallback $key $arg
+            return
+        }
+        if ($result.replaceStart -lt 0 -or $result.replaceEnd -lt $result.replaceStart -or $result.replaceEnd -gt $line.Length) {
             __dx_pwsh_menu_fallback $key $arg
             return
         }

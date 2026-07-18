@@ -273,8 +273,8 @@ mod tests {
         assert_contains_in_order(
             bash_jump,
             &[
-                "if [[ -z \"$__dx_target\" ]]; then",
-                "return 1",
+                "[[ $__dx_status -eq 0 ]] || return \"$__dx_status\"",
+                "[[ -n \"$__dx_target\" ]] || return 1",
                 "__dx_push_pwd",
                 "__dx_cd_native \"$__dx_target\" || return $?",
                 "__dx_push_pwd",
@@ -287,8 +287,8 @@ mod tests {
         assert_contains_in_order(
             zsh_jump,
             &[
-                "if [[ -z \"$__dx_target\" ]]; then",
-                "return 1",
+                "[[ $__dx_status -eq 0 ]] || return $__dx_status",
+                "[[ -n \"$__dx_target\" ]] || return 1",
                 "__dx_push_pwd",
                 "builtin cd \"$__dx_target\" || return $?",
                 "__dx_push_pwd",
@@ -301,11 +301,13 @@ mod tests {
         assert_contains_in_order(
             fish_jump,
             &[
-                "if test -z \"$target\"",
-                "return 1",
+                "if test $dx_status -ne 0",
+                "return $dx_status",
+                "test -n \"$target\"; or return 1",
                 "__dx_push_pwd",
                 "__dx_cd_native \"$target\"",
-                "if test $status -ne 0",
+                "set dx_status $status",
+                "if test $dx_status -ne 0",
                 "__dx_push_pwd",
             ],
         );
@@ -597,7 +599,8 @@ mod tests {
     #[test]
     fn all_shells_freeze_menu_fallback_contract_markers() {
         let bash = generate(Shell::Bash, false, true);
-        assert!(bash.contains("__dx_json=\"$(dx menu --buffer \"$COMP_LINE\" --cursor \"$COMP_POINT\" --cwd \"$PWD\" --session \"${DX_SESSION:-}\" </dev/tty 2>/dev/tty)\" || return 1"));
+        assert!(!bash.contains(";;&"), "menu mappings must support Bash 3.2");
+        assert!(bash.contains("__dx_json=\"$(dx menu --shell bash --buffer \"$COMP_LINE\" --cursor \"$COMP_POINT\" --cwd \"$PWD\" --session \"${DX_SESSION:-}\" </dev/tty 2>/dev/tty)\" || return 1"));
         assert!(bash.contains("[[ \"$__dx_action\" == \"cancel\" ]] && return 0"));
         assert!(bash.contains("[[ \"$__dx_action\" == \"replace\" ]] || return 1"));
         assert!(bash.contains("(( __dx_re >= __dx_rs )) || return 1"));
@@ -627,6 +630,7 @@ mod tests {
             "[[ \"$__dx_action\" == \"replace\" ]] || { zle expand-or-complete; return }"
         ));
         assert!(zsh.contains("(( __dx_re >= __dx_rs )) || { zle expand-or-complete; return }"));
+        assert!(zsh.contains("(( __dx_re <= ${#BUFFER} )) || { zle expand-or-complete; return }"));
         assert!(zsh.contains("(( __dx_closed )) || { zle expand-or-complete; return }"));
         assert!(zsh.contains("[[ -n \"$__dx_value\" ]] || { zle expand-or-complete; return }"));
         assert!(zsh.contains("local __dx_terminal_marker=\"\\\"terminal\\\":\\\"\""));
@@ -636,7 +640,7 @@ mod tests {
         assert!(zsh.contains("[[ \"$__dx_terminal\" == \"dirty\" ]] && zle reset-prompt"));
 
         let fish = generate(Shell::Fish, false, true);
-        assert!(fish.contains("set -l json (dx menu --buffer \"$buf\" --cursor $cur --cwd \"$PWD\" --session \"$DX_SESSION\" </dev/tty 2>/dev/tty)"));
+        assert!(fish.contains("set -l json (dx menu --shell fish --buffer \"$buf\" --cursor $cur --cwd \"$PWD\" --session \"$DX_SESSION\" </dev/tty 2>/dev/tty)"));
         assert!(fish.contains("if test $status -ne 0\n    commandline -f complete\n    return"));
         assert!(fish.contains("if test \"$action\" = \"cancel\""));
         assert!(fish.contains("commandline -C (string length -- \"$buf\")"));
@@ -683,6 +687,7 @@ mod tests {
         assert!(pwsh.contains("if (-not $result -or $result.action -ne 'replace')"));
         assert!(pwsh.contains("if (-not $result.terminal -or ($result.terminal -ne 'clean' -and $result.terminal -ne 'dirty'))"));
         assert!(pwsh.contains("if ($result.terminal -eq 'dirty')"));
+        assert!(pwsh.contains("$result.replaceEnd -gt $line.Length"));
         assert!(pwsh.contains("PSConsoleReadLine]::InvokePrompt()"));
         assert!(pwsh.contains("__dx_pwsh_menu_fallback $key $arg"));
         assert!(pwsh.contains("default { [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg); return }"));
@@ -843,7 +848,7 @@ mod tests {
         for shell in shells {
             let script = generate(shell, false, true);
             assert!(
-                script.contains("dx menu --buffer"),
+                script.contains("dx menu --shell"),
                 "missing menu invocation marker for {shell:?}"
             );
             assert_no_unresolved_internal_placeholders(&script);

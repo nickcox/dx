@@ -40,19 +40,23 @@ function __dx_nav_wrapper --argument mode selector
   __dx_push_pwd
 
   set -l target
+  set -l dx_status
   if test -n "$selector"
     set target (dx navigate $mode "$selector")
   else
     set target (dx navigate $mode)
   end
+  set -l dx_status $status
 
-  if test -z "$target"
-    return 1
+  if test $dx_status -ne 0
+    return $dx_status
   end
+  test -n "$target"; or return 1
 
   __dx_cd_native "$target"
-  if test $status -ne 0
-    return $status
+  set dx_status $status
+  if test $dx_status -ne 0
+    return $dx_status
   end
 
   __dx_push_pwd
@@ -93,22 +97,27 @@ function __dx_jump_mode --argument mode query
   end
 
   set -l target
+  set -l dx_status
   if test -n "$query"
     set -l values (dx complete $mode "$query" 2>/dev/null)
+    set dx_status $status
     set target $values[1]
   else
     set -l values (dx complete $mode 2>/dev/null)
+    set dx_status $status
     set target $values[1]
   end
 
-  if test -z "$target"
-    return 1
+  if test $dx_status -ne 0
+    return $dx_status
   end
+  test -n "$target"; or return 1
 
   __dx_push_pwd
   __dx_cd_native "$target"
-  if test $status -ne 0
-    return $status
+  set dx_status $status
+  if test $dx_status -ne 0
+    return $dx_status
   end
 
   __dx_push_pwd
@@ -227,6 +236,8 @@ function __dx_menu_complete
 
   set -l buf (commandline)
   set -l cur (commandline -C)
+  set -l cur_prefix (string sub -l $cur -- "$buf")
+  set cur (string length --bytes -- "$cur_prefix")
   set -l first (string split ' ' -- "$buf")[1]
   set -l dx_menu_mode
 
@@ -240,9 +251,9 @@ __DX_FISH_MENU_MAPPING_CASES__
   end
 
   if test -n "$dx_menu_mode"
-    set -l json (dx menu --mode "$dx_menu_mode" --buffer "$buf" --cursor $cur --cwd "$PWD" --session "$DX_SESSION" </dev/tty 2>/dev/tty)
+    set -l json (dx menu --shell fish --mode "$dx_menu_mode" --buffer "$buf" --cursor $cur --cwd "$PWD" --session "$DX_SESSION" </dev/tty 2>/dev/tty)
   else
-    set -l json (dx menu --buffer "$buf" --cursor $cur --cwd "$PWD" --session "$DX_SESSION" </dev/tty 2>/dev/tty)
+    set -l json (dx menu --shell fish --buffer "$buf" --cursor $cur --cwd "$PWD" --session "$DX_SESSION" </dev/tty 2>/dev/tty)
   end
   if test $status -ne 0
     commandline -f complete
@@ -350,8 +361,9 @@ function fish_command_not_found --argument __dx_cmd
   end
 
   __dx_cd_native "$__dx_resolved"
-  if test $status -ne 0
-    return $status
+  set -l __dx_cd_status $status
+  if test $__dx_cd_status -ne 0
+    return $__dx_cd_status
   end
 
   __dx_push_pwd

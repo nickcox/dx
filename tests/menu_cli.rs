@@ -156,7 +156,7 @@ fn init_bash_with_menu_flag_includes_menu_code() {
         "bash with --menu should include _dx_menu_wrapper"
     );
     assert!(
-        stdout.contains("dx menu --buffer"),
+        stdout.contains("dx menu --shell bash --buffer"),
         "bash with --menu should invoke dx menu"
     );
     assert!(
@@ -614,9 +614,13 @@ fn init_bash_menu_with_mappings_emits_explicit_mode_bindings() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("complete -F _dx_menu_wrapper ls"));
     assert!(stdout.contains("complete -F _dx_menu_wrapper cat"));
-    assert!(stdout.contains("ls) __dx_menu_mode=\"path\" ;;&"));
-    assert!(stdout.contains("cat) __dx_menu_mode=\"file\" ;;&"));
-    assert!(stdout.contains("dx menu --mode \"$__dx_mode_override\" --buffer \"$COMP_LINE\""));
+    assert!(stdout.contains("ls) __dx_menu_mode=\"path\" ;;"));
+    assert!(stdout.contains("cat) __dx_menu_mode=\"file\" ;;"));
+    assert!(
+        stdout.contains(
+            "dx menu --shell bash --mode \"$__dx_mode_override\" --buffer \"$COMP_LINE\""
+        )
+    );
 }
 
 #[test]
@@ -630,7 +634,7 @@ fn init_zsh_menu_with_mappings_emits_shared_widget_mode_routing() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("open) __dx_menu_mode=\"path\" ;;"));
-    assert!(stdout.contains("dx menu --mode \"$__dx_menu_mode\" --buffer \"$BUFFER\""));
+    assert!(stdout.contains("dx menu --shell zsh --mode \"$__dx_menu_mode\" --buffer \"$BUFFER\""));
 }
 
 #[test]
@@ -644,7 +648,7 @@ fn init_fish_menu_with_mappings_emits_shared_helper_mode_routing() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("case ls\n      set -l dx_menu_mode path"));
-    assert!(stdout.contains("dx menu --mode \"$dx_menu_mode\" --buffer \"$buf\""));
+    assert!(stdout.contains("dx menu --shell fish --mode \"$dx_menu_mode\" --buffer \"$buf\""));
 }
 
 #[test]
@@ -665,7 +669,9 @@ fn init_pwsh_menu_with_mappings_emits_shared_handler_mode_routing() {
     assert!(stdout.contains("$dxMapped = $Global:__dx_pwsh_menu_mapped"));
     assert!(stdout.contains("if ($dxMapped -and $dxMapped.ContainsKey($first))"));
     assert!(stdout.contains("($first -notin $dxCmds -and -not $dxMenuMode)"));
-    assert!(stdout.contains("dx menu --mode $dxMenuMode --buffer $line --cursor $cursor"));
+    assert!(
+        stdout.contains("dx menu --shell pwsh --mode $dxMenuMode --buffer $line --cursor $cursor")
+    );
 }
 
 #[test]
@@ -694,7 +700,7 @@ fn init_non_pwsh_menu_mappings_remain_literal_command_registrations() {
     let zsh_stdout = String::from_utf8_lossy(&zsh.stdout);
     let fish_stdout = String::from_utf8_lossy(&fish.stdout);
 
-    assert!(bash_stdout.contains("Get-ChildItem) __dx_menu_mode=\"path\" ;;&"));
+    assert!(bash_stdout.contains("Get-ChildItem) __dx_menu_mode=\"path\" ;;"));
     assert!(zsh_stdout.contains("'Get-ChildItem') __dx_menu_mode=\"path\" ;;"));
     assert!(fish_stdout.contains("case 'Get-ChildItem'\n      set -l dx_menu_mode path"));
     assert!(!bash_stdout.contains("Get-Alias -Definition"));
@@ -1436,10 +1442,10 @@ fn hook_scripts_apply_replace_action_contract() {
 fn hook_scripts_do_not_perform_intermediate_menu_edits() {
     let bash = dx().args(["init", "bash", "--menu"]).output().unwrap();
     let bash_out = String::from_utf8_lossy(&bash.stdout);
-    assert!(bash_out.contains("dx menu --buffer"));
+    assert!(bash_out.contains("dx menu --shell bash --buffer"));
     assert!(!bash_out.contains("dx menu --append"));
 
     let zsh = dx().args(["init", "zsh", "--menu"]).output().unwrap();
     let zsh_out = String::from_utf8_lossy(&zsh.stdout);
-    assert!(zsh_out.matches("dx menu --buffer").count() >= 1);
+    assert!(zsh_out.matches("dx menu --shell zsh --buffer").count() >= 1);
 }
