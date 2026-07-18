@@ -84,40 +84,123 @@ mod imp {
         Some(row.saturating_sub(1))
     }
 
-    struct CleanupGuard {
+    #[derive(Clone, Copy)]
+    struct CleanupRegion {
         prompt_row: u16,
         area: Rect,
-        use_tty_backend: bool,
     }
 
-    impl Drop for CleanupGuard {
-        fn drop(&mut self) {
-            if self.use_tty_backend {
-                if let Ok(tty_file) = OpenOptions::new().write(true).open("/dev/tty") {
-                    let mut tty = BufWriter::new(tty_file);
-                    let _ = execute!(tty, cursor::MoveTo(0, self.prompt_row));
-                    for row in self.prompt_row.saturating_add(1)..self.area.bottom() {
-                        let _ = execute!(
-                            tty,
-                            cursor::MoveTo(0, row),
-                            terminal::Clear(terminal::ClearType::CurrentLine)
-                        );
-                    }
-                    let _ = execute!(tty, cursor::MoveTo(0, self.prompt_row), cursor::Show);
-                }
-            } else {
-                let _ = execute!(stderr(), cursor::MoveTo(0, self.prompt_row));
-                for row in self.prompt_row.saturating_add(1)..self.area.bottom() {
-                    let _ = execute!(
-                        stderr(),
-                        cursor::MoveTo(0, row),
-                        terminal::Clear(terminal::ClearType::CurrentLine)
-                    );
-                }
-                let _ = execute!(stderr(), cursor::MoveTo(0, self.prompt_row), cursor::Show);
+    struct TerminalSession {
+        use_tty_backend: bool,
+        output: Option<Box<dyn Write>>,
+        cursor_hidden: bool,
+        reserved_prompt_row: Option<u16>,
+        cleanup_region: Option<CleanupRegion>,
+    }
+
+    impl TerminalSession {
+        fn start(use_tty_backend: bool) -> std::io::Result<Self> {
+            terminal::enable_raw_mode()?;
+            Ok(Self {
+                use_tty_backend,
+                output: None,
+                cursor_hidden: false,
+                reserved_prompt_row: None,
+                cleanup_region: None,
+            })
+        }
+
+        fn output(&mut self) -> std::io::Result<&mut Box<dyn Write>> {
+            if self.output.is_none() {
+                let output: Box<dyn Write> = if self.use_tty_backend {
+                    Box::new(BufWriter::new(
+                        OpenOptions::new().write(true).open("/dev/tty")?,
+                    ))
+                } else {
+                    Box::new(stderr())
+                };
+                self.output = Some(output);
             }
+
+            Ok(self.output.as_mut().expect("output initialized"))
+        }
+
+        fn reserve_space(
+            &mut self,
+            prompt_row: u16,
+            terminal_rows: u16,
+            needed_height: u16,
+        ) -> std::io::Result<u16> {
+            let scroll_needed = scroll_rows_needed(prompt_row, terminal_rows, needed_height);
+            if scroll_needed == 0 {
+                return Ok(prompt_row);
+            }
+
+            let next_prompt_row = prompt_row.saturating_sub(scroll_needed);
+            execute!(
+                self.output()?,
+                cursor::MoveTo(0, terminal_rows.saturating_sub(1)),
+                terminal::ScrollUp(scroll_needed),
+                cursor::MoveTo(0, next_prompt_row)
+            )?;
+            self.reserved_prompt_row = Some(next_prompt_row);
+            self.output()?.flush()?;
+            Ok(next_prompt_row)
+        }
+
+        fn set_cleanup_region(&mut self, prompt_row: u16, area: Rect) {
+            self.cleanup_region = Some(CleanupRegion { prompt_row, area });
+        }
+
+        fn hide_cursor(&mut self) -> std::io::Result<()> {
+            execute!(self.output()?, cursor::Hide)?;
+            self.cursor_hidden = true;
+            self.output()?.flush()?;
+            Ok(())
+        }
+    }
+
+    impl Drop for TerminalSession {
+        fn drop(&mut self) {
+            if let Some(output) = self.output.as_mut() {
+                restore_terminal_output(
+                    output,
+                    self.cleanup_region,
+                    self.reserved_prompt_row,
+                    self.cursor_hidden,
+                );
+            } else {
+                debug_assert!(!self.cursor_hidden);
+            }
+
             let _ = terminal::disable_raw_mode();
         }
+    }
+
+    fn restore_terminal_output<W: Write>(
+        output: &mut W,
+        cleanup_region: Option<CleanupRegion>,
+        reserved_prompt_row: Option<u16>,
+        cursor_hidden: bool,
+    ) {
+        if let Some(region) = cleanup_region {
+            let _ = execute!(output, cursor::MoveTo(0, region.prompt_row));
+            for row in region.prompt_row.saturating_add(1)..region.area.bottom() {
+                let _ = execute!(
+                    output,
+                    cursor::MoveTo(0, row),
+                    terminal::Clear(terminal::ClearType::CurrentLine)
+                );
+            }
+            let _ = execute!(output, cursor::MoveTo(0, region.prompt_row));
+        } else if let Some(prompt_row) = reserved_prompt_row {
+            let _ = execute!(output, cursor::MoveTo(0, prompt_row));
+        }
+
+        if cursor_hidden {
+            let _ = execute!(output, cursor::Show);
+        }
+        let _ = output.flush();
     }
 
     /// Re-query callback type: given a query string, returns fresh candidates.
@@ -439,17 +522,16 @@ mod imp {
             });
         }
 
-        let (cols, rows) = terminal::size().ok()?;
-
         if initial_candidates.paths.len() == 1 && !initial_candidates.has_more {
             return Some(MenuResult::Selected {
-                value: initial_candidates.paths.into_iter().next().unwrap(),
+                value: initial_candidates.paths.into_iter().next()?,
                 filter_query: initial_query.to_string(),
                 changed_query: false,
                 terminal: crate::menu::action::TerminalState::Clean,
             });
         }
 
+        let (cols, rows) = terminal::size().ok()?;
 
         let home = dirs::home_dir();
         let initial_label_style = CandidateLabelStyle::from_query(mode, initial_query);
@@ -467,6 +549,8 @@ mod imp {
             show_border,
         );
         let required_rows = required_rows_below(height, show_border);
+        let use_tty_backend = psreadline_mode;
+        let mut session = TerminalSession::start(use_tty_backend).ok()?;
 
         let skip_cursor_query = psreadline_mode;
         let prompt_row = if let Some(row) = prompt_row_override {
@@ -476,27 +560,14 @@ mod imp {
         } else {
             cursor_row_via_tty().unwrap_or(rows.saturating_sub(1))
         };
-        let prompt_row = reserve_space_on_tty(prompt_row, rows, required_rows);
+        let prompt_row = session
+            .reserve_space(prompt_row, rows, required_rows)
+            .ok()?;
 
         let menu_top = menu_top_row(prompt_row, rows, height, show_border);
         let area = Rect::new(0, menu_top, cols, height);
-
-        let use_tty_backend = psreadline_mode;
-
-        terminal::enable_raw_mode().ok()?;
-        if use_tty_backend {
-            let tty_file = OpenOptions::new().write(true).open("/dev/tty").ok()?;
-            let mut tty = BufWriter::new(tty_file);
-            execute!(tty, cursor::Hide).ok()?;
-        } else {
-            execute!(stderr(), cursor::Hide).ok()?;
-        }
-
-        let _guard = CleanupGuard {
-            prompt_row,
-            area,
-            use_tty_backend,
-        };
+        session.set_cleanup_region(prompt_row, area);
+        session.hide_cursor().ok()?;
 
         run_loop(
             initial_candidates,
@@ -944,38 +1015,6 @@ mod imp {
         needed_height.saturating_sub(rows_below)
     }
 
-    // Reserve vertical space for the inline menu by scrolling the active TTY
-    // viewport upward when there are not enough rows below the prompt. This is
-    // Unix-only for now because it depends on `/dev/tty` and the Unix TUI path.
-    fn reserve_space_on_tty(prompt_row: u16, terminal_rows: u16, needed_height: u16) -> u16 {
-        let scroll_needed = scroll_rows_needed(prompt_row, terminal_rows, needed_height);
-        if scroll_needed == 0 {
-            return prompt_row;
-        }
-
-        let next_prompt_row = prompt_row.saturating_sub(scroll_needed);
-
-        if let Ok(tty_file) = OpenOptions::new().write(true).open("/dev/tty") {
-            let mut tty = BufWriter::new(tty_file);
-            let _ = execute!(
-                tty,
-                cursor::MoveTo(0, terminal_rows.saturating_sub(1)),
-                terminal::ScrollUp(scroll_needed),
-                cursor::MoveTo(0, next_prompt_row)
-            );
-            let _ = tty.flush();
-        } else {
-            let _ = execute!(
-                stderr(),
-                cursor::MoveTo(0, terminal_rows.saturating_sub(1)),
-                terminal::ScrollUp(scroll_needed),
-                cursor::MoveTo(0, next_prompt_row)
-            );
-        }
-
-        next_prompt_row
-    }
-
     #[derive(Debug, Clone)]
     struct LayoutMetrics {
         columns: usize,
@@ -1400,6 +1439,52 @@ mod imp {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn restoration_only_shows_cursor_when_session_hid_it() {
+            let region = CleanupRegion {
+                prompt_row: 2,
+                area: Rect::new(0, 3, 80, 3),
+            };
+            let mut hidden_output = Vec::new();
+            restore_terminal_output(&mut hidden_output, Some(region), None, true);
+            assert!(hidden_output.windows(6).any(|bytes| bytes == b"\x1b[?25h"));
+
+            let mut visible_output = Vec::new();
+            restore_terminal_output(&mut visible_output, Some(region), None, false);
+            assert!(!visible_output.windows(6).any(|bytes| bytes == b"\x1b[?25h"));
+            assert!(visible_output.windows(4).any(|bytes| bytes == b"\x1b[2K"));
+        }
+
+        #[test]
+        fn single_candidate_selection_does_not_require_terminal_setup() {
+            let only_path = PathBuf::from("/tmp/only");
+            let result = select(
+                CompletionCandidates {
+                    paths: vec![only_path.clone()],
+                    has_more: false,
+                },
+                "",
+                MenuMode::Path,
+                Path::new("/tmp"),
+                None,
+                10,
+                None,
+                false,
+                false,
+                Box::new(|_| panic!("single candidate must not re-query")),
+                None,
+            );
+
+            assert!(matches!(
+                result,
+                Some(MenuResult::Selected {
+                    value,
+                    terminal: crate::menu::action::TerminalState::Clean,
+                    ..
+                }) if value == only_path
+            ));
+        }
         use std::cell::RefCell;
 
         #[test]
