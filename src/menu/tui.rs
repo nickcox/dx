@@ -60,11 +60,17 @@ mod imp {
         area: Rect,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct SpaceReservation {
+        prompt_row: u16,
+        scrolled: bool,
+    }
+
     struct TerminalSession {
         use_tty_backend: bool,
         output: Option<Box<dyn Write>>,
         cursor_hidden: bool,
-        reserved_prompt_row: Option<u16>,
+        reservation: Option<SpaceReservation>,
         cleanup_region: Option<CleanupRegion>,
     }
 
@@ -75,7 +81,7 @@ mod imp {
                 use_tty_backend,
                 output: None,
                 cursor_hidden: false,
-                reserved_prompt_row: None,
+                reservation: None,
                 cleanup_region: None,
             })
         }
@@ -100,22 +106,19 @@ mod imp {
             prompt_row: u16,
             terminal_rows: u16,
             needed_height: u16,
-        ) -> std::io::Result<u16> {
+        ) -> std::io::Result<SpaceReservation> {
             let scroll_needed = scroll_rows_needed(prompt_row, terminal_rows, needed_height);
             if scroll_needed == 0 {
-                return Ok(prompt_row);
+                return Ok(SpaceReservation {
+                    prompt_row,
+                    scrolled: false,
+                });
             }
 
-            let next_prompt_row = prompt_row.saturating_sub(scroll_needed);
-            execute!(
-                self.output()?,
-                cursor::MoveTo(0, terminal_rows.saturating_sub(1)),
-                terminal::ScrollUp(scroll_needed),
-                cursor::MoveTo(0, next_prompt_row)
-            )?;
-            self.reserved_prompt_row = Some(next_prompt_row);
-            self.output()?.flush()?;
-            Ok(next_prompt_row)
+            let reservation =
+                scroll_terminal(self.output()?, prompt_row, terminal_rows, scroll_needed)?;
+            self.reservation = Some(reservation);
+            Ok(reservation)
         }
 
         fn set_cleanup_region(&mut self, prompt_row: u16, area: Rect) {
@@ -132,25 +135,45 @@ mod imp {
 
     impl Drop for TerminalSession {
         fn drop(&mut self) {
-            if let Some(output) = self.output.as_mut() {
+            let has_acquired_output_state =
+                self.cleanup_region.is_some() || self.reservation.is_some() || self.cursor_hidden;
+            if has_acquired_output_state && let Some(output) = self.output.as_mut() {
                 restore_terminal_output(
                     output,
                     self.cleanup_region,
-                    self.reserved_prompt_row,
+                    self.reservation,
                     self.cursor_hidden,
                 );
-            } else {
-                debug_assert!(!self.cursor_hidden);
             }
 
             let _ = terminal::disable_raw_mode();
         }
     }
 
+    fn scroll_terminal<W: Write>(
+        output: &mut W,
+        prompt_row: u16,
+        terminal_rows: u16,
+        scroll_needed: u16,
+    ) -> std::io::Result<SpaceReservation> {
+        let next_prompt_row = prompt_row.saturating_sub(scroll_needed);
+        execute!(
+            output,
+            cursor::MoveTo(0, terminal_rows.saturating_sub(1)),
+            terminal::ScrollUp(scroll_needed),
+            cursor::MoveTo(0, next_prompt_row)
+        )?;
+        output.flush()?;
+        Ok(SpaceReservation {
+            prompt_row: next_prompt_row,
+            scrolled: true,
+        })
+    }
+
     fn restore_terminal_output<W: Write>(
         output: &mut W,
         cleanup_region: Option<CleanupRegion>,
-        reserved_prompt_row: Option<u16>,
+        reservation: Option<SpaceReservation>,
         cursor_hidden: bool,
     ) {
         if let Some(region) = cleanup_region {
@@ -163,8 +186,8 @@ mod imp {
                 );
             }
             let _ = execute!(output, cursor::MoveTo(0, region.prompt_row));
-        } else if let Some(prompt_row) = reserved_prompt_row {
-            let _ = execute!(output, cursor::MoveTo(0, prompt_row));
+        } else if let Some(reservation) = reservation {
+            let _ = execute!(output, cursor::MoveTo(0, reservation.prompt_row));
         }
 
         if cursor_hidden {
@@ -525,14 +548,18 @@ mod imp {
         // Shells that know the prompt row provide it explicitly. Otherwise,
         // assume the prompt is at the bottom and reserve space by scrolling.
         let prompt_row = initial_prompt_row(prompt_row_override, rows);
-        let prompt_row = session
+        let reservation = session
             .reserve_space(prompt_row, rows, required_rows)
             .ok()?;
+        let prompt_row = reservation.prompt_row;
 
         let menu_top = menu_top_row(prompt_row, rows, height, show_border);
         let area = Rect::new(0, menu_top, cols, height);
-        session.set_cleanup_region(prompt_row, area);
+        if reservation.scrolled {
+            session.set_cleanup_region(prompt_row, area);
+        }
         session.hide_cursor().ok()?;
+        session.set_cleanup_region(prompt_row, area);
 
         run_loop(
             initial_candidates,
@@ -1410,6 +1437,49 @@ mod imp {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        struct FlushFailure;
+
+        impl Write for FlushFailure {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::Error::other("injected flush failure"))
+            }
+        }
+
+        #[test]
+        fn successful_scroll_reports_reserved_prompt_geometry() {
+            let mut output = Vec::new();
+            let reservation =
+                scroll_terminal(&mut output, 23, 24, 10).expect("scroll should succeed");
+
+            assert_eq!(
+                reservation,
+                SpaceReservation {
+                    prompt_row: 13,
+                    scrolled: true,
+                }
+            );
+            assert!(!output.is_empty());
+        }
+
+        #[test]
+        fn failed_scroll_flush_does_not_produce_a_reservation() {
+            let error = scroll_terminal(&mut FlushFailure, 23, 24, 10)
+                .expect_err("flush failure should fail reservation");
+
+            assert_eq!(error.kind(), std::io::ErrorKind::Other);
+        }
+
+        #[test]
+        fn restoration_without_acquired_state_emits_nothing() {
+            let mut output = Vec::new();
+            restore_terminal_output(&mut output, None, None, false);
+            assert!(output.is_empty());
+        }
 
         #[test]
         fn restoration_only_shows_cursor_when_session_hid_it() {
