@@ -66,7 +66,41 @@ mod imp {
         scrolled: bool,
     }
 
-    struct TerminalSession {
+    trait TerminalOps {
+        fn size(&self) -> std::io::Result<(u16, u16)>;
+        fn enable_raw_mode(&self) -> std::io::Result<()>;
+        fn disable_raw_mode(&self) -> std::io::Result<()>;
+        fn open_output(&self, use_tty_backend: bool) -> std::io::Result<Box<dyn Write>>;
+    }
+
+    struct CrosstermTerminalOps;
+
+    impl TerminalOps for CrosstermTerminalOps {
+        fn size(&self) -> std::io::Result<(u16, u16)> {
+            terminal::size()
+        }
+
+        fn enable_raw_mode(&self) -> std::io::Result<()> {
+            terminal::enable_raw_mode()
+        }
+
+        fn disable_raw_mode(&self) -> std::io::Result<()> {
+            terminal::disable_raw_mode()
+        }
+
+        fn open_output(&self, use_tty_backend: bool) -> std::io::Result<Box<dyn Write>> {
+            if use_tty_backend {
+                Ok(Box::new(BufWriter::new(
+                    OpenOptions::new().write(true).open("/dev/tty")?,
+                )))
+            } else {
+                Ok(Box::new(stderr()))
+            }
+        }
+    }
+
+    struct TerminalSession<'a> {
+        terminal_ops: &'a dyn TerminalOps,
         use_tty_backend: bool,
         output: Option<Box<dyn Write>>,
         cursor_hidden: bool,
@@ -74,10 +108,14 @@ mod imp {
         cleanup_region: Option<CleanupRegion>,
     }
 
-    impl TerminalSession {
-        fn start(use_tty_backend: bool) -> std::io::Result<Self> {
-            terminal::enable_raw_mode()?;
+    impl<'a> TerminalSession<'a> {
+        fn start(
+            terminal_ops: &'a dyn TerminalOps,
+            use_tty_backend: bool,
+        ) -> std::io::Result<Self> {
+            terminal_ops.enable_raw_mode()?;
             Ok(Self {
+                terminal_ops,
                 use_tty_backend,
                 output: None,
                 cursor_hidden: false,
@@ -88,14 +126,7 @@ mod imp {
 
         fn output(&mut self) -> std::io::Result<&mut Box<dyn Write>> {
             if self.output.is_none() {
-                let output: Box<dyn Write> = if self.use_tty_backend {
-                    Box::new(BufWriter::new(
-                        OpenOptions::new().write(true).open("/dev/tty")?,
-                    ))
-                } else {
-                    Box::new(stderr())
-                };
-                self.output = Some(output);
+                self.output = Some(self.terminal_ops.open_output(self.use_tty_backend)?);
             }
 
             Ok(self.output.as_mut().expect("output initialized"))
@@ -133,7 +164,7 @@ mod imp {
         }
     }
 
-    impl Drop for TerminalSession {
+    impl Drop for TerminalSession<'_> {
         fn drop(&mut self) {
             let has_acquired_output_state =
                 self.cleanup_region.is_some() || self.reservation.is_some() || self.cursor_hidden;
@@ -146,7 +177,7 @@ mod imp {
                 );
             }
 
-            let _ = terminal::disable_raw_mode();
+            let _ = self.terminal_ops.disable_raw_mode();
         }
     }
 
@@ -508,6 +539,37 @@ mod imp {
         query_fn: QueryFn<'_>,
         ls_colors: Option<LsColorsConfig>,
     ) -> Option<MenuResult> {
+        select_with_terminal_ops(
+            initial_candidates,
+            initial_query,
+            mode,
+            cwd,
+            prompt_row_override,
+            max_rows,
+            item_max_len,
+            show_border,
+            psreadline_mode,
+            query_fn,
+            ls_colors,
+            &CrosstermTerminalOps,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn select_with_terminal_ops(
+        initial_candidates: CompletionCandidates,
+        initial_query: &str,
+        mode: MenuMode,
+        cwd: &Path,
+        prompt_row_override: Option<u16>,
+        max_rows: u16,
+        item_max_len: Option<usize>,
+        show_border: bool,
+        psreadline_mode: bool,
+        query_fn: QueryFn<'_>,
+        ls_colors: Option<LsColorsConfig>,
+        terminal_ops: &dyn TerminalOps,
+    ) -> Option<MenuResult> {
         if initial_candidates.paths.is_empty() {
             return Some(MenuResult::Cancelled {
                 filter_query: initial_query.to_string(),
@@ -524,7 +586,7 @@ mod imp {
             });
         }
 
-        let (cols, rows) = terminal::size().ok()?;
+        let (cols, rows) = terminal_ops.size().ok()?;
 
         let home = dirs::home_dir();
         let initial_label_style = CandidateLabelStyle::from_query(mode, initial_query);
@@ -543,7 +605,7 @@ mod imp {
         );
         let required_rows = required_rows_below(height, show_border);
         let use_tty_backend = psreadline_mode;
-        let mut session = TerminalSession::start(use_tty_backend).ok()?;
+        let mut session = TerminalSession::start(terminal_ops, use_tty_backend).ok()?;
 
         // Shells that know the prompt row provide it explicitly. Otherwise,
         // assume the prompt is at the bottom and reserve space by scrolling.
@@ -573,6 +635,7 @@ mod imp {
             show_border,
             &query_fn,
             ls_colors,
+            terminal_ops,
         )
     }
 
@@ -760,12 +823,9 @@ mod imp {
         show_border: bool,
         query_fn: &QueryFn<'_>,
         ls_colors: Option<LsColorsConfig>,
+        terminal_ops: &dyn TerminalOps,
     ) -> Option<MenuResult> {
-        let writer: Box<dyn Write> = if use_tty_backend {
-            Box::new(OpenOptions::new().write(true).open("/dev/tty").ok()?)
-        } else {
-            Box::new(stderr())
-        };
+        let writer = terminal_ops.open_output(use_tty_backend).ok()?;
 
         let backend = CrosstermBackend::new(writer);
         let mut terminal = Terminal::with_options(
@@ -1436,7 +1496,136 @@ mod imp {
 
     #[cfg(test)]
     mod tests {
+        use std::cell::{Cell, RefCell};
+        use std::rc::Rc;
+
         use super::*;
+
+        #[derive(Default)]
+        struct WriterState {
+            bytes: Vec<u8>,
+            fail_write: bool,
+            fail_flush: bool,
+        }
+
+        struct RecordingWriter {
+            state: Rc<RefCell<WriterState>>,
+        }
+
+        impl Write for RecordingWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                let mut state = self.state.borrow_mut();
+                if state.fail_write {
+                    return Err(std::io::Error::other("injected write failure"));
+                }
+                state.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                if self.state.borrow().fail_flush {
+                    Err(std::io::Error::other("injected flush failure"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+
+        struct MockTerminalOps {
+            size: (u16, u16),
+            fail_enable: bool,
+            fail_open_at: Option<usize>,
+            size_calls: Cell<usize>,
+            enable_calls: Cell<usize>,
+            disable_calls: Cell<usize>,
+            open_calls: Cell<usize>,
+            writer_state: Rc<RefCell<WriterState>>,
+        }
+
+        impl MockTerminalOps {
+            fn new() -> Self {
+                Self {
+                    size: (80, 24),
+                    fail_enable: false,
+                    fail_open_at: None,
+                    size_calls: Cell::new(0),
+                    enable_calls: Cell::new(0),
+                    disable_calls: Cell::new(0),
+                    open_calls: Cell::new(0),
+                    writer_state: Rc::new(RefCell::new(WriterState::default())),
+                }
+            }
+
+            fn output_contains(&self, sequence: &[u8]) -> bool {
+                self.writer_state
+                    .borrow()
+                    .bytes
+                    .windows(sequence.len())
+                    .any(|bytes| bytes == sequence)
+            }
+        }
+
+        impl TerminalOps for MockTerminalOps {
+            fn size(&self) -> std::io::Result<(u16, u16)> {
+                self.size_calls.set(self.size_calls.get() + 1);
+                Ok(self.size)
+            }
+
+            fn enable_raw_mode(&self) -> std::io::Result<()> {
+                self.enable_calls.set(self.enable_calls.get() + 1);
+                if self.fail_enable {
+                    Err(std::io::Error::other("injected raw mode failure"))
+                } else {
+                    Ok(())
+                }
+            }
+
+            fn disable_raw_mode(&self) -> std::io::Result<()> {
+                self.disable_calls.set(self.disable_calls.get() + 1);
+                Ok(())
+            }
+
+            fn open_output(&self, _use_tty_backend: bool) -> std::io::Result<Box<dyn Write>> {
+                let call = self.open_calls.get() + 1;
+                self.open_calls.set(call);
+                if self.fail_open_at == Some(call) {
+                    return Err(std::io::Error::other("injected output open failure"));
+                }
+                Ok(Box::new(RecordingWriter {
+                    state: Rc::clone(&self.writer_state),
+                }))
+            }
+        }
+
+        fn candidates(count: usize) -> CompletionCandidates {
+            CompletionCandidates {
+                paths: (0..count)
+                    .map(|index| PathBuf::from(format!("/tmp/candidate-{index}")))
+                    .collect(),
+                has_more: false,
+            }
+        }
+
+        fn select_with_mock(
+            terminal_ops: &MockTerminalOps,
+            candidate_count: usize,
+            prompt_row_override: Option<u16>,
+        ) -> Option<MenuResult> {
+            select_with_terminal_ops(
+                candidates(candidate_count),
+                "",
+                MenuMode::Path,
+                Path::new("/tmp"),
+                prompt_row_override,
+                10,
+                None,
+                false,
+                false,
+                Box::new(|_| panic!("setup failure must not re-query")),
+                None,
+                terminal_ops,
+            )
+        }
 
         struct FlushFailure;
 
@@ -1482,6 +1671,61 @@ mod imp {
         }
 
         #[test]
+        fn raw_mode_enable_failure_needs_no_cleanup() {
+            let mut terminal_ops = MockTerminalOps::new();
+            terminal_ops.fail_enable = true;
+
+            assert!(select_with_mock(&terminal_ops, 2, Some(0)).is_none());
+            assert_eq!(terminal_ops.enable_calls.get(), 1);
+            assert_eq!(terminal_ops.disable_calls.get(), 0);
+            assert_eq!(terminal_ops.open_calls.get(), 0);
+        }
+
+        #[test]
+        fn output_open_failure_disables_raw_mode_without_cursor_restore() {
+            let mut terminal_ops = MockTerminalOps::new();
+            terminal_ops.fail_open_at = Some(1);
+
+            assert!(select_with_mock(&terminal_ops, 2, Some(0)).is_none());
+            assert_eq!(terminal_ops.disable_calls.get(), 1);
+            assert_eq!(terminal_ops.open_calls.get(), 1);
+            assert!(!terminal_ops.output_contains(b"\x1b[?25h"));
+        }
+
+        #[test]
+        fn reservation_failure_does_not_clear_rows_or_show_cursor() {
+            let terminal_ops = MockTerminalOps::new();
+            terminal_ops.writer_state.borrow_mut().fail_flush = true;
+
+            assert!(select_with_mock(&terminal_ops, 2, None).is_none());
+            assert_eq!(terminal_ops.disable_calls.get(), 1);
+            assert!(!terminal_ops.output_contains(b"\x1b[2K"));
+            assert!(!terminal_ops.output_contains(b"\x1b[?25h"));
+        }
+
+        #[test]
+        fn cursor_hide_failure_disables_raw_mode_without_showing_cursor() {
+            let terminal_ops = MockTerminalOps::new();
+            terminal_ops.writer_state.borrow_mut().fail_write = true;
+
+            assert!(select_with_mock(&terminal_ops, 2, Some(0)).is_none());
+            assert_eq!(terminal_ops.disable_calls.get(), 1);
+            assert!(!terminal_ops.output_contains(b"\x1b[?25h"));
+        }
+
+        #[test]
+        fn loop_startup_failure_restores_reserved_rows_and_cursor() {
+            let mut terminal_ops = MockTerminalOps::new();
+            terminal_ops.fail_open_at = Some(2);
+
+            assert!(select_with_mock(&terminal_ops, 2, None).is_none());
+            assert_eq!(terminal_ops.open_calls.get(), 2);
+            assert_eq!(terminal_ops.disable_calls.get(), 1);
+            assert!(terminal_ops.output_contains(b"\x1b[2K"));
+            assert!(terminal_ops.output_contains(b"\x1b[?25h"));
+        }
+
+        #[test]
         fn restoration_only_shows_cursor_when_session_hid_it() {
             let region = CleanupRegion {
                 prompt_row: 2,
@@ -1499,23 +1743,9 @@ mod imp {
 
         #[test]
         fn single_candidate_selection_does_not_require_terminal_setup() {
-            let only_path = PathBuf::from("/tmp/only");
-            let result = select(
-                CompletionCandidates {
-                    paths: vec![only_path.clone()],
-                    has_more: false,
-                },
-                "",
-                MenuMode::Path,
-                Path::new("/tmp"),
-                None,
-                10,
-                None,
-                false,
-                false,
-                Box::new(|_| panic!("single candidate must not re-query")),
-                None,
-            );
+            let only_path = PathBuf::from("/tmp/candidate-0");
+            let terminal_ops = MockTerminalOps::new();
+            let result = select_with_mock(&terminal_ops, 1, None);
 
             assert!(matches!(
                 result,
@@ -1525,8 +1755,11 @@ mod imp {
                     ..
                 }) if value == only_path
             ));
+            assert_eq!(terminal_ops.size_calls.get(), 0);
+            assert_eq!(terminal_ops.enable_calls.get(), 0);
+            assert_eq!(terminal_ops.open_calls.get(), 0);
+            assert_eq!(terminal_ops.disable_calls.get(), 0);
         }
-        use std::cell::RefCell;
 
         #[test]
         fn display_label_relative_under_cwd() {
