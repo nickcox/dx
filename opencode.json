@@ -1,0 +1,6 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "~/code/skills/rust-skills/.opencode/instructions/rust-skills.md"
+  ]
+}
