@@ -38,11 +38,27 @@ pub fn generate_with_mappings_and_menu_key(
     $env:DX_SESSION = [string]$PID
 }
 
-if (-not (Get-Variable -Name __dx_oldpwd -Scope Global -ErrorAction SilentlyContinue)) {
-    $Global:__dx_oldpwd = $PWD.Path
+Get-Module -Name dx | Remove-Module -ErrorAction SilentlyContinue
+
+New-Module -Name dx -ScriptBlock {
+$script:__dx_previous_aliases = @{}
+foreach ($__dx_alias_name in @('cd', 'z', 'cd-', 'cd+')) {
+    $__dx_alias = Get-Alias -Name $__dx_alias_name -ErrorAction SilentlyContinue
+    if ($__dx_alias) {
+        $script:__dx_previous_aliases[$__dx_alias_name] = $__dx_alias.Definition
+    } else {
+        $script:__dx_previous_aliases[$__dx_alias_name] = $null
+    }
 }
 
-Remove-Item Alias:cd -ErrorAction SilentlyContinue
+$script:__dx_oldpwd = $PWD.Path
+$script:__dx_has_command_not_found_action = $ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandNotFoundAction'
+$script:__dx_previous_command_not_found_action = $null
+$script:__dx_installed_command_not_found_action = $false
+if ($script:__dx_has_command_not_found_action) {
+    $script:__dx_previous_command_not_found_action = $ExecutionContext.InvokeCommand.CommandNotFoundAction
+}
+$script:__dx_installed_menu_key = $null
 
 function __dx_is_path_like {
     param([string]$Cmd)
@@ -160,10 +176,23 @@ function __dx_set_location_native {
     Set-Location @PathArgs
 }
 
-function cd {
+function __dx_set_alias {
+    param(
+        [string]$Name,
+        [string]$Value
+    )
+
+    if (Get-Alias -Name $Name -ErrorAction SilentlyContinue) {
+        Set-Item -Path "Alias:$Name" -Value $Value -Force
+    } else {
+        Set-Alias -Name $Name -Value $Value -Scope Global -Force
+    }
+}
+
+function Set-DxLocation {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
 
-    $Global:__dx_oldpwd = $PWD.Path
+    $script:__dx_oldpwd = $PWD.Path
 
     if (-not $Args -or $Args.Count -eq 0) {
         __dx_push_pwd
@@ -174,7 +203,7 @@ function cd {
 
     if ($Args.Count -eq 1 -and $Args[0] -eq '-') {
         __dx_push_pwd
-        __dx_set_location_native @($Global:__dx_oldpwd)
+        __dx_set_location_native @($script:__dx_oldpwd)
         if ($?) { __dx_push_pwd }
         return
     }
@@ -214,6 +243,8 @@ function cd {
     if ($?) { __dx_push_pwd }
 }
 
+__dx_set_alias cd Set-DxLocation
+
 function up {
     param([string]$Selector)
     __dx_nav_wrapper -Mode up -Selector $Selector
@@ -229,8 +260,8 @@ function forward {
     __dx_stack_wrapper -Mode forward -Selector $Selector
 }
 
-Set-Alias -Name 'cd-' -Value back -Scope Global
-Set-Alias -Name 'cd+' -Value forward -Scope Global
+__dx_set_alias 'cd-' back
+__dx_set_alias 'cd+' forward
 
 function cdf {
     param([string]$Query)
@@ -242,7 +273,7 @@ function cdf {
     }
 }
 
-Set-Alias -Name z -Value cdf -Scope Global
+__dx_set_alias z cdf
 
 function cdr {
     param([string]$Query)
@@ -272,6 +303,7 @@ __DX_PWSH_COMPLETION_BINDINGS__
 if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
     $Global:__dx_pwsh_menu_handler_description = 'dx menu handler'
     $dxNewMenuKey = '__DX_PWSH_MENU_KEY__'
+    $script:__dx_installed_menu_key = $dxNewMenuKey
     $dxPreviousMenuKey = $null
     $dxPreviousMenuKeyVariable = Get-Variable -Name __dx_pwsh_menu_key -Scope Global -ErrorAction SilentlyContinue
     if ($dxPreviousMenuKeyVariable) {
@@ -494,7 +526,7 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         script.push_str(
             r#"
 if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandNotFoundAction') {
-    $Global:__dx_command_not_found_handler = [System.EventHandler[System.Management.Automation.CommandLookupEventArgs]]{
+    $script:__dx_command_not_found_handler = [System.EventHandler[System.Management.Automation.CommandLookupEventArgs]]{
         param($sender, $eventArgs)
 
         $cmd = $eventArgs.CommandName
@@ -517,11 +549,75 @@ if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandN
         }
     }
 
-    $ExecutionContext.InvokeCommand.CommandNotFoundAction = $Global:__dx_command_not_found_handler
+    $ExecutionContext.InvokeCommand.CommandNotFoundAction = $script:__dx_command_not_found_handler
+    $script:__dx_installed_command_not_found_action = $true
 }
 "#,
         );
     }
+
+    script.push_str(
+        r#"
+$ExecutionContext.SessionState.Module.OnRemove += {
+    foreach ($__dx_alias_name in @('cd', 'z', 'cd-', 'cd+')) {
+        $__dx_previous = $script:__dx_previous_aliases[$__dx_alias_name]
+        if ($null -ne $__dx_previous) {
+            __dx_set_alias $__dx_alias_name $__dx_previous
+        } else {
+            Remove-Item -Path "Alias:$__dx_alias_name" -Force -ErrorAction SilentlyContinue
+        }
+    }
+"#,
+    );
+
+    if menu {
+        script.push_str(
+            r#"
+    if ($script:__dx_installed_menu_key) {
+        switch ($Global:__dx_pwsh_menu_previous_function) {
+            'AcceptAndGetNext' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function AcceptAndGetNext; break }
+            'AcceptLine' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function AcceptLine; break }
+            'AcceptNextSuggestionWord' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function AcceptNextSuggestionWord; break }
+            'AcceptSuggestion' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function AcceptSuggestion; break }
+            'BeginningOfHistory' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function BeginningOfHistory; break }
+            'ClearHistory' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function ClearHistory; break }
+            'Complete' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function Complete; break }
+            'EndOfHistory' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function EndOfHistory; break }
+            'ForwardSearchHistory' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function ForwardSearchHistory; break }
+            'HistorySearchBackward' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function HistorySearchBackward; break }
+            'HistorySearchForward' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function HistorySearchForward; break }
+            'MenuComplete' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function MenuComplete; break }
+            'NextHistory' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function NextHistory; break }
+            'PossibleCompletions' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function PossibleCompletions; break }
+            'PrependAndAccept' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function PrependAndAccept; break }
+            'PreviousHistory' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function PreviousHistory; break }
+            'ReverseSearchHistory' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function ReverseSearchHistory; break }
+            'TabCompleteNext' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function TabCompleteNext; break }
+            'TabCompletePrevious' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function TabCompletePrevious; break }
+            'ValidateAndAcceptLine' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function ValidateAndAcceptLine; break }
+            'ViAcceptLine' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function ViAcceptLine; break }
+            'ViAcceptLineOrExit' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function ViAcceptLineOrExit; break }
+            'ViSearchHistoryBackward' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function ViSearchHistoryBackward; break }
+            'ViTabCompleteNext' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function ViTabCompleteNext; break }
+            'ViTabCompletePrevious' { Set-PSReadLineKeyHandler -Key $script:__dx_installed_menu_key -Function ViTabCompletePrevious; break }
+            default { Remove-PSReadLineKeyHandler -Chord $script:__dx_installed_menu_key -ErrorAction SilentlyContinue }
+        }
+    }
+"#,
+        );
+    }
+
+    script.push_str(
+        r#"
+    if ($script:__dx_has_command_not_found_action -and $script:__dx_installed_command_not_found_action) {
+        $ExecutionContext.InvokeCommand.CommandNotFoundAction = $script:__dx_previous_command_not_found_action
+    }
+}
+
+Export-ModuleMember -Function Set-DxLocation, up, back, forward, cdf, cdr
+} | Import-Module -Global
+"#,
+    );
 
     apply_template_replacements(
         script,

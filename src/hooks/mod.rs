@@ -315,7 +315,7 @@ mod tests {
     fn pwsh_jump_wrappers_seed_origin_before_set_location_and_record_destination() {
         let output = generate(Shell::Pwsh, false, false);
 
-        let cdf = section_between(&output, "function cdf {", "\nSet-Alias -Name z");
+        let cdf = section_between(&output, "function cdf {", "\n__dx_set_alias z");
         assert_eq!(cdf.matches("__dx_push_pwd").count(), 2);
         assert_contains_in_order(
             cdf,
@@ -426,13 +426,29 @@ mod tests {
     fn generate_pwsh_without_command_not_found_excludes_action() {
         let output = generate(Shell::Pwsh, false, false);
         assert!(output.contains("Set-Location"));
-        assert!(!output.contains("CommandNotFoundAction"));
+        assert!(!output.contains("[System.EventHandler[System.Management.Automation.CommandLookupEventArgs]]"));
+        assert!(!output.contains("$script:__dx_installed_command_not_found_action = $true"));
     }
 
     #[test]
-    fn pwsh_removes_cd_alias_before_wrapper_definition() {
+    fn pwsh_imports_in_memory_module_with_cleanup() {
         let output = generate(Shell::Pwsh, false, false);
-        assert!(output.contains("Remove-Item Alias:cd -ErrorAction SilentlyContinue"));
+        assert!(output.contains("Get-Module -Name dx | Remove-Module -ErrorAction SilentlyContinue"));
+        assert!(output.contains("New-Module -Name dx -ScriptBlock {"));
+        assert!(output.contains("$ExecutionContext.SessionState.Module.OnRemove += {"));
+        assert!(!output.contains("$MyInvocation.MyCommand.ScriptBlock.Module.OnRemove"));
+        assert!(output.contains("Export-ModuleMember -Function Set-DxLocation, up, back, forward, cdf, cdr"));
+        assert!(output.contains("} | Import-Module -Global"));
+    }
+
+    #[test]
+    fn pwsh_aliases_cd_to_named_location_wrapper() {
+        let output = generate(Shell::Pwsh, false, false);
+        assert!(output.contains("function Set-DxLocation"));
+        assert!(output.contains("__dx_set_alias cd Set-DxLocation"));
+        assert!(output.contains("Set-Item -Path \"Alias:$Name\" -Value $Value -Force"));
+        assert!(!output.contains("function cd {"));
+        assert!(!output.contains("Remove-Item Alias:cd -ErrorAction SilentlyContinue"));
     }
 
     #[test]
@@ -513,15 +529,16 @@ mod tests {
         assert!(fish.contains("complete -c cd+ -a '(dx complete stack --direction forward (commandline -ct) 2>/dev/null)'"));
 
         let pwsh = generate(Shell::Pwsh, false, false);
-        assert!(pwsh.contains("function cd"));
+        assert!(pwsh.contains("function Set-DxLocation"));
+        assert!(pwsh.contains("__dx_set_alias cd Set-DxLocation"));
         assert!(pwsh.contains("function up"));
         assert!(pwsh.contains("function cdf"));
-        assert!(pwsh.contains("Set-Alias -Name z -Value cdf -Scope Global"));
+        assert!(pwsh.contains("__dx_set_alias z cdf"));
         assert!(pwsh.contains("function cdr"));
         assert!(pwsh.contains("function back"));
-        assert!(pwsh.contains("Set-Alias -Name 'cd-' -Value back -Scope Global"));
+        assert!(pwsh.contains("__dx_set_alias 'cd-' back"));
         assert!(pwsh.contains("function forward"));
-        assert!(pwsh.contains("Set-Alias -Name 'cd+' -Value forward -Scope Global"));
+        assert!(pwsh.contains("__dx_set_alias 'cd+' forward"));
         assert!(pwsh.contains("$resolved = (dx resolve $pathArg 2>$null)"));
         assert!(pwsh.contains("__dx_complete_mode -Mode paths -Word $wordToComplete"));
         assert_pwsh_root_dx_completion_contract(&pwsh);

@@ -24,7 +24,7 @@ The output SHALL be self-contained: evaluating it in the target shell SHALL defi
 
 #### Scenario: Generate PowerShell hooks
 - **WHEN** `dx init pwsh` is invoked
-- **THEN** the command SHALL print valid PowerShell code to stdout that, when evaluated via `Invoke-Expression`, defines a `cd` wrapper function and sets `$env:DX_SESSION`
+- **THEN** the command SHALL print valid PowerShell code to stdout that, when evaluated via `Invoke-Expression`, imports an in-memory `dx` module, installs the PowerShell navigation aliases, and sets `$env:DX_SESSION`
 
 #### Scenario: Unsupported shell
 - **WHEN** `dx init unknown` is invoked
@@ -42,6 +42,34 @@ Documentation and examples SHALL preserve multiline constructs by converting std
 #### Scenario: Evaluate menu-enabled PowerShell init as one script block
 - **WHEN** a user evaluates `Invoke-Expression ((& dx init pwsh --menu | Out-String))`
 - **THEN** the generated PowerShell hooks and menu bindings SHALL load successfully without breaking multiline constructs
+
+### Requirement: PowerShell Init Module Lifecycle
+Generated PowerShell init output SHALL load dx shell integration as an in-memory PowerShell module named `dx`.
+
+The module SHALL keep dx helper functions and saved cleanup state in module scope rather than defining all implementation details as loose caller-scope functions.
+
+The module SHALL register an `OnRemove` cleanup handler so `Remove-Module dx` restores or removes the session state that dx replaced during module import where feasible.
+
+The generated output SHALL remain self-contained and SHALL NOT require a cached `.psm1`, packaged module, external download, or filesystem write.
+
+#### Scenario: PowerShell init imports dx module
+- **WHEN** `dx init pwsh` output is evaluated as one script block
+- **THEN** PowerShell SHALL load an in-memory module named `dx`
+- **AND** `Get-Module dx` SHALL be able to identify the loaded integration as a module
+
+#### Scenario: Module unload restores replaced cd alias
+- **WHEN** a PowerShell session has an existing `cd` alias before evaluating `dx init pwsh` output
+- **AND** the generated output is evaluated and then `Remove-Module dx` is invoked
+- **THEN** the prior `cd` alias target SHALL be restored where feasible
+
+#### Scenario: Module unload removes dx-owned aliases without prior state
+- **WHEN** dx installs a PowerShell alias that did not exist before module import
+- **AND** `Remove-Module dx` is invoked
+- **THEN** the dx-installed alias SHALL be removed where feasible
+
+#### Scenario: PowerShell init remains self-contained
+- **WHEN** `dx init pwsh` output is evaluated in a PowerShell session
+- **THEN** it SHALL load the dx module without reading a generated module file from disk
 
 ### Requirement: Command Not Found Opt-In Flag
 The `dx init` subcommand SHALL accept a `--command-not-found` flag. When this flag is present, the generated hook code SHALL include a `command_not_found` handler in addition to the cd wrapper. When the flag is absent, the generated hook code SHALL NOT include any `command_not_found` handler.
@@ -525,9 +553,9 @@ When the `command_not_found` handler is entered and `DX_RESOLVE_GUARD` is alread
 - **THEN** `DX_RESOLVE_GUARD` SHALL be set to `1` in the environment of the `dx resolve` process and SHALL be unset after the call returns
 
 ### Requirement: PowerShell Set-Location Wrapper
-The PowerShell hook code SHALL define a `cd` function that wraps `Set-Location` (PowerShell has no `builtin cd`). The wrapper SHALL follow the same resolve-then-navigate-then-push flow as POSIX shells but using `Set-Location` as the native navigation command.
+The PowerShell hook code SHALL define a real dx location wrapper command that wraps `Set-Location` (PowerShell has no `builtin cd`). The wrapper SHALL follow the same resolve-then-navigate-then-push flow as POSIX shells but using `Set-Location` as the native navigation command.
 
-Before defining the `cd` function wrapper, the generated hook code SHALL remove `Alias:cd` (if present) so the function wrapper takes precedence.
+The generated hook code SHALL install `cd` as an alias to the dx location wrapper command rather than defining a function literally named `cd`.
 
 #### Scenario: PowerShell cd wrapper uses Set-Location
 - **WHEN** `cd pr/dx` is invoked in a PowerShell session with dx hooks
@@ -541,9 +569,10 @@ Before defining the `cd` function wrapper, the generated hook code SHALL remove 
 - **WHEN** `dx init pwsh --command-not-found` output is evaluated and `CommandNotFoundAction` member does not exist
 - **THEN** the hook code SHALL skip command_not_found registration gracefully without errors
 
-#### Scenario: PowerShell removes cd alias before wrapper
+#### Scenario: PowerShell aliases cd to dx location wrapper
 - **WHEN** `dx init pwsh` output is evaluated
-- **THEN** the script SHALL execute `Remove-Item Alias:cd -ErrorAction SilentlyContinue` before defining the `cd` function
+- **THEN** the script SHALL install `Alias:cd` pointing at the dx location wrapper command
+- **AND** it SHALL NOT rely on defining a function literally named `cd`
 
 ### Requirement: PowerShell Stack Transition Wrappers
 In PowerShell hooks, `back` and `forward` wrappers SHALL traverse existing session stack history using `dx stack undo` and `dx stack redo` rather than `dx navigate` plus `dx stack push`.
