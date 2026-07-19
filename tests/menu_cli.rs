@@ -1,5 +1,6 @@
 mod common;
 
+use std::ffi::OsString;
 use std::fs;
 #[cfg(unix)]
 use std::io::Write;
@@ -14,6 +15,18 @@ fn dx() -> Command {
 
 fn pwsh_available() -> bool {
     optional_tool_available("pwsh")
+}
+
+fn path_with_dx_binary() -> OsString {
+    let mut paths = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .collect::<Vec<_>>();
+    let dx_binary = std::path::PathBuf::from(env!("CARGO_BIN_EXE_dx"));
+    if let Some(dx_dir) = dx_binary.parent()
+        && !paths.iter().any(|existing| existing == dx_dir)
+    {
+        paths.insert(0, dx_dir.to_path_buf());
+    }
+    std::env::join_paths(paths).expect("join PATH entries")
 }
 
 fn optional_tool_available(command: &str) -> bool {
@@ -362,7 +375,7 @@ fn init_pwsh_menu_loads_under_strict_mode() {
             "-Command",
             "Import-Module PSReadLine; Set-StrictMode -Version Latest; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String))",
         ])
-        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("PATH", path_with_dx_binary())
         .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
         .output()
         .expect("pwsh should run");
@@ -387,7 +400,7 @@ fn init_pwsh_menu_warns_when_evaluated_over_custom_action() {
             "-Command",
             "Set-PSReadLineKeyHandler -Key F12 -ScriptBlock { param($key, $arg) }; $env:DX_PWSH_MENU_KEY = 'F12'; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String))",
         ])
-        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("PATH", path_with_dx_binary())
         .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
         .env("DX_PWSH_MENU_KEY", "F12")
         .output()
@@ -411,7 +424,7 @@ fn init_pwsh_menu_does_not_warn_when_evaluated_over_menu_complete() {
             "-Command",
             "Set-PSReadLineKeyHandler -Key F12 -Function MenuComplete; $env:DX_PWSH_MENU_KEY = 'F12'; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String))",
         ])
-        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("PATH", path_with_dx_binary())
         .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
         .env("DX_PWSH_MENU_KEY", "F12")
         .output()
@@ -438,7 +451,7 @@ fn init_pwsh_menu_reload_does_not_warn_over_own_handler() {
             "-Command",
             "Set-PSReadLineKeyHandler -Key F12 -Function MenuComplete; $env:DX_PWSH_MENU_KEY = 'F12'; $script = (& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String); Invoke-Expression $script; Invoke-Expression $script; $h = Get-PSReadLineKeyHandler -Chord F12; \"function=$($Global:__dx_pwsh_menu_previous_function); description=$($h.Description)\"",
         ])
-        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("PATH", path_with_dx_binary())
         .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
         .env("DX_PWSH_MENU_KEY", "F12")
         .output()
@@ -468,7 +481,7 @@ fn init_pwsh_menu_key_change_removes_old_dx_binding() {
             "-Command",
             "Set-PSReadLineKeyHandler -Key F11 -Function MenuComplete; $env:DX_PWSH_MENU_KEY = 'F11'; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String)); $env:DX_PWSH_MENU_KEY = 'F12'; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String)); $old = Get-PSReadLineKeyHandler -Chord F11 -ErrorAction SilentlyContinue; $new = Get-PSReadLineKeyHandler -Chord F12 -ErrorAction SilentlyContinue; \"old=$($old.Function)/$($old.Description); new=$($new.Function)/$($new.Description); previous=$Global:__dx_pwsh_menu_previous_function\"",
         ])
-        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("PATH", path_with_dx_binary())
         .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
         .output()
         .expect("pwsh should run");
@@ -497,7 +510,7 @@ fn init_pwsh_uses_idiomatic_functions_and_restores_dot_dot_alias() {
             "-Command",
             "Set-Alias -Name '..' -Value Get-Location; Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh | Out-String)); $functions = @('Set-DxLocation', 'Step-Up', 'Undo-Location', 'Redo-Location', 'Set-FrecentLocation', 'Set-RecentLocation'); $functionNames = (Get-Command -Module dx -CommandType Function | Select-Object -ExpandProperty Name); \"functions=$($functionNames -join ',')\"; foreach ($name in @('up', '..', 'back', 'cd-', 'forward', 'cd+', 'cdf', 'z', 'cdr')) { \"$name=$((Get-Alias -Name $name).Definition)\" }; Remove-Module dx; \"dotdotAfterUnload=$((Get-Alias -Name '..').Definition)\"",
         ])
-        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("PATH", path_with_dx_binary())
         .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
         .output()
         .expect("pwsh should run");
@@ -573,7 +586,7 @@ fn pwsh_set_dx_location_preserves_native_binding_and_filesystem_stack_tracking()
 
     let output = Command::new("pwsh")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("PATH", path_with_dx_binary())
         .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
         .env("DX_SESSION", "pwsh-location-wrapper")
         .env("XDG_RUNTIME_DIR", &runtime)
@@ -645,6 +658,93 @@ fn pwsh_set_dx_location_preserves_native_binding_and_filesystem_stack_tracking()
         entries.iter().all(|entry| !entry.starts_with("Env:")),
         "provider location was recorded: {entries:?}"
     );
+}
+
+#[test]
+fn pwsh_menu_redraw_helpers_handle_wrapping_multiline_and_invalid_geometry() {
+    if !pwsh_available() {
+        return;
+    }
+
+    let script = r#"
+Import-Module PSReadLine
+Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --menu | Out-String))
+Set-PSReadLineOption -PromptText @('> ') -ContinuationPrompt '>> ' -ExtraPromptLineCount 0
+
+function New-TestRawUi([int]$x, [int]$y, [int]$width) {
+    $rawUi = [pscustomobject]@{
+        CursorPosition = [pscustomobject]@{ X = $x; Y = $y }
+        WindowPosition = [pscustomobject]@{ X = 0; Y = 0 }
+        WindowSize = [pscustomobject]@{ Width = $width; Height = 24 }
+        BufferSize = [pscustomobject]@{ Width = $width; Height = 24 }
+    }
+    Add-Member -InputObject $rawUi -MemberType ScriptMethod -Name LengthInBufferCells -Value {
+        param([string]$Text)
+        $cells = 0
+        foreach ($character in $Text.ToCharArray()) {
+            if ([int]$character -eq 0x754c) { $cells += 2 } else { $cells += 1 }
+        }
+        return $cells
+    }
+    return $rawUi
+}
+
+function Write-Origin([string]$name, [string]$line, [int]$cursor, [int]$x, [int]$y) {
+    $context = __dx_pwsh_capture_redraw_context -Line $line -Cursor $cursor -RawUi (New-TestRawUi $x $y 10)
+    "$name=$($context.PromptTopY),$($context.RelativeCursorY)"
+}
+
+Write-Origin one 'abc' 3 5 20
+Write-Origin wrapped 'abcdefghij' 10 2 20
+Write-Origin middle 'abc' 1 3 20
+Write-Origin wide '界a' 2 5 20
+Write-Origin multiline "abc`nde" 6 5 20
+Set-PSReadLineOption -ExtraPromptLineCount 1
+Write-Origin extra "abc`nde" 6 5 20
+
+$context = [pscustomobject]@{
+    RelativeCursorY = 23
+    PromptTopY = 23
+    WindowY = 0
+    WindowHeight = 24
+    BufferHeight = 24
+}
+"valid=$(__dx_pwsh_resolve_redraw_y ([pscustomobject]@{ redrawRow = 13; scrollRows = 10 }) $context)"
+"fraction=$(__dx_pwsh_resolve_redraw_y ([pscustomobject]@{ redrawRow = 13.5; scrollRows = 10 }) $context)"
+"mismatch=$(__dx_pwsh_resolve_redraw_y ([pscustomobject]@{ redrawRow = 12; scrollRows = 10 }) $context)"
+"negative=$(__dx_pwsh_resolve_redraw_y ([pscustomobject]@{ redrawRow = -1; scrollRows = 10 }) $context)"
+"#;
+
+    let output = Command::new("pwsh")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("PATH", path_with_dx_binary())
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .output()
+        .expect("pwsh should run");
+
+    assert!(
+        output.status.success(),
+        "pwsh failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        "one=20,20",
+        "wrapped=19,20",
+        "middle=20,20",
+        "wide=20,20",
+        "multiline=19,20",
+        "extra=18,20",
+        "valid=13",
+        "fraction=",
+        "mismatch=",
+        "negative=",
+    ] {
+        assert!(
+            stdout.lines().any(|line| line == expected),
+            "missing {expected:?} in stdout: {stdout}"
+        );
+    }
 }
 
 #[test]
