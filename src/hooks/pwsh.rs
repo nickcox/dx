@@ -69,7 +69,6 @@ function global:__dx_restore_aliases {
 
 New-Module -Name dx -ScriptBlock {
 
-$script:__dx_oldpwd = $PWD.Path
 $script:__dx_has_command_not_found_action = $ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandNotFoundAction'
 $script:__dx_previous_command_not_found_action = $null
 $script:__dx_installed_command_not_found_action = $false
@@ -199,7 +198,26 @@ function __dx_stack_wrapper {
 
 function __dx_set_location_native {
     param([string[]]$PathArgs)
-    Set-Location @PathArgs
+    Microsoft.PowerShell.Management\Set-Location @PathArgs
+}
+
+function __dx_is_filesystem_location {
+    param([System.Management.Automation.PathInfo]$Location)
+    return $Location -and $Location.Provider.Name -eq 'FileSystem'
+}
+
+function __dx_is_resolvable_path {
+    param([string]$Path)
+
+    if (-not $Path -or $Path -in @('-', '+')) {
+        return $false
+    }
+
+    if ($Path -match '[*?\[\]]' -or $Path -match '^[^\\/:]+::' -or $Path -match '^[A-Za-z][A-Za-z0-9_-]+:') {
+        return $false
+    }
+
+    return $true
 }
 
 function __dx_set_alias {
@@ -223,57 +241,67 @@ function __dx_set_alias {
 }
 
 function Set-DxLocation {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+    [CmdletBinding(DefaultParameterSetName = 'Path')]
+    param(
+        [Parameter(ParameterSetName = 'Path', Position = 0, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [string]$Path,
 
-    $script:__dx_oldpwd = $PWD.Path
+        [Parameter(ParameterSetName = 'LiteralPath', Mandatory, ValueFromPipelineByPropertyName)]
+        [Alias('PSPath', 'LP')]
+        [string]$LiteralPath,
 
-    if (-not $Args -or $Args.Count -eq 0) {
-        __dx_push_pwd
-        __dx_set_location_native @("~")
-        if ($?) { __dx_push_pwd }
-        return
+        [switch]$PassThru,
+
+        [Parameter(ParameterSetName = 'Stack', ValueFromPipelineByPropertyName)]
+        [string]$StackName
+    )
+
+    begin {
+        $startLocation = Get-Location
+        $nativeParameters = @{} + $PSBoundParameters
+
+        if (
+            $PSCmdlet.ParameterSetName -eq 'Path' -and
+            $PSBoundParameters.ContainsKey('Path') -and
+            -not $MyInvocation.ExpectingInput -and
+            (__dx_is_filesystem_location $startLocation) -and
+            (__dx_is_resolvable_path $Path) -and
+            (Get-Command dx -ErrorAction SilentlyContinue)
+        ) {
+            $resolved = (dx resolve $Path 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $resolved) {
+                $nativeParameters['Path'] = $resolved
+            }
+        }
+
+        $nativeCommand = $ExecutionContext.InvokeCommand.GetCommand(
+            'Microsoft.PowerShell.Management\Set-Location',
+            [System.Management.Automation.CommandTypes]::Cmdlet
+        )
+        $scriptCommand = { & $nativeCommand @nativeParameters }
+        $steppablePipeline = $scriptCommand.GetSteppablePipeline($MyInvocation.CommandOrigin)
+        $steppablePipeline.Begin($PSCmdlet)
     }
 
-    if ($Args.Count -eq 1 -and $Args[0] -eq '-') {
-        __dx_push_pwd
-        __dx_set_location_native @($script:__dx_oldpwd)
-        if ($?) { __dx_push_pwd }
-        return
+    process {
+        $steppablePipeline.Process($_)
     }
 
-    $flags = New-Object System.Collections.Generic.List[string]
-    $pathArg = $null
-    foreach ($arg in $Args) {
-        if (-not $pathArg -and $arg.StartsWith('-') -and $arg -ne '-') {
-            $flags.Add($arg)
-        } elseif (-not $pathArg) {
-            $pathArg = $arg
+    end {
+        $steppablePipeline.End()
+
+        $endLocation = Get-Location
+        if (
+            (__dx_is_filesystem_location $endLocation) -and
+            ($endLocation.Path -ne $startLocation.Path) -and
+            (Get-Command dx -ErrorAction SilentlyContinue)
+        ) {
+            if (__dx_is_filesystem_location $startLocation) {
+                dx stack push $startLocation.Path *> $null
+            }
+            dx stack push $endLocation.Path *> $null
         }
     }
-
-    if (-not $pathArg) {
-        __dx_set_location_native $Args
-        return
-    }
-
-    __dx_push_pwd
-    $resolved = $null
-    $resolveStatus = 1
-    if (Get-Command dx -ErrorAction SilentlyContinue) {
-        $resolved = (dx resolve $pathArg 2>$null)
-        $resolveStatus = $LASTEXITCODE
-    }
-
-    if ($resolveStatus -eq 0 -and $resolved) {
-        $nativeArgs = @()
-        if ($flags.Count -gt 0) { $nativeArgs += $flags.ToArray() }
-        $nativeArgs += @($resolved)
-        __dx_set_location_native $nativeArgs
-    } else {
-        __dx_set_location_native $Args
-    }
-
-    if ($?) { __dx_push_pwd }
 }
 
 __dx_set_alias cd Set-DxLocation

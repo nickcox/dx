@@ -484,6 +484,26 @@ mod tests {
     }
 
     #[test]
+    fn pwsh_location_wrapper_uses_native_parameter_binding() {
+        let output = generate(Shell::Pwsh, false, false);
+        assert!(output.contains("[CmdletBinding(DefaultParameterSetName = 'Path')]"));
+        assert!(output.contains("ValueFromPipeline, ValueFromPipelineByPropertyName"));
+        assert!(output.contains("[Alias('PSPath', 'LP')]"));
+        assert!(output.contains("[switch]$PassThru"));
+        assert!(output.contains("[string]$StackName"));
+        assert!(output.contains("'Microsoft.PowerShell.Management\\Set-Location'"));
+        assert!(output.contains("GetSteppablePipeline($MyInvocation.CommandOrigin)"));
+        assert!(output.contains("$steppablePipeline.Process($_)"));
+        assert!(output.contains("$steppablePipeline.End()"));
+        assert!(output.contains("function __dx_is_resolvable_path"));
+        assert!(output.contains("$PSBoundParameters.ContainsKey('Path')"));
+        assert!(output.contains("$Path -in @('-', '+')"));
+        assert!(output.contains("dx stack push $startLocation.Path *> $null"));
+        assert!(!output.contains("__dx_oldpwd"));
+        assert!(!output.contains("ValueFromRemainingArguments"));
+    }
+
+    #[test]
     fn pwsh_uses_idiomatic_primary_navigation_function_names() {
         let output = generate(Shell::Pwsh, false, false);
         assert!(output.contains("function Step-Up"));
@@ -606,7 +626,7 @@ mod tests {
         assert!(pwsh.contains("function Redo-Location"));
         assert!(pwsh.contains("__dx_set_alias forward Redo-Location"));
         assert!(pwsh.contains("__dx_set_alias 'cd+' Redo-Location"));
-        assert!(pwsh.contains("$resolved = (dx resolve $pathArg 2>$null)"));
+        assert!(pwsh.contains("$resolved = (dx resolve $Path 2>$null)"));
         assert!(pwsh.contains("__dx_complete_mode -Mode paths -Word $wordToComplete"));
         assert_pwsh_root_dx_completion_contract(&pwsh);
         assert!(

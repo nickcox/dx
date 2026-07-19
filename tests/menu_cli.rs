@@ -525,6 +525,129 @@ fn init_pwsh_uses_idiomatic_functions_and_restores_dot_dot_alias() {
 }
 
 #[test]
+fn pwsh_set_dx_location_preserves_native_binding_and_filesystem_stack_tracking() {
+    if !pwsh_available() {
+        return;
+    }
+
+    let temp = common::temp_dir("pwsh-location-wrapper");
+    let start = temp.path().join("start");
+    let destination = temp.path().join("destination");
+    let wildcard_parent = temp.path().join("wildcard");
+    let wildcard_destination = wildcard_parent.join("only-match");
+    fs::create_dir_all(&start).expect("create start directory");
+    fs::create_dir_all(&destination).expect("create destination directory");
+    fs::create_dir_all(&wildcard_destination).expect("create wildcard destination directory");
+
+    let quote = |path: &std::path::Path| path.display().to_string().replace('\'', "''");
+    let missing = temp.path().join("missing");
+    let script = format!(
+        "Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh | Out-String)); \
+         $nativeHome = (Microsoft.PowerShell.Management\\Set-Location -PassThru).Path; \
+         Set-DxLocation; \"home=$($PWD.Path)\"; \"nativeHome=$nativeHome\"; \
+         Set-DxLocation -LiteralPath '{start}'; \
+         $passThru = Set-DxLocation -LiteralPath '{destination}' -PassThru; \
+         \"pass=$($passThru.Path)\"; \
+         cd -; \"minus=$($PWD.Path)\"; \
+         cd +; \"plus=$($PWD.Path)\"; \
+         '{start}' | Set-DxLocation; \"pipe=$($PWD.Path)\"; \
+         Set-DxLocation -Path '{wildcard_parent}/*'; \"wildcard=$($PWD.Path)\"; \
+         Set-DxLocation -StackName dx-test -PassThru | Out-Null; \
+         Set-DxLocation -LiteralPath Env:; \"provider=$((Get-Location).Provider.Name)\"; \
+         Set-DxLocation -LiteralPath '{destination}'; \"return=$($PWD.Path)\"; \
+         $before = $PWD.Path; $sessionFile = Join-Path $env:XDG_RUNTIME_DIR \"dx-sessions/$env:DX_SESSION.json\"; \
+         $beforeStack = Get-Content -Raw $sessionFile; \
+         Set-DxLocation -LiteralPath '{missing}' -ErrorAction SilentlyContinue; \
+         \"failed=$($PWD.Path -eq $before)\"; \
+         \"stackStable=$($beforeStack -eq (Get-Content -Raw $sessionFile))\"; \
+         function global:dx {{ return 1 }}; \
+         $stackFailure = Set-DxLocation -LiteralPath '{start}' -PassThru; \
+         \"stackFailure=$($stackFailure.Path)\"",
+        start = quote(&start),
+        destination = quote(&destination),
+        wildcard_parent = quote(&wildcard_parent),
+        missing = quote(&missing),
+    );
+    let runtime = temp.path().join("runtime");
+    fs::create_dir(&runtime).expect("create runtime directory");
+
+    let output = Command::new("pwsh")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .env("PATH", std::env::var("PATH").expect("PATH should be set"))
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .env("DX_SESSION", "pwsh-location-wrapper")
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .output()
+        .expect("pwsh should run");
+
+    assert!(
+        output.status.success(),
+        "pwsh failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for (label, expected) in [
+        ("pass", &destination),
+        ("minus", &start),
+        ("plus", &destination),
+        ("pipe", &start),
+        ("wildcard", &wildcard_destination),
+        ("return", &destination),
+        ("stackFailure", &start),
+    ] {
+        let value = stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("{label}=")))
+            .unwrap_or_else(|| panic!("missing {label} output: {stdout}"));
+        common::assert_same_path(value, expected);
+    }
+    let home = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("home="))
+        .expect("missing home output");
+    let native_home = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("nativeHome="))
+        .expect("missing native home output");
+    common::assert_same_path(home, native_home);
+    assert!(
+        stdout.contains("provider=Environment"),
+        "unexpected stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("failed=True"),
+        "unexpected stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("stackStable=True"),
+        "unexpected stdout: {stdout}"
+    );
+
+    let session_file = runtime.join("dx-sessions/pwsh-location-wrapper.json");
+    let session: serde_json::Value =
+        serde_json::from_slice(&fs::read(&session_file).expect("read PowerShell session stack"))
+            .expect("parse PowerShell session stack");
+    let cwd = session["cwd"].as_str().expect("session cwd");
+    common::assert_same_path(cwd, &destination);
+    let entries = session["undo"]
+        .as_array()
+        .expect("session undo entries")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>();
+    assert!(
+        entries.iter().any(
+            |entry| common::canonical(std::path::Path::new(entry)) == common::canonical(&start)
+        ),
+        "filesystem origin was not recorded: {entries:?}"
+    );
+    assert!(
+        entries.iter().all(|entry| !entry.starts_with("Env:")),
+        "provider location was recorded: {entries:?}"
+    );
+}
+
+#[test]
 fn init_with_invalid_menu_mappings_fails_when_menu_enabled() {
     let output = dx()
         .args(["init", "bash", "--menu"])
