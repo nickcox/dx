@@ -13,10 +13,12 @@ pub enum MenuResult {
         changed_query: bool,
         value: std::path::PathBuf,
         terminal: crate::menu::action::TerminalState,
+        geometry: Option<crate::menu::action::TerminalGeometry>,
     },
     Cancelled {
         filter_query: String,
         changed_query: bool,
+        geometry: Option<crate::menu::action::TerminalGeometry>,
     },
 }
 
@@ -62,7 +64,7 @@ mod imp {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct SpaceReservation {
         prompt_row: u16,
-        scrolled: bool,
+        scroll_rows: u16,
     }
 
     trait TerminalOps {
@@ -141,7 +143,7 @@ mod imp {
             if scroll_needed == 0 {
                 return Ok(SpaceReservation {
                     prompt_row,
-                    scrolled: false,
+                    scroll_rows: 0,
                 });
             }
 
@@ -196,7 +198,7 @@ mod imp {
         output.flush()?;
         Ok(SpaceReservation {
             prompt_row: next_prompt_row,
-            scrolled: true,
+            scroll_rows: scroll_needed,
         })
     }
 
@@ -305,19 +307,28 @@ mod imp {
         }
     }
 
-    fn selected_result(filter_state: &FilterState, value: PathBuf) -> MenuResult {
+    fn selected_result(
+        filter_state: &FilterState,
+        value: PathBuf,
+        geometry: crate::menu::action::TerminalGeometry,
+    ) -> MenuResult {
         MenuResult::Selected {
             value,
             filter_query: filter_state.effective_query(),
             changed_query: filter_state.changed_query(),
             terminal: crate::menu::action::TerminalState::Dirty,
+            geometry: Some(geometry),
         }
     }
 
-    fn cancelled_result(filter_state: &FilterState) -> MenuResult {
+    fn cancelled_result(
+        filter_state: &FilterState,
+        geometry: crate::menu::action::TerminalGeometry,
+    ) -> MenuResult {
         MenuResult::Cancelled {
             filter_query: filter_state.effective_query(),
             changed_query: filter_state.changed_query(),
+            geometry: Some(geometry),
         }
     }
 
@@ -489,6 +500,7 @@ mod imp {
             return Some(MenuResult::Cancelled {
                 filter_query: initial_query.to_string(),
                 changed_query: false,
+                geometry: None,
             });
         }
 
@@ -498,6 +510,7 @@ mod imp {
                 filter_query: initial_query.to_string(),
                 changed_query: false,
                 terminal: crate::menu::action::TerminalState::Clean,
+                geometry: None,
             });
         }
 
@@ -532,7 +545,7 @@ mod imp {
 
         let menu_top = menu_top_row(prompt_row, rows, height, show_border);
         let area = Rect::new(0, menu_top, cols, height);
-        if reservation.scrolled {
+        if reservation.scroll_rows > 0 {
             session.set_cleanup_region(prompt_row, area);
         }
         session.hide_cursor().ok()?;
@@ -551,6 +564,10 @@ mod imp {
             &query_fn,
             ls_colors,
             terminal_ops,
+            crate::menu::action::TerminalGeometry {
+                redraw_row: reservation.prompt_row,
+                scroll_rows: reservation.scroll_rows,
+            },
         )
     }
 
@@ -739,6 +756,7 @@ mod imp {
         query_fn: &QueryFn<'_>,
         ls_colors: Option<LsColorsConfig>,
         terminal_ops: &dyn TerminalOps,
+        geometry: crate::menu::action::TerminalGeometry,
     ) -> Option<MenuResult> {
         let writer = terminal_ops.open_output(use_tty_backend).ok()?;
 
@@ -870,11 +888,11 @@ mod imp {
                         if let Some(idx) = list_state.selected()
                             && let Some(value) = completion.paths.get(idx).cloned()
                         {
-                            return Some(selected_result(&filter_state, value));
+                            return Some(selected_result(&filter_state, value, geometry));
                         }
                     }
                     MenuKeyAction::Cancel => {
-                        return Some(cancelled_result(&filter_state));
+                        return Some(cancelled_result(&filter_state, geometry));
                     }
                     MenuKeyAction::MoveLinear(delta) => {
                         move_selection(&mut list_state, len, delta);
@@ -1564,10 +1582,29 @@ mod imp {
                 reservation,
                 SpaceReservation {
                     prompt_row: 13,
-                    scrolled: true,
+                    scroll_rows: 10,
                 }
             );
             assert!(!output.is_empty());
+        }
+
+        #[test]
+        fn reservation_without_scroll_reports_zero_scroll_rows() {
+            let terminal_ops = MockTerminalOps::new();
+            let mut session = TerminalSession::start(&terminal_ops, false).expect("start session");
+
+            let reservation = session
+                .reserve_space(5, 24, 10)
+                .expect("reserve existing rows");
+
+            assert_eq!(
+                reservation,
+                SpaceReservation {
+                    prompt_row: 5,
+                    scroll_rows: 0,
+                }
+            );
+            assert_eq!(terminal_ops.open_calls.get(), 0);
         }
 
         #[test]
@@ -2378,11 +2415,37 @@ mod imp {
             filter.push('w');
             assert!(filter.backspace());
 
+            let geometry = crate::menu::action::TerminalGeometry {
+                redraw_row: 13,
+                scroll_rows: 10,
+            };
+
             assert_eq!(
-                cancelled_result(&filter),
+                cancelled_result(&filter, geometry),
                 MenuResult::Cancelled {
                     filter_query: "Do".to_string(),
                     changed_query: false,
+                    geometry: Some(geometry),
+                }
+            );
+        }
+
+        #[test]
+        fn interactive_selection_preserves_terminal_geometry() {
+            let filter = FilterState::new("Do");
+            let geometry = crate::menu::action::TerminalGeometry {
+                redraw_row: 13,
+                scroll_rows: 10,
+            };
+
+            assert_eq!(
+                selected_result(&filter, PathBuf::from("/tmp/Documents"), geometry),
+                MenuResult::Selected {
+                    filter_query: "Do".to_string(),
+                    changed_query: false,
+                    value: PathBuf::from("/tmp/Documents"),
+                    terminal: crate::menu::action::TerminalState::Dirty,
+                    geometry: Some(geometry),
                 }
             );
         }
@@ -2544,6 +2607,7 @@ mod imp {
         Some(MenuResult::Cancelled {
             filter_query: initial_query.to_string(),
             changed_query: false,
+            geometry: None,
         })
     }
 }

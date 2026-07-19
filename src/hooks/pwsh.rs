@@ -472,6 +472,104 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         }
     }
 
+    function global:__dx_pwsh_capture_redraw_context {
+        param(
+            [string]$Line,
+            [int]$Cursor,
+            $RawUi
+        )
+
+        try {
+            $cursorPosition = $RawUi.CursorPosition
+            $windowPosition = $RawUi.WindowPosition
+            $windowSize = $RawUi.WindowSize
+            $bufferSize = $RawUi.BufferSize
+            $width = [int]$windowSize.Width
+            if ($width -le 0 -or $Cursor -lt 0 -or $Cursor -gt $Line.Length) { return $null }
+
+            $prefix = $Line.Substring(0, $Cursor)
+            $segments = [regex]::Split($prefix, "\r?\n")
+            $options = Get-PSReadLineOption
+            $promptText = $null
+            if ($options.PromptText) {
+                $promptText = [string]@($options.PromptText)[0]
+            }
+
+            if ($promptText) {
+                $initialX = [int]($RawUi.LengthInBufferCells($promptText) % $width)
+            } elseif ($segments.Count -eq 1) {
+                $prefixCells = [int]$RawUi.LengthInBufferCells($prefix)
+                $initialX = (([int]$cursorPosition.X - ($prefixCells % $width)) + $width) % $width
+            } else {
+                return $null
+            }
+
+            $continuationCells = [int]$RawUi.LengthInBufferCells([string]$options.ContinuationPrompt)
+            $rowOffset = 0
+            for ($i = 0; $i -lt $segments.Count; $i++) {
+                $startX = if ($i -eq 0) { $initialX } else { $continuationCells % $width }
+                $cells = [int]$RawUi.LengthInBufferCells([string]$segments[$i])
+                $rowOffset += [Math]::Floor(($startX + $cells) / $width)
+                if ($i -lt $segments.Count - 1) { $rowOffset += 1 }
+            }
+
+            $extraPromptLines = [Math]::Max([int]$options.ExtraPromptLineCount, 0)
+            $promptTopY = [int]$cursorPosition.Y - [int]$rowOffset - $extraPromptLines
+            $relativeCursorY = [int]$cursorPosition.Y - [int]$windowPosition.Y
+            if ($promptTopY -lt 0 -or $relativeCursorY -lt 0) { return $null }
+
+            return [PSCustomObject]@{
+                CursorY = [int]$cursorPosition.Y
+                RelativeCursorY = $relativeCursorY
+                PromptTopY = $promptTopY
+                WindowY = [int]$windowPosition.Y
+                WindowHeight = [int]$windowSize.Height
+                BufferHeight = [int]$bufferSize.Height
+            }
+        } catch {
+            return $null
+        }
+    }
+
+    function global:__dx_pwsh_resolve_redraw_y {
+        param($Result, $Context)
+
+        if ($null -eq $Result -or $null -eq $Context) { return $null }
+        try {
+            $redrawNumber = [double]$Result.redrawRow
+            $scrollNumber = [double]$Result.scrollRows
+            if (
+                [double]::IsNaN($redrawNumber) -or [double]::IsInfinity($redrawNumber) -or
+                [double]::IsNaN($scrollNumber) -or [double]::IsInfinity($scrollNumber) -or
+                $redrawNumber -ne [Math]::Floor($redrawNumber) -or
+                $scrollNumber -ne [Math]::Floor($scrollNumber)
+            ) { return $null }
+
+            $redrawRow = [int]$redrawNumber
+            $scrollRows = [int]$scrollNumber
+            if ($redrawRow -lt 0 -or $scrollRows -lt 0 -or $redrawRow -ge $Context.WindowHeight) {
+                return $null
+            }
+
+            $expectedRedrawRow = [Math]::Max($Context.RelativeCursorY - $scrollRows, 0)
+            if ($redrawRow -ne $expectedRedrawRow) { return $null }
+
+            $targetY = $Context.PromptTopY - $scrollRows
+            if ($targetY -lt $Context.WindowY -or $targetY -ge $Context.BufferHeight) { return $null }
+            return [int]$targetY
+        } catch {
+            return $null
+        }
+    }
+
+    function global:__dx_pwsh_invoke_prompt_at {
+        param([int]$RedrawY)
+
+        [Console]::SetCursorPosition(0, $RedrawY)
+        [Console]::Write("`e[0J")
+        [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt($null, $RedrawY)
+    }
+
     $dxMappingSeeds = @(__DX_MENU_MAPPINGS__)
     $dxExplicitMapped = @{}
     $dxDerivedMapped = @{}
@@ -516,12 +614,11 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         $cursorBytes = [System.Text.Encoding]::UTF8.GetByteCount($line.Substring(0, $cursor))
 
         $promptRow = $null
+        $redrawContext = $null
         try {
             $rawUi = $Host.UI.RawUI
-            $cursorY = [int]$rawUi.CursorPosition.Y
-            $windowY = [int]$rawUi.WindowPosition.Y
-            $relativeY = $cursorY - $windowY
-            if ($relativeY -ge 0) { $promptRow = $relativeY }
+            $redrawContext = __dx_pwsh_capture_redraw_context -Line $line -Cursor $cursor -RawUi $rawUi
+            if ($null -ne $redrawContext) { $promptRow = $redrawContext.RelativeCursorY }
         } catch {}
 
         $dxCmds = @(__DX_MENU_ELIGIBLE_COMMANDS__)
@@ -564,9 +661,22 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
             $result = $json | ConvertFrom-Json
         } catch { }
 
+        $redrawY = $null
+        if ($result -and $result.terminal -eq 'dirty') {
+            $redrawY = __dx_pwsh_resolve_redraw_y -Result $result -Context $redrawContext
+        }
+
         if ($result -and $result.action -eq 'cancel') {
-            [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)
-            [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+            [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($cursor)
+            if ($null -ne $redrawY) {
+                try {
+                    __dx_pwsh_invoke_prompt_at -RedrawY ([int]$redrawY)
+                } catch {
+                    [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+                }
+            } else {
+                [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+            }
             return
         }
 
@@ -579,6 +689,10 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
             __dx_pwsh_menu_fallback $key $arg
             return
         }
+        if ($result.terminal -eq 'dirty' -and $null -eq $redrawY) {
+            __dx_pwsh_menu_fallback $key $arg
+            return
+        }
         if ($result.replaceStart -lt 0 -or $result.replaceEnd -lt $result.replaceStart -or $result.replaceEnd -gt $line.Length) {
             __dx_pwsh_menu_fallback $key $arg
             return
@@ -587,7 +701,11 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         [Microsoft.PowerShell.PSConsoleReadLine]::Replace($result.replaceStart, $result.replaceEnd - $result.replaceStart, $result.value)
         [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($result.replaceStart + $result.value.Length)
         if ($result.terminal -eq 'dirty') {
-            [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+            try {
+                __dx_pwsh_invoke_prompt_at -RedrawY ([int]$redrawY)
+            } catch {
+                [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+            }
         }
     }
 }
@@ -669,6 +787,10 @@ $ExecutionContext.SessionState.Module.OnRemove += {
             default { Remove-PSReadLineKeyHandler -Chord $script:__dx_installed_menu_key -ErrorAction SilentlyContinue }
         }
     }
+    Remove-Item -LiteralPath Function:global:__dx_pwsh_menu_fallback -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:global:__dx_pwsh_capture_redraw_context -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:global:__dx_pwsh_resolve_redraw_y -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath Function:global:__dx_pwsh_invoke_prompt_at -Force -ErrorAction SilentlyContinue
 "#,
         );
     }

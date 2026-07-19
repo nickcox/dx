@@ -718,15 +718,22 @@ mod tests {
         assert!(pwsh.contains("if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or ($first -notin $dxCmds -and -not $dxMenuMode))"));
         assert!(pwsh.contains("if ($LASTEXITCODE -ne 0 -or -not $json)"));
         assert!(pwsh.contains("$result = $json | ConvertFrom-Json"));
+        assert!(pwsh.contains("function global:__dx_pwsh_capture_redraw_context"));
+        assert!(pwsh.contains("function global:__dx_pwsh_resolve_redraw_y"));
+        assert!(pwsh.contains("function global:__dx_pwsh_invoke_prompt_at"));
+        assert!(pwsh.contains("[Console]::Write(\"`e[0J\")"));
+        assert!(pwsh.contains(
+            "$expectedRedrawRow = [Math]::Max($Context.RelativeCursorY - $scrollRows, 0)"
+        ));
         assert!(pwsh.contains("if ($result -and $result.action -eq 'cancel')"));
         assert!(
-            pwsh.contains(
-                "[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"
-            )
+            pwsh.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($cursor)")
         );
         assert!(pwsh.contains("if (-not $result -or $result.action -ne 'replace')"));
         assert!(pwsh.contains("if (-not $result.terminal -or ($result.terminal -ne 'clean' -and $result.terminal -ne 'dirty'))"));
         assert!(pwsh.contains("if ($result.terminal -eq 'dirty')"));
+        assert!(pwsh.contains("if ($result.terminal -eq 'dirty' -and $null -eq $redrawY)"));
+        assert!(pwsh.contains("__dx_pwsh_invoke_prompt_at -RedrawY ([int]$redrawY)"));
         assert!(pwsh.contains("$result.replaceEnd -gt $line.Length"));
         assert!(pwsh.contains("PSConsoleReadLine]::InvokePrompt()"));
         assert!(pwsh.contains("__dx_pwsh_menu_fallback $key $arg"));

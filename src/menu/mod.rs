@@ -16,7 +16,7 @@ use crate::resolve::path_query::{PathQuery, QueryKind};
 use crate::resolve::precedence;
 use crate::resolve::{CompletionCandidates, Resolver};
 
-pub use action::MenuAction;
+pub use action::{MenuAction, TerminalGeometry, TerminalState};
 pub use buffer::{
     ParsedBuffer, parse_buffer, parse_buffer_with_mode, parse_buffer_with_override_mode,
 };

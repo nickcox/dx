@@ -13,10 +13,17 @@ pub enum MenuAction {
         replace_end: usize,
         value: String,
         terminal: TerminalState,
+        #[serde(flatten)]
+        geometry: Option<TerminalGeometry>,
     },
     /// Explicit user cancellation after an interactive menu session.
     #[serde(rename = "cancel")]
-    Cancel,
+    Cancel {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        terminal: Option<TerminalState>,
+        #[serde(flatten)]
+        geometry: Option<TerminalGeometry>,
+    },
     /// No operation — the buffer should remain unchanged.
     #[serde(rename = "noop")]
     Noop,
@@ -29,18 +36,28 @@ pub enum TerminalState {
     Dirty,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TerminalGeometry {
+    #[serde(rename = "redrawRow")]
+    pub redraw_row: u16,
+    #[serde(rename = "scrollRows")]
+    pub scroll_rows: u16,
+}
+
 impl MenuAction {
     pub fn replace(
         replace_start: usize,
         replace_end: usize,
         value: String,
         terminal: TerminalState,
+        geometry: Option<TerminalGeometry>,
     ) -> Self {
         MenuAction::Replace {
             replace_start,
             replace_end,
             value,
             terminal,
+            geometry,
         }
     }
 
@@ -48,8 +65,11 @@ impl MenuAction {
         MenuAction::Noop
     }
 
-    pub fn cancel() -> Self {
-        MenuAction::Cancel
+    pub fn cancel(geometry: Option<TerminalGeometry>) -> Self {
+        MenuAction::Cancel {
+            terminal: geometry.map(|_| TerminalState::Dirty),
+            geometry,
+        }
     }
 
     pub fn to_json(&self) -> String {
@@ -69,24 +89,41 @@ mod tests {
 
     #[test]
     fn cancel_serializes_correctly() {
-        let action = MenuAction::cancel();
+        let action = MenuAction::cancel(None);
         assert_eq!(action.to_json(), r#"{"action":"cancel"}"#);
     }
 
     #[test]
     fn replace_serializes_with_camel_case_fields() {
-        let action = MenuAction::replace(3, 6, "/home/user/bar".to_string(), TerminalState::Clean);
+        let action = MenuAction::replace(
+            3,
+            6,
+            "/home/user/bar".to_string(),
+            TerminalState::Clean,
+            None,
+        );
         let json = action.to_json();
         assert!(json.contains(r#""action":"replace""#));
         assert!(json.contains(r#""replaceStart":3"#));
         assert!(json.contains(r#""replaceEnd":6"#));
         assert!(json.contains(r#""value":"/home/user/bar""#));
         assert!(json.contains(r#""terminal":"clean""#));
+        assert!(!json.contains("redrawRow"));
+        assert!(!json.contains("scrollRows"));
     }
 
     #[test]
     fn replace_roundtrips_through_json() {
-        let action = MenuAction::replace(0, 10, "/tmp".to_string(), TerminalState::Dirty);
+        let action = MenuAction::replace(
+            0,
+            10,
+            "/tmp".to_string(),
+            TerminalState::Dirty,
+            Some(TerminalGeometry {
+                redraw_row: 13,
+                scroll_rows: 10,
+            }),
+        );
         let json = action.to_json();
         let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
         assert_eq!(parsed["action"], "replace");
@@ -94,5 +131,20 @@ mod tests {
         assert_eq!(parsed["replaceEnd"], 10);
         assert_eq!(parsed["value"], "/tmp");
         assert_eq!(parsed["terminal"], "dirty");
+        assert_eq!(parsed["redrawRow"], 13);
+        assert_eq!(parsed["scrollRows"], 10);
+    }
+
+    #[test]
+    fn dirty_cancel_serializes_terminal_geometry() {
+        let action = MenuAction::cancel(Some(TerminalGeometry {
+            redraw_row: 4,
+            scroll_rows: 2,
+        }));
+
+        assert_eq!(
+            action.to_json(),
+            r#"{"action":"cancel","terminal":"dirty","redrawRow":4,"scrollRows":2}"#
+        );
     }
 }

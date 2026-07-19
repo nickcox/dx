@@ -344,7 +344,10 @@ fn menu_result_to_action_with_shell(
 ) -> MenuAction {
     match result {
         Some(MenuResult::Selected {
-            value, terminal, ..
+            value,
+            terminal,
+            geometry,
+            ..
         }) => {
             let Some(formatted) = format_selected_path_for_query_style_checked(
                 &value,
@@ -365,12 +368,14 @@ fn menu_result_to_action_with_shell(
                 parsed.replace_end,
                 replacement,
                 terminal,
+                geometry,
             )
         }
         Some(MenuResult::Cancelled {
             filter_query: _,
             changed_query: _,
-        }) => MenuAction::cancel(),
+            geometry,
+        }) => MenuAction::cancel(geometry),
         None => MenuAction::noop(),
     }
 }
@@ -381,6 +386,7 @@ fn action_for_shell(action: MenuAction, buffer: &str, shell: MenuShellArg) -> Me
         replace_end,
         value,
         terminal,
+        geometry,
     } = action
     else {
         return action;
@@ -392,7 +398,7 @@ fn action_for_shell(action: MenuAction, buffer: &str, shell: MenuShellArg) -> Me
     ) else {
         return MenuAction::noop();
     };
-    MenuAction::replace(replace_start, replace_end, value, terminal)
+    MenuAction::replace(replace_start, replace_end, value, terminal, geometry)
 }
 
 #[cfg(test)]
@@ -590,11 +596,11 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
             println!("{}", MenuAction::noop().to_json());
             0
         }
-        MenuAction::Cancel => {
+        action @ MenuAction::Cancel { .. } => {
             if debug {
                 eprintln!("[dx-menu-debug] action=cancel");
             }
-            println!("{}", MenuAction::cancel().to_json());
+            println!("{}", action.to_json());
             0
         }
     }
@@ -603,7 +609,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
 #[cfg(test)]
 mod tests {
     use crate::complete::StackDirection;
-    use crate::menu::action::TerminalState;
+    use crate::menu::action::{TerminalGeometry, TerminalState};
     use crate::test_support::{ScopedProcess, temp_dir};
 
     use super::*;
@@ -625,6 +631,7 @@ mod tests {
                 filter_query: "fo".to_string(),
                 changed_query: true,
                 terminal: TerminalState::Clean,
+                geometry: None,
             }),
             &parsed,
             parsed.mode,
@@ -638,6 +645,7 @@ mod tests {
                 replace_end: 6,
                 value: "./bar/".to_string(),
                 terminal: TerminalState::Clean,
+                geometry: None,
             }
         );
 
@@ -647,16 +655,30 @@ mod tests {
                 filter_query: "fo".to_string(),
                 changed_query: true,
                 terminal: TerminalState::Dirty,
+                geometry: Some(TerminalGeometry {
+                    redraw_row: 13,
+                    scroll_rows: 10,
+                }),
             }),
             &parsed,
             parsed.mode,
             Path::new("/tmp"),
             true,
         );
-        let MenuAction::Replace { terminal, .. } = dirty_action else {
+        let MenuAction::Replace {
+            terminal, geometry, ..
+        } = dirty_action
+        else {
             panic!("expected Replace");
         };
         assert_eq!(terminal, TerminalState::Dirty);
+        assert_eq!(
+            geometry,
+            Some(TerminalGeometry {
+                redraw_row: 13,
+                scroll_rows: 10,
+            })
+        );
     }
 
     #[cfg(unix)]
@@ -700,6 +722,10 @@ mod tests {
             Some(MenuResult::Cancelled {
                 filter_query: "Do".to_string(),
                 changed_query: true,
+                geometry: Some(TerminalGeometry {
+                    redraw_row: 8,
+                    scroll_rows: 4,
+                }),
             }),
             &parsed,
             parsed.mode,
@@ -707,7 +733,16 @@ mod tests {
             true,
         );
 
-        assert_eq!(action, MenuAction::Cancel);
+        assert_eq!(
+            action,
+            MenuAction::Cancel {
+                terminal: Some(TerminalState::Dirty),
+                geometry: Some(TerminalGeometry {
+                    redraw_row: 8,
+                    scroll_rows: 4,
+                }),
+            }
+        );
     }
 
     #[cfg(unix)]
@@ -809,6 +844,7 @@ mod tests {
                 filter_query: "x".to_string(),
                 changed_query: false,
                 terminal: TerminalState::Clean,
+                geometry: None,
             }),
             &parsed,
             parsed.mode,
@@ -835,6 +871,7 @@ mod tests {
                 filter_query: "x".to_string(),
                 changed_query: false,
                 terminal: TerminalState::Clean,
+                geometry: None,
             }),
             &parsed,
             parsed.mode,
@@ -848,7 +885,7 @@ mod tests {
 
     #[test]
     fn shell_actions_convert_utf8_byte_ranges_to_native_units() {
-        let action = MenuAction::replace(3, 7, "x".to_string(), TerminalState::Clean);
+        let action = MenuAction::replace(3, 7, "x".to_string(), TerminalState::Clean, None);
         let buffer = "cd \u{00e9}\u{00e9}";
 
         let zsh = action_for_shell(action.clone(), buffer, MenuShellArg::Zsh);
@@ -891,7 +928,7 @@ mod tests {
     fn powershell_actions_use_utf16_offsets_for_astral_characters() {
         let buffer = "cd \u{1f600}";
         let action = action_for_shell(
-            MenuAction::replace(3, buffer.len(), "x".to_string(), TerminalState::Clean),
+            MenuAction::replace(3, buffer.len(), "x".to_string(), TerminalState::Clean, None),
             buffer,
             MenuShellArg::Pwsh,
         );
@@ -1008,6 +1045,10 @@ mod tests {
                 changed_query: false,
                 value: selected,
                 terminal: TerminalState::Dirty,
+                geometry: Some(TerminalGeometry {
+                    redraw_row: 7,
+                    scroll_rows: 3,
+                }),
             }),
             &parsed,
             parsed.mode,
@@ -1022,6 +1063,10 @@ mod tests {
                 replace_end: 4,
                 value: "./src/".to_string(),
                 terminal: TerminalState::Dirty,
+                geometry: Some(TerminalGeometry {
+                    redraw_row: 7,
+                    scroll_rows: 3,
+                }),
             }
         );
     }

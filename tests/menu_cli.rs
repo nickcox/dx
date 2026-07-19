@@ -1555,9 +1555,8 @@ fn hook_scripts_contain_fallback_on_noop() {
         "pwsh menu should treat cancel as handled without native fallback"
     );
     assert!(
-        pwsh_out
-            .contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)"),
-        "pwsh cancel path should restore cursor to end of buffer"
+        pwsh_out.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($cursor)"),
+        "pwsh cancel path should preserve the logical cursor"
     );
 }
 
@@ -1689,8 +1688,7 @@ fn hook_scripts_apply_replace_action_contract() {
     let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);
     assert!(pwsh_out.contains("if ($result -and $result.action -eq 'cancel')"));
     assert!(
-        pwsh_out
-            .contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($line.Length)")
+        pwsh_out.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($cursor)")
     );
     assert!(pwsh_out.contains("$result.action -ne 'replace'"));
     assert!(pwsh_out.contains("$result.terminal -ne 'clean' -and $result.terminal -ne 'dirty'"));
