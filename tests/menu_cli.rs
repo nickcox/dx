@@ -18,8 +18,8 @@ fn pwsh_available() -> bool {
 }
 
 fn path_with_dx_binary() -> OsString {
-    let mut paths = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
-        .collect::<Vec<_>>();
+    let mut paths =
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect::<Vec<_>>();
     let dx_binary = std::path::PathBuf::from(env!("CARGO_BIN_EXE_dx"));
     if let Some(dx_dir) = dx_binary.parent()
         && !paths.iter().any(|existing| existing == dx_dir)
@@ -573,8 +573,9 @@ fn pwsh_set_dx_location_preserves_native_binding_and_filesystem_stack_tracking()
          Set-DxLocation -LiteralPath '{missing}' -ErrorAction SilentlyContinue; \
          \"failed=$($PWD.Path -eq $before)\"; \
          \"stackStable=$($beforeStack -eq (Get-Content -Raw $sessionFile))\"; \
-         function global:dx {{ return 1 }}; \
+         $savedPath = $env:PATH; $env:PATH = ''; \
          $stackFailure = Set-DxLocation -LiteralPath '{start}' -PassThru; \
+         $env:PATH = $savedPath; \
          \"stackFailure=$($stackFailure.Path)\"",
         start = quote(&start),
         destination = quote(&destination),
@@ -658,6 +659,118 @@ fn pwsh_set_dx_location_preserves_native_binding_and_filesystem_stack_tracking()
         entries.iter().all(|entry| !entry.starts_with("Env:")),
         "provider location was recorded: {entries:?}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn pwsh_set_dx_location_ignores_stack_push_spawn_errors() {
+    if !pwsh_available() {
+        return;
+    }
+
+    let temp = common::temp_dir("pwsh-location-wrapper-perms");
+    let blocked = temp.path().join("blocked");
+    let destination = temp.path().join("destination");
+    fs::create_dir_all(&blocked).expect("create blocked directory");
+    fs::create_dir_all(&destination).expect("create destination directory");
+
+    let quote = |path: &std::path::Path| path.display().to_string().replace('\'', "''");
+    let script = format!(
+        "Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh | Out-String)); \
+         Set-DxLocation -LiteralPath '{blocked}'; \
+         chmod 600 '{blocked}'; \
+         Set-DxLocation -LiteralPath '{destination}'; \
+         \"cwd=$($PWD.Path)\"",
+        blocked = quote(&blocked),
+        destination = quote(&destination),
+    );
+
+    let output = Command::new("pwsh")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .env("PATH", path_with_dx_binary())
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .env("DX_SESSION", "pwsh-location-wrapper-perms")
+        .output()
+        .expect("pwsh should run");
+
+    assert!(
+        output.status.success(),
+        "pwsh failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("ResourceUnavailable"),
+        "unexpected stderr: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let cwd = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("cwd="))
+        .expect("missing cwd output");
+    common::assert_same_path(cwd, &destination);
+}
+
+#[cfg(unix)]
+#[test]
+fn zsh_stack_navigation_works_when_current_directory_blocks_process_spawn() {
+    if !optional_tool_available("zsh") {
+        return;
+    }
+
+    let temp = common::temp_dir("zsh-stack-restricted-cwd");
+    let start = temp.path().join("start");
+    let blocked = temp.path().join("blocked");
+    let runtime = temp.path().join("runtime");
+    fs::create_dir_all(&start).expect("create start directory");
+    fs::create_dir_all(&blocked).expect("create blocked directory");
+    fs::create_dir_all(&runtime).expect("create runtime directory");
+
+    let quote = |path: &std::path::Path| path.display().to_string().replace('\'', "'\\''");
+    let script = format!(
+        "eval \"$($CARGO_BIN_EXE_dx init zsh)\"; \
+         builtin cd '{start}'; \
+         dx stack push '{start}' >/dev/null; \
+         cd '{blocked}'; \
+         chmod 600 '{blocked}'; \
+         cd-; \
+         __dx_status=$?; \
+         chmod 700 '{blocked}'; \
+         print -r -- \"status=$__dx_status\"; \
+         print -r -- \"cwd=$PWD\"",
+        start = quote(&start),
+        blocked = quote(&blocked),
+    );
+
+    let output = Command::new("zsh")
+        .args(["-f", "-c", &script])
+        .env("PATH", path_with_dx_binary())
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .env("DX_SESSION", "zsh-stack-restricted-cwd")
+        .env("XDG_RUNTIME_DIR", &runtime)
+        .output()
+        .expect("zsh should run");
+
+    assert!(
+        output.status.success(),
+        "zsh failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("permission denied"),
+        "unexpected stderr: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line == "status=0"),
+        "unexpected stdout: {stdout}"
+    );
+    let cwd = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("cwd="))
+        .expect("missing cwd output");
+    common::assert_same_path(cwd, &start);
 }
 
 #[test]

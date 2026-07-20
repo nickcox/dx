@@ -83,9 +83,62 @@ function __dx_is_path_like {
 }
 
 function __dx_push_pwd {
-    if (Get-Command dx -ErrorAction SilentlyContinue) {
-        dx stack push $PWD.Path *> $null
+    __dx_push_path $PWD.Path
+}
+
+function __dx_push_path {
+    param([string]$Path)
+
+    if ($Path) {
+        __dx_stack_invoke -CommandArgs @('stack', 'push', $Path) *> $null
     }
+}
+
+function __dx_stack_invoke {
+    param([string[]]$CommandArgs)
+
+    $dxCommand = Get-Command dx -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $dxCommand) {
+        return [PSCustomObject]@{ Output = @(); ExitCode = 127 }
+    }
+
+    $fallback = $HOME
+    if (-not $fallback -and $env:USERPROFILE) {
+        $fallback = $env:USERPROFILE
+    }
+    if (-not $fallback) {
+        $fallback = [System.IO.Path]::GetTempPath()
+    }
+    if (-not $fallback) {
+        return [PSCustomObject]@{ Output = @(); ExitCode = 1 }
+    }
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $dxCommand.Source
+    $startInfo.WorkingDirectory = $fallback
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $CommandArgs) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+
+    try {
+        $process = [System.Diagnostics.Process]::Start($startInfo)
+        $outputText = $process.StandardOutput.ReadToEnd()
+        $process.StandardError.ReadToEnd() > $null
+        $process.WaitForExit()
+    } catch {
+        return [PSCustomObject]@{ Output = @(); ExitCode = 1 }
+    }
+
+    $output = @()
+    $trimmedOutput = $outputText.TrimEnd([char[]]"`r`n")
+    if ($trimmedOutput) {
+        $output = @($trimmedOutput -split "`r?`n")
+    }
+
+    return [PSCustomObject]@{ Output = $output; ExitCode = $process.ExitCode }
 }
 
 function __dx_complete_first {
@@ -172,17 +225,19 @@ function __dx_stack_wrapper {
 
     $dest = $null
     if ($Selector) {
-        $target = (dx navigate $Mode $Selector)
-        if ($LASTEXITCODE -ne 0 -or -not $target) {
+        $navigateResult = __dx_stack_invoke -CommandArgs @('navigate', $Mode, $Selector)
+        $target = $navigateResult.Output
+        if ($navigateResult.ExitCode -ne 0 -or -not $target) {
             return
         }
 
-        $dest = (dx stack $undoOrRedo --preview --target $target)
+        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--preview', '--target', $target)
     } else {
-        $dest = (dx stack $undoOrRedo --preview)
+        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--preview')
     }
+    $dest = $previewResult.Output
 
-    if ($LASTEXITCODE -ne 0 -or -not $dest) {
+    if ($previewResult.ExitCode -ne 0 -or -not $dest) {
         return
     }
 
@@ -190,8 +245,8 @@ function __dx_stack_wrapper {
     if (-not $?) {
         return
     }
-    dx stack $undoOrRedo --target $dest *> $null
-    if ($LASTEXITCODE -ne 0) {
+    $applyResult = __dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--target', $dest)
+    if ($applyResult.ExitCode -ne 0) {
         __dx_set_location_native @($origin)
     }
 }
@@ -268,7 +323,11 @@ function Set-DxLocation {
             (__dx_is_resolvable_path $Path) -and
             (Get-Command dx -ErrorAction SilentlyContinue)
         ) {
-            $resolved = (dx resolve $Path 2>$null)
+            try {
+                $resolved = (dx resolve $Path 2>$null)
+            } catch {
+                $resolved = $null
+            }
             if ($LASTEXITCODE -eq 0 -and $resolved) {
                 $nativeParameters['Path'] = $resolved
             }
@@ -297,9 +356,9 @@ function Set-DxLocation {
             (Get-Command dx -ErrorAction SilentlyContinue)
         ) {
             if (__dx_is_filesystem_location $startLocation) {
-                dx stack push $startLocation.Path *> $null
+                __dx_push_path $startLocation.Path
             }
-            dx stack push $endLocation.Path *> $null
+            __dx_push_path $endLocation.Path
         }
     }
 }

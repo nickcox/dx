@@ -26,6 +26,15 @@ __dx_push_pwd() {
   dx stack push "$PWD" >/dev/null 2>&1 || true
 }
 
+__dx_stack_run() {
+  command -v dx >/dev/null 2>&1 || return 127
+
+  (
+    builtin cd "${HOME:-/tmp}" >/dev/null 2>&1 || builtin cd /tmp >/dev/null 2>&1 || return 1
+    dx "$@"
+  )
+}
+
 __dx_cd_native() {
   builtin cd "$@"
 }
@@ -46,7 +55,6 @@ __dx_nav_wrapper() {
   local __dx_mode="$1"
   local __dx_selector="${2:-}"
   command -v dx >/dev/null 2>&1 || return 1
-
   __dx_push_pwd
 
   local __dx_target=""
@@ -69,7 +77,6 @@ __dx_stack_wrapper() {
   local __dx_op="$1"
   local __dx_selector="${2:-}"
   command -v dx >/dev/null 2>&1 || return 1
-
   local __dx_undo_or_redo
   if [[ "$__dx_op" == "back" ]]; then
     __dx_undo_or_redo="undo"
@@ -81,16 +88,16 @@ __dx_stack_wrapper() {
   local __dx_origin="$PWD"
   if [[ -n "$__dx_selector" ]]; then
     local __dx_target
-    __dx_target="$(dx navigate "$__dx_op" "$__dx_selector")" || return 1
+    __dx_target="$(__dx_stack_run navigate "$__dx_op" "$__dx_selector")" || return 1
     [[ -n "$__dx_target" ]] || return 1
-    __dx_dest="$(dx stack "$__dx_undo_or_redo" --preview --target "$__dx_target")" || return 1
+    __dx_dest="$(__dx_stack_run stack "$__dx_undo_or_redo" --preview --target "$__dx_target")" || return 1
   else
-    __dx_dest="$(dx stack "$__dx_undo_or_redo" --preview)" || return 1
+    __dx_dest="$(__dx_stack_run stack "$__dx_undo_or_redo" --preview)" || return 1
   fi
 
   [[ -n "$__dx_dest" ]] || return 1
   __dx_cd_native "$__dx_dest" || return $?
-  dx stack "$__dx_undo_or_redo" --target "$__dx_dest" >/dev/null || {
+  __dx_stack_run stack "$__dx_undo_or_redo" --target "$__dx_dest" >/dev/null || {
     __dx_cd_native "$__dx_origin" >/dev/null 2>&1
     return 1
   }
@@ -101,7 +108,6 @@ __dx_jump_mode() {
   local __dx_mode="$1"
   local __dx_query="${2:-}"
   command -v dx >/dev/null 2>&1 || return 1
-
   local __dx_target=""
   local __dx_output=""
   if [[ -n "$__dx_query" ]]; then

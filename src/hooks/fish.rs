@@ -28,6 +28,20 @@ function __dx_push_pwd
   end
 end
 
+function __dx_stack_run
+  if not type -q dx
+    return 127
+  end
+
+  set -l __dx_origin "$PWD"
+  builtin cd "$HOME" >/dev/null 2>/dev/null; or builtin cd /tmp >/dev/null 2>/dev/null
+  or return 1
+  dx $argv
+  set -l __dx_status $status
+  builtin cd "$__dx_origin" >/dev/null 2>/dev/null
+  return $__dx_status
+end
+
 function __dx_cd_native
   builtin cd $argv
 end
@@ -78,13 +92,13 @@ function __dx_stack_wrapper --argument op selector
   set -l dest
   set -l origin "$PWD"
   if test -n "$selector"
-    set -l target (dx navigate $op "$selector")
+    set -l target (__dx_stack_run navigate $op "$selector")
     or return 1
     test -n "$target"; or return 1
-    set dest (dx stack $undo_or_redo --preview --target "$target")
+    set dest (__dx_stack_run stack $undo_or_redo --preview --target "$target")
     or return 1
   else
-    set dest (dx stack $undo_or_redo --preview)
+    set dest (__dx_stack_run stack $undo_or_redo --preview)
     or return 1
   end
 
@@ -94,7 +108,7 @@ function __dx_stack_wrapper --argument op selector
   if test $dx_status -ne 0
     return $dx_status
   end
-  dx stack $undo_or_redo --target "$dest" >/dev/null
+  __dx_stack_run stack $undo_or_redo --target "$dest" >/dev/null
   set dx_status $status
   if test $dx_status -ne 0
     __dx_cd_native "$origin" >/dev/null 2>/dev/null

@@ -242,7 +242,7 @@ mod tests {
         assert!(output.contains("back() {\n  __dx_stack_wrapper back"));
         assert!(output.contains("forward() {\n  __dx_stack_wrapper forward"));
         assert!(output.contains("__dx_stack_wrapper()"));
-        assert!(output.contains("dx stack \"$__dx_undo_or_redo\""));
+        assert!(output.contains("__dx_stack_run stack \"$__dx_undo_or_redo\""));
     }
 
     #[test]
@@ -384,7 +384,11 @@ mod tests {
         );
         assert!(!pwsh_stack.contains("__dx_push_pwd"));
         assert!(pwsh_stack.contains("--preview"));
-        assert!(pwsh_stack.contains("dx stack $undoOrRedo --target $dest"));
+        assert!(
+            pwsh_stack.contains(
+                "__dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--target', $dest)"
+            )
+        );
     }
 
     #[test]
@@ -498,7 +502,7 @@ mod tests {
         assert!(output.contains("function __dx_is_resolvable_path"));
         assert!(output.contains("$PSBoundParameters.ContainsKey('Path')"));
         assert!(output.contains("$Path -in @('-', '+')"));
-        assert!(output.contains("dx stack push $startLocation.Path *> $null"));
+        assert!(output.contains("__dx_push_path $startLocation.Path"));
         assert!(!output.contains("__dx_oldpwd"));
         assert!(!output.contains("ValueFromRemainingArguments"));
     }
