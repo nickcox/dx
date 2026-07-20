@@ -435,21 +435,20 @@ mod imp {
         home: Option<&Path>,
         prefer_relative_paths: bool,
     ) -> String {
-        if prefer_relative_paths && let Ok(rel) = path.strip_prefix(cwd) {
+        if prefer_relative_paths && let Some(rel) = relative_path_for_display(path, cwd) {
             use std::path::Component;
 
-            let cleaned = crate::complete::sanitize_relative_components(rel);
-            if cleaned.as_os_str().is_empty() {
+            if rel.as_os_str().is_empty() {
                 "./".to_string()
             } else {
-                let starts_with_parent = cleaned
+                let starts_with_parent = rel
                     .components()
                     .next()
                     .is_some_and(|component| matches!(component, Component::ParentDir));
                 if starts_with_parent {
-                    cleaned.display().to_string()
+                    rel.display().to_string()
                 } else {
-                    format!("./{}", cleaned.display())
+                    format!("./{}", rel.display())
                 }
             }
         } else if let Some(h) = home {
@@ -460,6 +459,27 @@ mod imp {
         } else {
             path.display().to_string()
         }
+    }
+
+    fn relative_path_for_display(path: &Path, cwd: &Path) -> Option<PathBuf> {
+        path.strip_prefix(cwd)
+            .ok()
+            .map(crate::complete::sanitize_relative_components)
+            .or_else(|| {
+                let path = std::fs::canonicalize(path).ok()?;
+                let cwd = std::fs::canonicalize(cwd).ok()?;
+                path.strip_prefix(cwd)
+                    .ok()
+                    .map(crate::complete::sanitize_relative_components)
+            })
+    }
+
+    fn cwd_relative_label_for_display(path: &Path, cwd: &Path, dot_prefix: bool) -> Option<String> {
+        crate::complete::cwd_relative_label(path, cwd, dot_prefix).or_else(|| {
+            let path = std::fs::canonicalize(path).ok()?;
+            let cwd = std::fs::canonicalize(cwd).ok()?;
+            crate::complete::cwd_relative_label(&path, &cwd, dot_prefix)
+        })
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -500,14 +520,10 @@ mod imp {
     ) -> String {
         match style {
             CandidateLabelStyle::Compact => display_label(path, cwd, home, true),
-            CandidateLabelStyle::BareRelative => {
-                crate::complete::cwd_relative_label(path, cwd, false)
-                    .unwrap_or_else(|| display_label(path, cwd, home, false))
-            }
-            CandidateLabelStyle::DotRelative => {
-                crate::complete::cwd_relative_label(path, cwd, true)
-                    .unwrap_or_else(|| display_label(path, cwd, home, false))
-            }
+            CandidateLabelStyle::BareRelative => cwd_relative_label_for_display(path, cwd, false)
+                .unwrap_or_else(|| display_label(path, cwd, home, false)),
+            CandidateLabelStyle::DotRelative => cwd_relative_label_for_display(path, cwd, true)
+                .unwrap_or_else(|| display_label(path, cwd, home, false)),
             CandidateLabelStyle::ParentRelative => crate::complete::relative_path_from(cwd, path)
                 .map(|relative| relative.display().to_string())
                 .unwrap_or_else(|| display_label(path, cwd, home, false)),
@@ -1495,6 +1511,8 @@ mod imp {
     #[cfg(test)]
     mod tests {
         use std::cell::{Cell, RefCell};
+        use std::fs;
+        use std::os::unix::fs::symlink;
         use std::rc::Rc;
 
         use super::*;
@@ -1845,6 +1863,30 @@ mod imp {
             let cwd = Path::new("/Users/nick");
             let path = Path::new("/Users/nick/Desktop");
             assert_eq!(display_label(path, cwd, None, true), "./Desktop");
+        }
+
+        #[test]
+        fn display_label_is_relative_for_equivalent_symlinked_cwd() {
+            let temp = crate::test_support::temp_dir("menu-display-symlink-cwd");
+            let real_cwd = temp.path().join("real");
+            let linked_cwd = temp.path().join("linked");
+            let path = real_cwd.join("documentation");
+            fs::create_dir_all(&path).expect("create candidate directory");
+            symlink("real", &linked_cwd).expect("create cwd symlink");
+
+            assert_eq!(
+                display_label(&path, &linked_cwd, None, true),
+                "./documentation"
+            );
+            assert_eq!(
+                display_label_for_style(
+                    &path,
+                    &linked_cwd,
+                    None,
+                    CandidateLabelStyle::BareRelative,
+                ),
+                "documentation"
+            );
         }
 
         #[test]
