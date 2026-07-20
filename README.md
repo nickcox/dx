@@ -1,51 +1,95 @@
 # dx
 
-`dx` is a directory navigation CLI and shell integration toolkit focused on fast path resolution, stack-style navigation, and shell-friendly workflows.
+`dx` is a directory navigation CLI with shell integrations for Bash, Zsh, Fish,
+and PowerShell. It adds abbreviated path resolution, directory history,
+bookmarks, frecent jumps, and an optional interactive completion menu while
+leaving directory changes in the shell itself.
 
-## Start Here
+<p align="center">
+  <img src="docs/assets/menu-demo.gif" width="900" alt="dx interactive menu filtering and selecting a directory">
+</p>
 
-- [Quickstart](./docs/quickstart.md)
-- [Shell Setup](./docs/shell-setup.md)
+## Highlights
 
-Shell setup can also enable opt-in menu completion for mapped external commands such as `ls`, `open`, and `cat` with `DX_MENU_COMMAND_MAPPINGS`.
+- Jump through abbreviated directory names: `cd pr/dx`
+- Match word boundaries and gaps: `cd cd-e`, `cd P..Shell`
+- Move to an ancestor: `up`, `up 3`, or `up project`
+- Undo and redo directory changes: `back` / `cd-` and `forward` / `cd+`
+- Jump to recent or frecent directories: `cdr` and `z` / `cdf`
+- Save named directory bookmarks
+- Opt into an inline, keyboard-driven completion menu
 
-Nix users can run `dx` directly from the flake:
+## Install
+
+### Homebrew
+
+```bash
+brew tap nickcox/dx
+brew install nickcox/dx/dx
+```
+
+Upgrade with:
+
+```bash
+brew upgrade nickcox/dx/dx
+```
+
+### Nix
+
+From this repository:
 
 ```bash
 nix build .#cdex
 nix run .#dx -- --help
 ```
 
-Homebrew users can install from the separate tap:
+### Direct download
+
+Tagged GitHub Releases publish binaries for Linux x86_64, Linux ARM64, macOS
+Intel, macOS Apple Silicon, and Windows x86_64. Download the binary for your
+platform, make it executable when required, and place it on your `PATH`.
+
+## Set Up Your Shell
+
+Add the appropriate command to your shell profile:
 
 ```bash
-brew tap nickcox/dx
-brew install nickcox/dx/cdex
-dx --help
+# Bash (~/.bashrc)
+eval "$(dx init bash)"
+
+# Zsh (~/.zshrc)
+eval "$(dx init zsh)"
 ```
 
-Upgrade with:
-
-```bash
-brew upgrade nickcox/dx/cdex
+```fish
+# Fish (~/.config/fish/config.fish)
+dx init fish | source
 ```
 
-Distribution identity is `cdex` (package/formula), while the installed command remains `dx`. Homebrew release updates are maintained via manual PRs to `nickcox/homebrew-dx`.
+```powershell
+# PowerShell ($PROFILE)
+Invoke-Expression ((& dx init pwsh | Out-String))
+```
 
-## Direct Downloads
+Restart the shell or reload its profile, then try:
 
-Tagged GitHub Releases also publish raw `dx` binaries for:
+```text
+cd pr/dx
+up
+back
+forward
+```
 
-- Linux x86_64: `dx-linux-x86_64`
-- Linux ARM64: `dx-linux-arm64`
-- macOS Intel: `dx-macos-x86_64`
-- macOS Apple Silicon: `dx-macos-arm64`
-- Windows x86_64: `dx-windows-x86_64.exe`
+See [Shell Setup](./docs/shell-setup.md) for menu mode, command-not-found
+integration, and verification steps.
 
-Download the binary for your platform from the project's GitHub Releases page, mark it executable if needed, and place it somewhere on your `PATH`.
+## Documentation
 
-## Technical Docs
+- [Quickstart](./docs/quickstart.md)
+- [Shell Setup](./docs/shell-setup.md)
+- [Navigation Guide](./docs/navigation.md)
+- [Interactive Menu](./docs/menu.md)
+- [Configuration Reference](./docs/configuration.md)
+- [Troubleshooting](./docs/troubleshooting.md)
 
-- [Technical docs index](./tech-docs/)
-- [Configuration reference](./tech-docs/configuration.md)
-- [Shell hook guarding strategy](./tech-docs/shell-hook-guarding.md)
+Implementation-oriented material is available in [Technical Docs](./tech-docs/).

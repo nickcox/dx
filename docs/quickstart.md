@@ -1,90 +1,151 @@
 # Quickstart
 
-Welcome! This guide helps you get `dx` working quickly and run your first successful navigation flow.
+This guide gets `dx` installed, loaded into your shell, and completing a first
+navigation workflow.
 
-## What you'll do
+## 1. Install dx
 
-1. Confirm prerequisites.
-2. Initialize shell integration.
-3. Run a first command and verify expected output.
-4. Continue to deeper guides as needed.
+Homebrew:
 
-## Prerequisites
+```bash
+brew tap nickcox/dx
+brew install nickcox/dx/dx
+```
 
-- A supported shell (Bash, Zsh, Fish, or PowerShell).
-- `dx` installed and available on your `PATH`.
-- If you use Nix, you can build or run the packaged app with:
+Nix, from the repository:
 
 ```bash
 nix build .#cdex
 nix run .#dx -- --help
 ```
 
-- If you use Homebrew, install from the separate tap with:
+Tagged GitHub Releases also provide raw binaries for Linux, macOS, and Windows.
+Place the downloaded binary on your `PATH` and make it executable when needed.
 
-```bash
-brew tap nickcox/dx
-brew install nickcox/dx/cdex
-dx --help
-```
-
-- Homebrew installs the `cdex` formula, but the command you run remains `dx`.
-
-- If you prefer direct downloads, tagged GitHub Releases also publish raw binaries for Linux x86_64, Linux ARM64, macOS Intel, macOS Apple Silicon, and Windows x86_64. Download the binary for your platform, make it executable if needed, and place it on your `PATH`.
-
-- A terminal session where you can run shell init commands.
-
-## 1) Initialize shell integration
-
-Set up your shell first so wrappers and completion behavior work as expected.
-
-- Go to: [Shell Setup](./shell-setup.md)
-
-## 2) Try a first command
-
-After shell setup is loaded, run a simple command to confirm `dx` is available:
+Confirm the command is available:
 
 ```bash
 dx --help
 ```
 
-Success looks like: help text prints without errors.
+## 2. Load the shell integration
 
-## 3) Use basic navigation flow
+Choose your shell and add the command to its profile.
 
-Once your shell is initialized, try one normal navigation command from your shell workflow.
+### Bash
 
-`dx` path resolution supports shortened path segments, not just literal directory names. Examples:
+Add to `~/.bashrc`:
 
 ```bash
+eval "$(dx init bash)"
+```
+
+### Zsh
+
+Add to `~/.zshrc`:
+
+```zsh
+eval "$(dx init zsh)"
+```
+
+### Fish
+
+Add to `~/.config/fish/config.fish`:
+
+```fish
+dx init fish | source
+```
+
+### PowerShell
+
+Add to the profile shown by `$PROFILE`:
+
+```powershell
+Invoke-Expression ((& dx init pwsh | Out-String))
+```
+
+PowerShell must evaluate the generated output as one script block, which is why
+the command uses `Out-String`.
+
+Restart the shell or reload the profile after making the change.
+
+## 3. Try abbreviated paths
+
+`dx` first respects direct paths, then applies its path-shortening rules when a
+literal path does not resolve.
+
+```text
 cd pr/dx
 cd cd-e
-cd p..shell
-cd proj/p..shell/s/.sdk
+cd P..Shell
 ```
 
-Shortening rules:
-- Plain fragments still match from the start of a segment.
-- Word delimiters `.`, `_`, and `-` can be used inside a segment, so queries like `cd-e` and `.sdk` match names around those literal delimiters.
-- Doubled periods `..` act as an in-segment gap operator, so `p..shell` can match `PowerShell` and `s..32` can match `System32`.
+The matching rules are:
 
-If a command fails, revisit shell setup and confirm your shell initialization loaded successfully.
+- Plain fragments match from the start of a path segment.
+- `.`, `_`, and `-` identify literal word boundaries within a segment.
+- `..` inside a segment is a gap, so `P..Shell` can match `PowerShell`.
+- A pure multi-dot token such as `...` keeps its step-up meaning.
 
-## Optional: enable menu completion for external commands
+Matching is case-sensitive by default. Set `DX_CASE_SENSITIVE=false` if you
+prefer lowercase queries such as `p..shell` for mixed-case names.
 
-If you initialize with `dx init <shell> --menu`, you can map external commands to `dx`'s menu completion with `DX_MENU_COMMAND_MAPPINGS`:
+Matches must be unambiguous. Use normal literal paths whenever you want to skip
+abbreviation matching.
 
-```sh
-export DX_MENU_COMMAND_MAPPINGS="ls=path,open=path,cat=file"
+## 4. Navigate history and ancestors
+
+After changing directories a few times, try:
+
+```text
+up
+back
+forward
+```
+
+Aliases are also available:
+
+```text
+cd-     # same as back
+cd+     # same as forward
+```
+
+Navigation commands accept an optional selector:
+
+```text
+up 3          # third ancestor
+up project    # closest matching ancestor
+back 2        # second item in back history
+```
+
+## 5. Optional frecent navigation
+
+`z` and `cdf` use zoxide as their frecency provider:
+
+```text
+z project
+cdf project
+```
+
+Install and use zoxide normally to populate its database. If zoxide is not
+available, frecent queries simply produce no candidates.
+
+## 6. Optional interactive menu
+
+Add `--menu` to shell initialization to replace supported completion bindings
+with the inline selector:
+
+```zsh
 eval "$(dx init zsh --menu)"
 ```
 
-The mapping format is `<command>=<mode>,...`. Valid modes are `path` for files and directories, `directory` for directories only, and `file` for regular files only. Re-run `dx init <shell> --menu` after changing mappings so regenerated hooks capture the new command set.
+Equivalent forms are available for every supported shell. See
+[Interactive Menu](./menu.md) for controls and customization.
 
-In PowerShell, dx menu mode binds `Tab` by default. Set `DX_PWSH_MENU_KEY` before `dx init pwsh --menu` to use a different PSReadLine key, for example `F12`. PowerShell fallback attempts to preserve the key's previous PSReadLine function; previous custom scriptblock handlers produce a warning because they cannot be replayed.
+## Next Steps
 
-## What to read next
-
-- Project overview: [README](../README.md)
-- Setup details: [Shell Setup](./shell-setup.md)
-- Implementation details: [Technical Docs](../tech-docs/)
+- [Shell Setup](./shell-setup.md)
+- [Navigation Guide](./navigation.md)
+- [Interactive Menu](./menu.md)
+- [Configuration Reference](./configuration.md)
+- [Troubleshooting](./troubleshooting.md)
