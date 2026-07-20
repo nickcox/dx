@@ -29,14 +29,18 @@ pub enum MenuResult {
 #[cfg(unix)]
 mod imp {
     use std::fs::OpenOptions;
-    use std::io::{BufWriter, Write, stderr};
+    use std::io::{BufWriter, Read, Write, stderr};
+    use std::os::fd::AsFd;
     use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
 
     use crossterm::{
         cursor,
         event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
         execute, terminal,
     };
+    use nix::sys::select::{FdSet, select as select_fds};
+    use nix::sys::time::{TimeVal, TimeValLike};
     use ratatui::{
         Terminal, TerminalOptions, Viewport,
         backend::CrosstermBackend,
@@ -69,6 +73,7 @@ mod imp {
 
     trait TerminalOps {
         fn size(&self) -> std::io::Result<(u16, u16)>;
+        fn cursor_row(&self) -> std::io::Result<u16>;
         fn enable_raw_mode(&self) -> std::io::Result<()>;
         fn disable_raw_mode(&self) -> std::io::Result<()>;
         fn open_output(&self, use_tty_backend: bool) -> std::io::Result<Box<dyn Write>>;
@@ -79,6 +84,10 @@ mod imp {
     impl TerminalOps for CrosstermTerminalOps {
         fn size(&self) -> std::io::Result<(u16, u16)> {
             terminal::size()
+        }
+
+        fn cursor_row(&self) -> std::io::Result<u16> {
+            cursor_row_via_tty(Duration::from_millis(250))
         }
 
         fn enable_raw_mode(&self) -> std::io::Result<()> {
@@ -98,6 +107,62 @@ mod imp {
                 Ok(Box::new(stderr()))
             }
         }
+    }
+
+    fn cursor_row_via_tty(timeout: Duration) -> std::io::Result<u16> {
+        let mut tty = OpenOptions::new().read(true).write(true).open("/dev/tty")?;
+        tty.write_all(b"\x1b[6n")?;
+        tty.flush()?;
+
+        let deadline = Instant::now() + timeout;
+        let mut response = Vec::with_capacity(16);
+        while response.len() < 32 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+
+            let mut read_fds = FdSet::new();
+            read_fds.insert(tty.as_fd());
+            let timeout_ms = i64::try_from(remaining.as_millis().max(1)).unwrap_or(i64::MAX);
+            let mut select_timeout = TimeVal::milliseconds(timeout_ms);
+            if select_fds(
+                None,
+                Some(&mut read_fds),
+                None,
+                None,
+                Some(&mut select_timeout),
+            )
+            .map_err(std::io::Error::other)?
+                == 0
+            {
+                break;
+            }
+
+            let mut byte = [0u8; 1];
+            tty.read_exact(&mut byte)?;
+            response.push(byte[0]);
+            if byte[0] == b'R' {
+                return parse_cursor_row_response(&response).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "terminal returned an invalid cursor position",
+                    )
+                });
+            }
+        }
+
+        Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "terminal did not report its cursor position",
+        ))
+    }
+
+    fn parse_cursor_row_response(response: &[u8]) -> Option<u16> {
+        let response = std::str::from_utf8(response).ok()?;
+        let position = response.rsplit_once("\x1b[")?.1.strip_suffix('R')?;
+        let (row, _column) = position.split_once(';')?;
+        row.parse::<u16>().ok()?.checked_sub(1)
     }
 
     struct TerminalSession<'a> {
@@ -535,9 +600,11 @@ mod imp {
         let use_tty_backend = psreadline_mode;
         let mut session = TerminalSession::start(terminal_ops, use_tty_backend).ok()?;
 
-        // Shells that know the prompt row provide it explicitly. Otherwise,
-        // assume the prompt is at the bottom and reserve space by scrolling.
-        let prompt_row = initial_prompt_row(prompt_row_override, rows);
+        let measured_prompt_row = match prompt_row_override {
+            Some(row) => row,
+            None => terminal_ops.cursor_row().ok()?,
+        };
+        let prompt_row = clamp_prompt_row(measured_prompt_row, rows);
         let reservation = session
             .reserve_space(prompt_row, rows, required_rows)
             .ok()?;
@@ -983,10 +1050,8 @@ mod imp {
         rendered_height.saturating_add(prompt_gap_rows(show_border))
     }
 
-    fn initial_prompt_row(prompt_row_override: Option<u16>, terminal_rows: u16) -> u16 {
-        prompt_row_override
-            .unwrap_or_else(|| terminal_rows.saturating_sub(1))
-            .min(terminal_rows.saturating_sub(1))
+    fn clamp_prompt_row(prompt_row: u16, terminal_rows: u16) -> u16 {
+        prompt_row.min(terminal_rows.saturating_sub(1))
     }
 
     fn menu_top_row(
@@ -1466,9 +1531,12 @@ mod imp {
 
         struct MockTerminalOps {
             size: (u16, u16),
+            cursor_row: u16,
             fail_enable: bool,
+            fail_cursor_row: bool,
             fail_open_at: Option<usize>,
             size_calls: Cell<usize>,
+            cursor_row_calls: Cell<usize>,
             enable_calls: Cell<usize>,
             disable_calls: Cell<usize>,
             open_calls: Cell<usize>,
@@ -1479,9 +1547,12 @@ mod imp {
             fn new() -> Self {
                 Self {
                     size: (80, 24),
+                    cursor_row: 23,
                     fail_enable: false,
+                    fail_cursor_row: false,
                     fail_open_at: None,
                     size_calls: Cell::new(0),
+                    cursor_row_calls: Cell::new(0),
                     enable_calls: Cell::new(0),
                     disable_calls: Cell::new(0),
                     open_calls: Cell::new(0),
@@ -1496,12 +1567,35 @@ mod imp {
                     .windows(sequence.len())
                     .any(|bytes| bytes == sequence)
             }
+
+            fn output_contains_scroll_up(&self) -> bool {
+                let state = self.writer_state.borrow();
+                let bytes = &state.bytes;
+                bytes.iter().enumerate().any(|(index, byte)| {
+                    *byte == b'S'
+                        && bytes[..index]
+                            .iter()
+                            .rev()
+                            .take_while(|byte| byte.is_ascii_digit())
+                            .count()
+                            > 0
+                })
+            }
         }
 
         impl TerminalOps for MockTerminalOps {
             fn size(&self) -> std::io::Result<(u16, u16)> {
                 self.size_calls.set(self.size_calls.get() + 1);
                 Ok(self.size)
+            }
+
+            fn cursor_row(&self) -> std::io::Result<u16> {
+                self.cursor_row_calls.set(self.cursor_row_calls.get() + 1);
+                if self.fail_cursor_row {
+                    Err(std::io::Error::other("injected cursor row failure"))
+                } else {
+                    Ok(self.cursor_row)
+                }
             }
 
             fn enable_raw_mode(&self) -> std::io::Result<()> {
@@ -1631,6 +1725,39 @@ mod imp {
             assert_eq!(terminal_ops.enable_calls.get(), 1);
             assert_eq!(terminal_ops.disable_calls.get(), 0);
             assert_eq!(terminal_ops.open_calls.get(), 0);
+        }
+
+        #[test]
+        fn cursor_row_failure_aborts_without_assuming_terminal_bottom() {
+            let mut terminal_ops = MockTerminalOps::new();
+            terminal_ops.fail_cursor_row = true;
+
+            assert!(select_with_mock(&terminal_ops, 2, None).is_none());
+            assert_eq!(terminal_ops.cursor_row_calls.get(), 1);
+            assert_eq!(terminal_ops.disable_calls.get(), 1);
+            assert_eq!(terminal_ops.open_calls.get(), 0);
+        }
+
+        #[test]
+        fn measured_cursor_near_top_does_not_scroll_during_startup() {
+            let mut terminal_ops = MockTerminalOps::new();
+            terminal_ops.cursor_row = 5;
+            terminal_ops.fail_open_at = Some(2);
+
+            assert!(select_with_mock(&terminal_ops, 20, None).is_none());
+            assert_eq!(terminal_ops.cursor_row_calls.get(), 1);
+            assert!(!terminal_ops.output_contains_scroll_up());
+        }
+
+        #[test]
+        fn explicit_prompt_row_bypasses_terminal_cursor_query() {
+            let mut terminal_ops = MockTerminalOps::new();
+            terminal_ops.fail_cursor_row = true;
+            terminal_ops.fail_open_at = Some(2);
+
+            assert!(select_with_mock(&terminal_ops, 20, Some(5)).is_none());
+            assert_eq!(terminal_ops.cursor_row_calls.get(), 0);
+            assert!(!terminal_ops.output_contains_scroll_up());
         }
 
         #[test]
@@ -2253,20 +2380,27 @@ mod imp {
         }
 
         #[test]
-        fn prompt_row_uses_override_or_terminal_bottom() {
-            assert_eq!(initial_prompt_row(Some(5), 24), 5);
-            assert_eq!(initial_prompt_row(Some(30), 24), 23);
-            assert_eq!(initial_prompt_row(None, 24), 23);
-            assert_eq!(initial_prompt_row(None, 0), 0);
+        fn prompt_row_is_clamped_to_terminal_bounds() {
+            assert_eq!(clamp_prompt_row(5, 24), 5);
+            assert_eq!(clamp_prompt_row(30, 24), 23);
+            assert_eq!(clamp_prompt_row(0, 0), 0);
         }
 
         #[test]
-        fn bottom_row_fallback_reserves_requested_space() {
-            let prompt_row = initial_prompt_row(None, 24);
+        fn cursor_position_response_parses_zero_based_row() {
+            assert_eq!(parse_cursor_row_response(b"\x1b[6;42R"), Some(5));
+            assert_eq!(parse_cursor_row_response(b"noise\x1b[24;1R"), Some(23));
+            assert_eq!(parse_cursor_row_response(b"\x1b[0;1R"), None);
+            assert_eq!(parse_cursor_row_response(b"invalid"), None);
+        }
+
+        #[test]
+        fn measured_prompt_near_top_does_not_scroll_when_menu_fits() {
+            let prompt_row = clamp_prompt_row(5, 24);
             let scroll_needed = scroll_rows_needed(prompt_row, 24, 10);
 
-            assert_eq!(scroll_needed, 10);
-            assert_eq!(prompt_row.saturating_sub(scroll_needed), 13);
+            assert_eq!(scroll_needed, 0);
+            assert_eq!(menu_top_row(prompt_row, 24, 10, true), 6);
         }
 
         #[test]
