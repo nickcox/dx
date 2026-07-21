@@ -2,7 +2,7 @@
 
 ## Rust version
 
-This project uses Rost 2024 Edition so crates should be compatible with that. The local complier is `rustc 1.94.1`.
+This project uses Rust 2024 Edition so crates should be compatible with that. The local complier is `rustc 1.94.1`.
 
 ## Gotcha
 

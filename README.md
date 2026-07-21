@@ -3,7 +3,7 @@
 `dx` is a directory navigation CLI with shell integrations for Bash, Zsh, Fish,
 and PowerShell. It adds abbreviated path resolution, directory history,
 bookmarks, frecent jumps, and an optional interactive completion menu while
-leaving directory changes in the shell itself.
+jumping directly to a selected directory.
 
 <p align="center">
   <img src="docs/assets/menu-demo.gif" width="900" alt="dx interactive menu filtering and selecting a directory">
@@ -98,5 +98,3 @@ integration, and verification steps.
 - [Interactive Menu](./docs/menu.md)
 - [Configuration Reference](./docs/configuration.md)
 - [Troubleshooting](./docs/troubleshooting.md)
-
-Implementation-oriented material is available in [Technical Docs](./tech-docs/).
