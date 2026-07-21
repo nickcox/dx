@@ -71,8 +71,25 @@ $env:DX_MENU_DEBUG = "1"
 Runtime appearance settings are read when the menu opens, but command mappings
 and the PowerShell menu key are embedded in generated hook code.
 
-After changing `DX_MENU_COMMAND_MAPPINGS` or `DX_PWSH_MENU_KEY`, rerun
-`dx init <shell> --menu` and reload the profile.
+After changing `DX_MENU_COMMAND_MAPPINGS`, rerun `dx init <shell> --menu` or
+`dx init pwsh --native-menu` and reload the profile. After changing
+`DX_PWSH_MENU_KEY`, rerun `dx init pwsh --menu`; native mode does not use that
+setting.
+
+## PowerShell Native Menu Does Not Open
+
+`--native-menu` supplies structured candidates but does not replace the user's
+PSReadLine key bindings. Check the current completion bindings:
+
+```powershell
+Get-PSReadLineKeyHandler -Bound | Where-Object Function -eq MenuComplete
+```
+
+To bind Tab to the native menu:
+
+```powershell
+Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete
+```
 
 ## PowerShell Warns About `CustomAction`
 

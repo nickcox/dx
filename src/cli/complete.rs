@@ -2,8 +2,8 @@ use clap::{Subcommand, ValueEnum};
 
 use crate::common;
 use crate::complete::{
-    self, StackDirection, ancestors, paths as paths_mode, recents as recents_mode,
-    stack as stack_mode,
+    self, StackDirection, ancestors, filesystem as filesystem_mode, paths as paths_mode,
+    recents as recents_mode, stack as stack_mode,
 };
 use crate::frecency::ZoxideProvider;
 use crate::resolve::Resolver;
@@ -51,6 +51,32 @@ pub enum CompleteCommand {
         #[arg(long = "limit", alias = "list")]
         limit: Option<usize>,
     },
+    Filesystem {
+        #[arg(value_enum)]
+        kind: FilesystemKindArg,
+        query: Option<String>,
+        #[arg(long)]
+        json: bool,
+        #[arg(long = "limit", alias = "list")]
+        limit: Option<usize>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum FilesystemKindArg {
+    Path,
+    Directory,
+    File,
+}
+
+impl From<FilesystemKindArg> for filesystem_mode::FilesystemCompletionKind {
+    fn from(value: FilesystemKindArg) -> Self {
+        match value {
+            FilesystemKindArg::Path => Self::Path,
+            FilesystemKindArg::Directory => Self::Directory,
+            FilesystemKindArg::File => Self::File,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -118,6 +144,16 @@ pub fn run_complete(resolver: &Resolver, command: CompleteCommand) -> i32 {
                 json,
                 limit,
             )
+        }
+        CompleteCommand::Filesystem {
+            kind,
+            query,
+            json,
+            limit,
+        } => {
+            let candidates =
+                filesystem_mode::complete(resolver, query.as_deref(), None, limit, kind.into());
+            (candidates.paths, json, None)
         }
     };
 

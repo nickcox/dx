@@ -177,6 +177,15 @@ If explicit roots are configured, cwd SHALL still be included in effective root 
 - **WHEN** `dx complete stack --direction back proj` is invoked and the undo stack contains `/home/user/projects/dx` and `/tmp/scratch`
 - **THEN** the output SHALL contain only `/home/user/projects/dx`
 
+### Requirement: Filesystem Completion Modes
+`dx complete filesystem <kind> [query]` SHALL expose the filesystem candidate source used by mapped commands, where `<kind>` is `path`, `directory`, or `file`.
+
+`path` SHALL include files and directories, `directory` SHALL include only directories, and `file` SHALL include only regular files. The command SHALL support the common `--json` and `--limit` completion options.
+
+#### Scenario: Filesystem completion filters by kind
+- **WHEN** the current directory contains matching files and directories and `dx complete filesystem file <query> --json` is invoked
+- **THEN** the JSON candidates SHALL include matching regular files and SHALL exclude matching directories
+
 ### Requirement: Plain Output Format
 In plain mode (no `--json` flag), all completion modes SHALL output one absolute path per line to stdout. No indexes, labels, or metadata SHALL be included. Empty results SHALL produce no output. The command SHALL always exit with code 0.
 

@@ -261,6 +261,180 @@ fn init_pwsh_with_menu_flag_includes_psreadline_handler() {
 }
 
 #[test]
+fn init_pwsh_native_menu_uses_structured_argument_completers_without_key_handler() {
+    let output = dx()
+        .args(["init", "pwsh", "--native-menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "Get-Content=file")
+        .env("DX_PWSH_MENU_KEY", "F12")
+        .output()
+        .expect("dx init pwsh --native-menu should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("function __dx_complete_json"));
+    assert!(stdout.contains("function __dx_emit_native_completion"));
+    assert!(stdout.contains("[System.Management.Automation.CompletionResult]::new("));
+    assert!(stdout.contains(
+        "Register-ArgumentCompleter -CommandName Set-DxLocation,cd,Set-Location -ParameterName Path"
+    ));
+    assert!(stdout.contains(
+        "__dx_emit_native_completion (__dx_complete_json -Mode paths -Word $wordToComplete) -Directory"
+    ));
+    assert!(stdout.contains(
+        "__dx_emit_native_completion (__dx_complete_json -Mode frecents -Word $wordToComplete)"
+    ));
+    assert!(!stdout.contains(
+        "__dx_emit_native_completion (__dx_complete_json -Mode frecents -Word $wordToComplete) -Directory"
+    ));
+    assert!(stdout.contains("__dx_register_native_mapped_completions @('Get-Content=file')"));
+    assert!(stdout.contains("-Mode filesystem"));
+    assert!(stdout.contains("$args += @('--limit', [string]$probeLimit)"));
+    assert!(stdout.contains("| showing first $($showingFirst.Value)"));
+    assert!(stdout.contains("function __dx_truncate_native_label"));
+    assert!(!stdout.contains("Test-Path -LiteralPath $value -PathType Container"));
+    assert!(!stdout.contains("Set-PSReadLineKeyHandler"));
+    assert!(!stdout.contains("--psreadline-mode"));
+    assert!(!stdout.contains("F12"));
+}
+
+#[test]
+fn init_pwsh_native_menu_rejects_invalid_mappings() {
+    let output = dx()
+        .args(["init", "pwsh", "--native-menu"])
+        .env("DX_MENU_COMMAND_MAPPINGS", "Get-Content=file,badentry")
+        .output()
+        .expect("dx init pwsh --native-menu should run");
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid DX_MENU_COMMAND_MAPPINGS"));
+}
+
+#[test]
+fn init_pwsh_native_menu_returns_structured_builtin_and_mapped_completions() {
+    if !pwsh_available() {
+        return;
+    }
+
+    let temp = common::temp_dir("pwsh-native-menu-completions");
+    fs::create_dir(temp.path().join("alpha-dir")).expect("create directory");
+    fs::create_dir(temp.path().join("alpha dir's")).expect("create quoted directory");
+    fs::write(temp.path().join("alpha-file.txt"), "fixture").expect("create file");
+
+    let script = r#"
+$env:DX_MENU_COMMAND_MAPPINGS = 'Get-Content=file'
+Set-StrictMode -Version Latest
+Invoke-Expression ((& $env:CARGO_BIN_EXE_dx init pwsh --native-menu | Out-String))
+$cd = @((TabExpansion2 'cd alpha' 8).CompletionMatches)
+$quoted = @((TabExpansion2 "cd 'alpha d" 11).CompletionMatches)
+$mapped = @((TabExpansion2 'gc alpha' 8).CompletionMatches)
+$env:DX_MAX_MENU_RESULTS = '1'
+$limited = @((TabExpansion2 'cd alpha' 8).CompletionMatches)
+Remove-Item Env:DX_MAX_MENU_RESULTS
+$env:DX_MENU_ITEM_MAX_LEN = '8'
+$truncated = @((TabExpansion2 'cd alpha-' 9).CompletionMatches)
+$env:DX_MENU_ITEM_MAX_LEN = '0'
+$untruncated = @((TabExpansion2 'cd alpha-' 9).CompletionMatches)
+Remove-Item Env:DX_MENU_ITEM_MAX_LEN
+[PSCustomObject]@{
+    cd = @($cd | ForEach-Object { [PSCustomObject]@{ text = $_.CompletionText; label = $_.ListItemText; tooltip = $_.ToolTip } })
+    quoted = @($quoted | ForEach-Object { [PSCustomObject]@{ text = $_.CompletionText; label = $_.ListItemText; tooltip = $_.ToolTip } })
+    mapped = @($mapped | ForEach-Object { [PSCustomObject]@{ text = $_.CompletionText; label = $_.ListItemText; tooltip = $_.ToolTip } })
+    limitedCount = $limited.Count
+    limitedTooltip = $limited[0].ToolTip
+    truncated = $truncated[0].ListItemText
+    untruncated = $untruncated[0].ListItemText
+} | ConvertTo-Json -Compress -Depth 4
+"#;
+    let output = Command::new("pwsh")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .current_dir(temp.path())
+        .env("PATH", path_with_dx_binary())
+        .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        .output()
+        .expect("pwsh should run");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("structured completion JSON");
+    let cd = result["cd"].as_array().expect("cd completions");
+    let cd_directory = cd
+        .iter()
+        .find(|candidate| {
+            candidate["label"]
+                .as_str()
+                .is_some_and(|label| label.ends_with("/alpha-dir"))
+        })
+        .expect("alpha-dir completion");
+    assert!(
+        cd_directory["label"]
+            .as_str()
+            .expect("cd label")
+            .ends_with("/alpha-dir")
+    );
+    assert!(
+        cd_directory["tooltip"]
+            .as_str()
+            .expect("cd tooltip")
+            .ends_with("alpha-dir")
+    );
+    let cd_text = cd_directory["text"].as_str().expect("cd completion text");
+    assert!(!cd_text.starts_with('\''));
+    assert!(cd_text.ends_with("alpha-dir/"));
+    assert_eq!(
+        result["quoted"]
+            .as_array()
+            .expect("quoted completions")
+            .len(),
+        1
+    );
+    assert!(
+        result["quoted"][0]["text"]
+            .as_str()
+            .expect("quoted completion text")
+            .contains("alpha dir''s")
+    );
+    assert_eq!(
+        result["mapped"]
+            .as_array()
+            .expect("mapped completions")
+            .len(),
+        1,
+        "unexpected mapped completions: {result}"
+    );
+    assert!(
+        result["mapped"][0]["label"]
+            .as_str()
+            .expect("mapped label")
+            .ends_with("/alpha-file.txt")
+    );
+    assert!(
+        result["mapped"][0]["tooltip"]
+            .as_str()
+            .expect("mapped tooltip")
+            .ends_with("alpha-file.txt")
+    );
+    assert_eq!(result["limitedCount"], 1);
+    assert!(
+        result["limitedTooltip"]
+            .as_str()
+            .expect("limited tooltip")
+            .ends_with(" | showing first 1")
+    );
+    assert_eq!(result["truncated"], "…pha-dir");
+    assert!(
+        result["untruncated"]
+            .as_str()
+            .expect("untruncated label")
+            .ends_with("/alpha-dir")
+    );
+}
+
+#[test]
 fn init_pwsh_menu_with_custom_key_emits_configured_key() {
     let output = dx()
         .args(["init", "pwsh", "--menu"])

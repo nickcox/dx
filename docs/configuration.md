@@ -102,7 +102,9 @@ Set to `0` to bypass interactive menu handling while keeping hooks loaded.
 
 ### `DX_MAX_MENU_RESULTS`
 
-Maximum candidates sourced for a menu invocation. Default: `1000`.
+Maximum candidates sourced for a Rust TUI or native PowerShell menu invocation.
+Default: `1000`. Native PowerShell completion reads this value when completion
+runs and does not use PSReadLine's `CompletionQueryItems` as a candidate limit.
 
 ### `DX_MENU_MAX_ROWS`
 
@@ -111,10 +113,11 @@ use the default.
 
 ### `DX_MENU_ITEM_MAX_LEN`
 
-Maximum candidate cell width. Default: `80`.
+Maximum candidate cell width or native PowerShell list-item length. Default:
+`80`. Native truncation keeps the end of the label and prefixes it with `…`.
 
 - Positive values enable multicolumn layout with that width.
-- Zero or negative values disable multicolumn layout.
+- Zero or negative values disable multicolumn layout and native label truncation.
 - Empty or invalid values use the default.
 
 ### `DX_MENU_BORDER`
@@ -149,12 +152,13 @@ Valid modes are:
 - `directory`: directories only
 - `file`: regular files only
 
-Mappings apply only when hooks are generated with `--menu`. Invalid or duplicate
-entries make initialization fail.
+Mappings apply when hooks are generated with `--menu`, or with PowerShell's
+`--native-menu`. Invalid or duplicate entries make initialization fail.
 
 ### `DX_PWSH_MENU_KEY`
 
-PowerShell-only PSReadLine key for menu mode. Default: `Tab`.
+PowerShell-only PSReadLine key for the Rust TUI mode. Default: `Tab`. It does not
+affect `--native-menu`, which preserves the existing PSReadLine key map.
 
 ```powershell
 $env:DX_PWSH_MENU_KEY = "F12"

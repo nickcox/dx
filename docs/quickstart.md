@@ -67,6 +67,13 @@ Invoke-Expression ((& dx init pwsh | Out-String))
 PowerShell must evaluate the generated output as one script block, which is why
 the command uses `Out-String`.
 
+On Windows, use `--native-menu` if you want an interactive completion menu; the
+Rust TUI provided by `--menu` is Unix-only:
+
+```powershell
+Invoke-Expression ((& dx init pwsh --native-menu | Out-String))
+```
+
 Restart the shell or reload the profile after making the change.
 
 ## 3. Try abbreviated paths

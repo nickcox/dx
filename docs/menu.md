@@ -24,14 +24,27 @@ Fish:
 dx init fish --menu | source
 ```
 
-PowerShell:
+PowerShell on Windows uses the native PSReadLine menu:
+
+```powershell
+Invoke-Expression ((& dx init pwsh --native-menu | Out-String))
+```
+
+PowerShell on Unix can use the Rust TUI instead:
 
 ```powershell
 Invoke-Expression ((& dx init pwsh --menu | Out-String))
 ```
 
-The interactive TUI is currently Unix-only. PowerShell on Windows loads the
-handler but falls back without opening an interactive menu.
+`--native-menu` registers structured `CompletionResult` providers and respects
+the existing PSReadLine key map. It also works on Unix. To explicitly show the
+native menu with Tab:
+
+```powershell
+Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete
+```
+
+`--menu` and `--native-menu` are mutually exclusive.
 
 Reload generated hooks after upgrading `dx` or changing menu settings captured
 at initialization time.
@@ -52,7 +65,7 @@ Menu mode recognizes these generated navigation commands:
 When only one final candidate exists, `dx` may insert it without opening the
 interactive menu.
 
-## Keyboard Controls
+## Rust TUI Controls
 
 | Key | Action |
 |---|---|
@@ -87,13 +100,19 @@ Mapping syntax is `<command>=<mode>,...`.
 | `file` | Regular files only |
 
 Mappings are captured in generated hook code. Changing the variable without
-rerunning `dx init <shell> --menu` does not update active bindings. Invalid or
-duplicate entries make initialization fail instead of producing partial hooks.
+rerunning `dx init <shell> --menu` or `dx init pwsh --native-menu` does not
+update active bindings. Invalid or duplicate entries make initialization fail
+instead of producing partial hooks.
 
-## PowerShell Menu Key
+Native PowerShell mappings register against `Path`, then `LiteralPath`, then the
+first positional string parameter. Native applications use native command
+completion. A warning is emitted when a mapped PowerShell command has no
+suitable path-like parameter.
 
-PowerShell binds menu mode to `Tab` by default. Set `DX_PWSH_MENU_KEY` before
-generating hooks to choose another PSReadLine key:
+## PowerShell TUI Key
+
+PowerShell's Rust TUI mode binds to `Tab` by default. Set `DX_PWSH_MENU_KEY`
+before generating `--menu` hooks to choose another PSReadLine key:
 
 ```powershell
 $env:DX_PWSH_MENU_KEY = "F12"
@@ -104,6 +123,9 @@ When `dx` falls back, it attempts to invoke the key's previous PSReadLine
 function. If the previous binding is a custom scriptblock, initialization emits
 a warning because PSReadLine does not expose that scriptblock for replay;
 fallback uses `TabCompleteNext`.
+
+`DX_PWSH_MENU_KEY` does not affect `--native-menu`; native mode preserves the
+user's PSReadLine bindings.
 
 ## Appearance
 
@@ -117,9 +139,11 @@ export DX_MENU_MAX_ROWS=12
 
 ### Columns and item width
 
-`DX_MENU_ITEM_MAX_LEN` controls the maximum candidate cell width. The default is
-`80`. A positive integer keeps multicolumn rendering enabled; zero or a negative
-value switches to a single column.
+`DX_MENU_ITEM_MAX_LEN` controls the maximum candidate cell width and native
+PowerShell list-item length. The default is `80`. Native labels retain their
+tail with a leading `…`; insertion text and tooltips remain complete. A positive
+integer keeps Rust TUI multicolumn rendering enabled, while zero or a negative
+value switches the TUI to one column and disables native label truncation.
 
 ```bash
 export DX_MENU_ITEM_MAX_LEN=40
@@ -146,8 +170,11 @@ selection highlight.
 
 ### Candidate limit
 
-`DX_MAX_MENU_RESULTS` caps candidate sourcing for the menu. The default is
-`1000`.
+`DX_MAX_MENU_RESULTS` caps candidate sourcing for both the Rust TUI and native
+PowerShell completion. The default is `1000`. PSReadLine's
+`CompletionQueryItems` controls its confirmation prompt and is not treated as a
+candidate limit. When more candidates exist, both menus append
+`| showing first N` to the selected path in their status or tooltip line.
 
 ## Disable Menu Mode Temporarily
 

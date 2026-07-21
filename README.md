@@ -71,6 +71,13 @@ dx init fish | source
 Invoke-Expression ((& dx init pwsh | Out-String))
 ```
 
+PowerShell users on Windows who want an interactive menu should enable the
+native PSReadLine menu:
+
+```powershell
+Invoke-Expression ((& dx init pwsh --native-menu | Out-String))
+```
+
 Restart the shell or reload its profile, then try:
 
 ```text

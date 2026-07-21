@@ -80,6 +80,48 @@ fn complete_ancestors_at_root_returns_empty() {
 }
 
 #[test]
+fn complete_filesystem_filters_files_and_directories() {
+    let temp = common::temp_dir("complete-filesystem-kinds");
+    fs::create_dir(temp.path().join("alpha-dir")).expect("create directory");
+    fs::write(temp.path().join("alpha-file.txt"), "fixture").expect("create file");
+
+    let directories = Command::new(dx_bin())
+        .args(["complete", "filesystem", "directory", "alpha", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .expect("complete filesystem directories");
+    let files = Command::new(dx_bin())
+        .args(["complete", "filesystem", "file", "alpha", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .expect("complete filesystem files");
+
+    assert!(directories.status.success());
+    assert!(files.status.success());
+    let directories: serde_json::Value =
+        serde_json::from_slice(&directories.stdout).expect("directory completion JSON");
+    let files: serde_json::Value =
+        serde_json::from_slice(&files.stdout).expect("file completion JSON");
+
+    assert_eq!(directories.as_array().expect("directory array").len(), 1);
+    assert!(
+        directories[0]["label"]
+            .as_str()
+            .expect("directory label")
+            .ends_with("/alpha-dir")
+    );
+    assert_eq!(directories[0]["rank"], 1);
+    assert_eq!(files.as_array().expect("file array").len(), 1);
+    assert!(
+        files[0]["label"]
+            .as_str()
+            .expect("file label")
+            .ends_with("/alpha-file.txt")
+    );
+    assert_eq!(files[0]["rank"], 1);
+}
+
+#[test]
 fn complete_limit_and_list_alias_cap_results() {
     let temp = common::temp_dir("complete-ancestors-limit");
     let cwd = temp.path().join("a/b/c/d");

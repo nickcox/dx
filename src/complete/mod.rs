@@ -1,4 +1,5 @@
 pub mod ancestors;
+pub mod filesystem;
 pub mod filter;
 pub mod paths;
 pub mod recents;

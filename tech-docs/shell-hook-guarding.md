@@ -112,7 +112,7 @@ Current runtime behavior:
 - **Cancel with query change**: `dx menu` may return replace to preserve typed refinement.
 - **No candidates**: `dx menu` returns noop and hooks follow fallback behavior.
 - **No TTY / degraded path**: `dx menu` returns noop and hooks follow fallback behavior.
-- **Non-Unix builds**: the inline `dx menu` TUI is currently Unix-only; on Windows/non-Unix builds, `dx menu` preserves the noop/fallback contract instead of opening the inline menu.
+- **Non-Unix builds**: the inline `dx menu` TUI is currently Unix-only. PowerShell users on Windows who want a menu should generate structured native completion providers with `dx init pwsh --native-menu` instead.
 - **Noop/error/non-replace fallback**: Bash and Fish use their native completion fallback; Zsh uses `zle expand-or-complete` (native completion-equivalent); PowerShell attempts to invoke the configured key's previous PSReadLine function and falls back to `TabCompleteNext` if that function cannot be replayed.
 - **dx not found or invalid JSON**: hooks follow fallback behavior.
 - **POSIX payload parsing hardening**: Bash/Zsh/Fish wrappers deterministically extract and validate `action`, `replaceStart`, `replaceEnd`, and escaped `value`; invalid payloads (including non-replace actions when replace is required) take native completion fallback paths.

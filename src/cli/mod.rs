@@ -29,8 +29,10 @@ enum Commands {
         shell: String,
         #[arg(long = "command-not-found")]
         command_not_found: bool,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "native_menu")]
         menu: bool,
+        #[arg(long = "native-menu", conflicts_with = "menu")]
+        native_menu: bool,
     },
     Complete {
         #[command(subcommand)]
@@ -61,7 +63,8 @@ pub fn run() -> i32 {
             shell,
             command_not_found,
             menu,
-        } => init::run_init(&shell, command_not_found, menu),
+            native_menu,
+        } => init::run_init(&shell, command_not_found, menu, native_menu),
         Commands::Resolve { query, list, json } => {
             with_resolver(|resolver| resolve::run_resolve(resolver, &query, list, json))
         }

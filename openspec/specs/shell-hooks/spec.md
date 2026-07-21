@@ -193,6 +193,48 @@ Menu-enabled hook invocations SHALL pass the interactive shell's current working
 - **AND** menu path candidates are resolved for a `cd`-style command
 - **THEN** candidate collection and replacement SHALL use the cwd provided by the shell-facing hook invocation
 
+### Requirement: Optional Native PowerShell Menu
+When `dx init pwsh --native-menu` is invoked, generated hooks SHALL register parameter-aware PowerShell argument completers that emit structured `CompletionResult` candidates from `dx complete --json` output.
+
+Native menu hooks SHALL use candidate paths as insertion values, labels as list item text, and full paths as tooltips. They SHALL preserve the user's PSReadLine key bindings and SHALL NOT invoke `dx menu` or emit `Set-PSReadLineKeyHandler`.
+
+Native menu completion SHALL append a trailing directory separator only for filesystem modes that support directory drill-in. Ancestor, stack, frecent, and recent candidates SHALL be inserted without an added separator because their wrapper commands consume the value as a selector or query.
+
+Native menu completion SHALL cap emitted candidates using `DX_MAX_MENU_RESULTS`, defaulting to 1000 for missing, invalid, or non-positive values. It SHALL NOT use PSReadLine's `CompletionQueryItems` as a candidate limit.
+
+Native menu completion SHALL probe one candidate beyond the active result limit. When that probe reports hidden candidates, every retained candidate tooltip SHALL append ` | showing first N`, where `N` is the configured result limit. The probe candidate SHALL NOT be emitted as a completion result.
+
+Native menu completion SHALL truncate `CompletionResult` list-item labels according to `DX_MENU_ITEM_MAX_LEN`, defaulting to 80 for missing, empty, or invalid values. Positive limits SHALL retain the end of an overlong label with a leading ellipsis. Zero or negative values SHALL disable native label truncation. Completion text and tooltips SHALL remain unmodified.
+
+`--native-menu` SHALL be rejected for non-PowerShell shells and SHALL be mutually exclusive with `--menu`.
+
+#### Scenario: Native PowerShell menu preserves key bindings
+- **WHEN** `dx init pwsh --native-menu` is invoked
+- **THEN** generated hooks SHALL contain structured `Register-ArgumentCompleter` handlers
+- **AND** generated hooks SHALL NOT contain `Set-PSReadLineKeyHandler` or invoke `dx menu`
+
+#### Scenario: Native frecent completion remains an executable query
+- **WHEN** native PowerShell completion selects a frecent candidate `/work/notes`
+- **THEN** its completion text SHALL be `/work/notes` without an appended directory separator
+
+#### Scenario: Native and TUI menu flags conflict
+- **WHEN** `dx init pwsh --menu --native-menu` is invoked
+- **THEN** initialization SHALL fail without emitting hook code
+
+#### Scenario: Native completion applies the dx result limit
+- **WHEN** `DX_MAX_MENU_RESULTS=25` and a native PowerShell completion source has more than 25 candidates
+- **THEN** the generated argument completer SHALL request at most 26 JSON candidates from `dx complete` and SHALL emit at most 25
+
+#### Scenario: Native completion reports hidden candidates
+- **WHEN** `DX_MAX_MENU_RESULTS=25` and the completion source returns a twenty-sixth probe candidate
+- **THEN** the native menu SHALL emit 25 completion results
+- **AND** each result tooltip SHALL end with ` | showing first 25`
+
+#### Scenario: Native completion truncates only display labels
+- **WHEN** `DX_MENU_ITEM_MAX_LEN=8` and a native completion candidate has an overlong label
+- **THEN** its list-item text SHALL contain an ellipsis plus the final seven text elements
+- **AND** its completion text and tooltip SHALL retain their full values
+
 ### Requirement: Menu-Enabled Registration for Configured Mapped Commands
 When `dx init <shell> --menu` is used and `DX_MENU_COMMAND_MAPPINGS` contains valid mappings, generated hooks SHALL register mapped command names for menu-backed completion in that shell.
 
@@ -216,30 +258,34 @@ Generated mapped-command registrations SHALL invoke `dx menu --mode <mode>` with
 - **THEN** generated PowerShell output SHALL route `cat` through the shared PSReadLine menu handler with explicit `--mode file`
 
 ### Requirement: Invalid Mappings Fail Init Generation
-If `DX_MENU_COMMAND_MAPPINGS` contains an invalid entry, `dx init <shell> --menu` SHALL fail rather than emitting partial mapped-command registrations.
+If `DX_MENU_COMMAND_MAPPINGS` contains an invalid entry, `dx init <shell> --menu` or `dx init pwsh --native-menu` SHALL fail rather than emitting partial mapped-command registrations.
 
 #### Scenario: Invalid mapping prevents partial hook emission
 - **WHEN** `dx init bash --menu` is run with `DX_MENU_COMMAND_MAPPINGS="ls=path,badentry"`
 - **THEN** init generation SHALL fail and SHALL NOT emit partial mapped-command registrations
 
 ### Requirement: Global Menu Enablement Gate for Mapped Commands
-Configured mapped command registrations SHALL apply only when global menu integration is enabled via `dx init <shell> --menu`.
+Configured mapped command registrations SHALL apply only when global menu integration is enabled via `dx init <shell> --menu` or `dx init pwsh --native-menu`.
 
-Without `--menu`, mapped commands SHALL NOT be registered for menu handling.
+Without `--menu` or `--native-menu`, mapped commands SHALL NOT be registered for menu handling.
 
 #### Scenario: Mappings ignored when menu flag is not enabled
 - **WHEN** `dx init bash` is used without `--menu` and mappings are present in environment
 - **THEN** generated hooks SHALL NOT install mapped-command menu completion bindings
 
+#### Scenario: Native PowerShell menu registers mapped commands
+- **WHEN** `DX_MENU_COMMAND_MAPPINGS="Get-Content=file"` and `dx init pwsh --native-menu` is invoked
+- **THEN** generated hooks SHALL register file-only argument completers for `Get-Content` and aliases visible when hooks load
+
 ### Requirement: Mapping Changes Require Re-Running Init
-Changing `DX_MENU_COMMAND_MAPPINGS` after hooks are generated SHALL NOT change mapped-command behavior until `dx init <shell> --menu` is re-run and the regenerated hooks are loaded.
+Changing `DX_MENU_COMMAND_MAPPINGS` after hooks are generated SHALL NOT change mapped-command behavior until `dx init <shell> --menu` or `dx init pwsh --native-menu` is re-run and the regenerated hooks are loaded.
 
 #### Scenario: Runtime env change does not update existing hook behavior
 - **WHEN** hooks were generated from `DX_MENU_COMMAND_MAPPINGS="ls=path"` and the environment later changes without re-running `dx init`
 - **THEN** the existing hook behavior SHALL continue using the previously generated mapped-command registrations
 
 ### Requirement: Token-Scoped Buffer Replacement for Mapped Commands
-Shell integrations for mapped commands SHALL preserve existing replace action semantics and SHALL apply replacement only to the active token span reported by `dx menu`.
+Rust TUI shell integrations for mapped commands SHALL preserve existing replace action semantics and SHALL apply replacement only to the active token span reported by `dx menu`.
 
 #### Scenario: PowerShell replaces only mapped command active token
 - **WHEN** mapped command buffer is `open src/readme.md --wait` and replace action targets token `src/readme.md`

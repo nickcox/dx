@@ -14,7 +14,14 @@ pub const DX_TOP_LEVEL_SUBCOMMANDS: &[&str] = &[
     "menu",
 ];
 
-pub const DX_COMPLETE_MODES: &[&str] = &["paths", "ancestors", "frecents", "recents", "stack"];
+pub const DX_COMPLETE_MODES: &[&str] = &[
+    "paths",
+    "ancestors",
+    "frecents",
+    "recents",
+    "stack",
+    "filesystem",
+];
 
 pub const MENU_ELIGIBLE_COMMANDS: &[&str] = &[
     "cd", "up", "cdf", "z", "cdr", "back", "forward", "cd-", "cd+",
@@ -429,6 +436,70 @@ pub fn render_pwsh_completion_bindings() -> String {
         render_pwsh_navigation_completion_bindings(),
     ]
     .join("\n\n")
+}
+
+pub fn render_pwsh_native_completion_bindings() -> String {
+    let top_level = pwsh_quoted_words(DX_TOP_LEVEL_SUBCOMMANDS);
+    let modes = pwsh_quoted_words(DX_COMPLETE_MODES);
+
+    format!(
+        r#"Register-ArgumentCompleter -Native -CommandName dx -ScriptBlock {{
+    param($wordToComplete, $commandAst, $cursorPosition)
+
+    $elements = @($commandAst.CommandElements | ForEach-Object {{ $_.Extent.Text }})
+    if ($elements.Count -le 1) {{
+        __dx_emit_completion @({top_level})
+        return
+    }}
+
+    $sub = $elements[1]
+    switch ($sub) {{
+        'resolve' {{
+            __dx_emit_native_completion (__dx_complete_json -Mode paths -Word $wordToComplete) -Directory
+            break
+        }}
+        'complete' {{
+            if ($elements.Count -le 3) {{
+                __dx_emit_completion @({modes})
+            }}
+            break
+        }}
+        default {{
+            break
+        }}
+    }}
+}}
+
+Register-ArgumentCompleter -CommandName Set-DxLocation,cd,Set-Location -ParameterName Path -ScriptBlock {{
+    param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    __dx_emit_native_completion (__dx_complete_json -Mode paths -Word $wordToComplete) -Directory
+}}
+
+Register-ArgumentCompleter -CommandName Step-Up,up,'..' -ParameterName Selector -ScriptBlock {{
+    param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    __dx_emit_native_completion (__dx_complete_json -Mode ancestors -Word $wordToComplete)
+}}
+
+Register-ArgumentCompleter -CommandName Undo-Location,back,'cd-' -ParameterName Selector -ScriptBlock {{
+    param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    __dx_emit_native_completion (__dx_complete_json -Mode stack -Word $wordToComplete -ExtraArgs @('--direction', 'back'))
+}}
+
+Register-ArgumentCompleter -CommandName Redo-Location,forward,'cd+' -ParameterName Selector -ScriptBlock {{
+    param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    __dx_emit_native_completion (__dx_complete_json -Mode stack -Word $wordToComplete -ExtraArgs @('--direction', 'forward'))
+}}
+
+Register-ArgumentCompleter -CommandName Set-FrecentLocation,cdf,z -ParameterName Query -ScriptBlock {{
+    param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    __dx_emit_native_completion (__dx_complete_json -Mode frecents -Word $wordToComplete)
+}}
+
+Register-ArgumentCompleter -CommandName Set-RecentLocation,cdr -ParameterName Query -ScriptBlock {{
+    param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    __dx_emit_native_completion (__dx_complete_json -Mode recents -Word $wordToComplete)
+}}"#
+    )
 }
 
 #[cfg(test)]

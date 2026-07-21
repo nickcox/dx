@@ -1,10 +1,10 @@
 ## Purpose
-Define configuration and behavior for opt-in menu-backed command mappings that let external commands use `dx menu` with explicit filesystem candidate modes.
+Define configuration and behavior for opt-in menu-backed command mappings that let external commands use the Rust TUI or native PowerShell completion with explicit filesystem candidate modes.
 
 ## Requirements
 
 ### Requirement: Command Mapping Environment Schema for Init Generation
-`dx init <shell> --menu` SHALL accept command-to-mode mappings from `DX_MENU_COMMAND_MAPPINGS` using a comma-separated grammar: `<command>=<mode>`.
+`dx init <shell> --menu` and `dx init pwsh --native-menu` SHALL accept command-to-mode mappings from `DX_MENU_COMMAND_MAPPINGS` using a comma-separated grammar: `<command>=<mode>`.
 
 `<mode>` SHALL be one of `path`, `directory`, or `file`.
 
@@ -17,9 +17,9 @@ Define configuration and behavior for opt-in menu-backed command mappings that l
 - **THEN** init generation SHALL fail and SHALL NOT emit partial mapped-command registrations
 
 ### Requirement: Mapping Changes Require Explicit Re-Init
-Mapped command seed registrations SHALL be determined when `dx init <shell> --menu` is generated.
+Mapped command seed registrations SHALL be determined when `dx init <shell> --menu` or `dx init pwsh --native-menu` is generated.
 
-Changing `DX_MENU_COMMAND_MAPPINGS` after hook generation SHALL NOT alter existing mapped-command seed registrations until `dx init <shell> --menu` is run again and the regenerated hooks are loaded.
+Changing `DX_MENU_COMMAND_MAPPINGS` after hook generation SHALL NOT alter existing mapped-command seed registrations until the corresponding menu-enabled init command is run again and the regenerated hooks are loaded.
 
 For PowerShell, alias-expanded registrations SHALL be determined when the generated hooks are loaded from the generated seed registrations and the aliases visible in the current PowerShell session.
 
@@ -40,7 +40,7 @@ Changing PowerShell aliases after hook load SHALL NOT alter existing alias-expan
 - **AND** later changes to alias `gci` SHALL NOT alter mapped-command behavior until the hooks are loaded again
 
 ### Requirement: PowerShell One-Way Alias Expansion for Mapped Commands
-Generated PowerShell menu hooks SHALL expand each configured mapped command to aliases whose PowerShell alias `Definition` equals the configured command name when the hooks are loaded.
+Generated PowerShell TUI and native menu hooks SHALL expand each configured mapped command to aliases whose PowerShell alias `Definition` equals the configured command name when the hooks are loaded.
 
 The configured command itself SHALL remain mapped even when no aliases are found.
 
@@ -69,6 +69,19 @@ Bash, Zsh, and Fish mappings SHALL continue to use only the configured command n
 #### Scenario: Non-PowerShell shells do not expand aliases
 - **WHEN** `DX_MENU_COMMAND_MAPPINGS="Get-ChildItem=path"` and `dx init bash --menu` is run
 - **THEN** generated Bash hooks SHALL register only the configured `Get-ChildItem` mapped command
+
+### Requirement: Native PowerShell Mapping Registration
+Native PowerShell mappings SHALL use `Register-ArgumentCompleter` and the shared filesystem completion modes. Native applications SHALL receive native command completers. PowerShell commands SHALL use `Path`, then `LiteralPath`, then the first positional string parameter.
+
+When no suitable PowerShell parameter exists, hook loading SHALL emit a warning rather than registering a completer that cannot run.
+
+#### Scenario: Native mapping uses a PowerShell path parameter
+- **WHEN** `DX_MENU_COMMAND_MAPPINGS="Get-Content=file"` and `dx init pwsh --native-menu` hooks are loaded
+- **THEN** `Get-Content` and its derived aliases SHALL receive a file-only completer for their `Path` parameter
+
+#### Scenario: Native application mapping uses native registration
+- **WHEN** a configured mapped command resolves to a native application while `dx init pwsh --native-menu` hooks are loaded
+- **THEN** the command SHALL receive a native argument completer for its configured filesystem mode
 
 ### Requirement: Explicit Mode Semantics
 Mapped commands SHALL use explicit candidate-mode semantics:

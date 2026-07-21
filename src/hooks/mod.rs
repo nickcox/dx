@@ -18,6 +18,13 @@ pub enum Shell {
     Pwsh,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InitMenuMode {
+    Disabled,
+    Tui,
+    NativePwsh,
+}
+
 impl Shell {
     pub fn parse(raw: &str) -> Option<Self> {
         match raw.trim().to_ascii_lowercase().as_str() {
@@ -54,13 +61,35 @@ pub fn generate_with_mappings_and_pwsh_key(
     mappings: &[MenuCommandMapping],
     pwsh_menu_key: &str,
 ) -> String {
+    let menu_mode = if menu {
+        InitMenuMode::Tui
+    } else {
+        InitMenuMode::Disabled
+    };
+    generate_with_menu_mode_and_pwsh_key(
+        shell,
+        command_not_found,
+        menu_mode,
+        mappings,
+        pwsh_menu_key,
+    )
+}
+
+pub fn generate_with_menu_mode_and_pwsh_key(
+    shell: Shell,
+    command_not_found: bool,
+    menu_mode: InitMenuMode,
+    mappings: &[MenuCommandMapping],
+    pwsh_menu_key: &str,
+) -> String {
+    let menu = menu_mode == InitMenuMode::Tui;
     match shell {
         Shell::Bash => bash::generate_with_mappings(command_not_found, menu, mappings),
         Shell::Zsh => zsh::generate_with_mappings(command_not_found, menu, mappings),
         Shell::Fish => fish::generate_with_mappings(command_not_found, menu, mappings),
         Shell::Pwsh => pwsh::generate_with_mappings_and_menu_key(
             command_not_found,
-            menu,
+            menu_mode,
             mappings,
             pwsh_menu_key,
         ),
@@ -141,7 +170,7 @@ mod tests {
         ));
         assert!(section.contains("resolve)\n      _dx_complete_paths"));
         assert!(section.contains(
-            "COMPREPLY=( $(compgen -W \"paths ancestors frecents recents stack\" -- \"$cur\") )"
+            "COMPREPLY=( $(compgen -W \"paths ancestors frecents recents stack filesystem\" -- \"$cur\") )"
         ));
         assert!(section.contains("stack)\n      return 1"));
     }
@@ -154,7 +183,7 @@ mod tests {
         );
         assert!(section.contains("compadd -- resolve complete init bookmarks stack navigate menu"));
         assert!(section.contains("resolve)\n      _dx_complete_paths"));
-        assert!(section.contains("compadd -- paths ancestors frecents recents stack"));
+        assert!(section.contains("compadd -- paths ancestors frecents recents stack filesystem"));
         assert!(!section.contains("\n    stack)"));
     }
 
@@ -168,7 +197,7 @@ mod tests {
             "complete -c dx -n '__fish_use_subcommand' -a 'resolve complete init bookmarks stack navigate menu'"
         ));
         assert!(section.contains(
-            "complete -c dx -n '__fish_seen_subcommand_from complete; and not __fish_seen_subcommand_from paths ancestors frecents recents stack' -a 'paths ancestors frecents recents stack'"
+            "complete -c dx -n '__fish_seen_subcommand_from complete; and not __fish_seen_subcommand_from paths ancestors frecents recents stack filesystem' -a 'paths ancestors frecents recents stack filesystem'"
         ));
         assert!(section.contains(
             "complete -c dx -n '__fish_seen_subcommand_from resolve' -a '(dx complete paths (commandline -ct) 2>/dev/null)'"
@@ -189,7 +218,7 @@ mod tests {
             "'resolve' {\n            __dx_emit_completion (__dx_complete_mode -Mode paths -Word $wordToComplete)"
         ));
         assert!(section.contains(
-            "__dx_emit_completion @('paths', 'ancestors', 'frecents', 'recents', 'stack')"
+            "__dx_emit_completion @('paths', 'ancestors', 'frecents', 'recents', 'stack', 'filesystem')"
         ));
         assert!(!section.contains("'stack' {"));
     }

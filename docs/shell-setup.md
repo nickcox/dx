@@ -102,7 +102,14 @@ Add this initialization command:
 Invoke-Expression ((& dx init pwsh | Out-String))
 ```
 
-With all optional integrations:
+On Windows, enable the native PSReadLine menu with the optional
+command-not-found integration:
+
+```powershell
+Invoke-Expression ((& dx init pwsh --native-menu --command-not-found | Out-String))
+```
+
+On Unix, PowerShell can instead use the Rust TUI:
 
 ```powershell
 Invoke-Expression ((& dx init pwsh --menu --command-not-found | Out-String))
@@ -118,8 +125,10 @@ PowerShell must evaluate the generated output as a single script block. Do not
 pipe `dx init pwsh` directly to `Invoke-Expression`; line-by-line evaluation can
 break multiline constructs in the generated module.
 
-The interactive TUI is currently Unix-only. On Windows, `--menu` installs the
-PowerShell handler but interactive selection falls back without opening a menu.
+PowerShell users on Windows should use `--native-menu` when they want a menu.
+The Rust TUI installed by `--menu` is Unix-only. `--native-menu` also works on
+Unix, registers structured argument completers, and uses the user's existing
+PSReadLine completion key bindings. The two flags are mutually exclusive.
 
 The integration loads an in-memory module named `dx`. `Remove-Module dx`
 removes it and restores replaced aliases where possible.
@@ -187,6 +196,11 @@ PowerShell:
 $env:DX_MENU_COMMAND_MAPPINGS = "ls=path,open=path,cat=file"
 Invoke-Expression ((& dx init pwsh --menu | Out-String))
 ```
+
+Use `--native-menu` in that command to route mapped commands through native
+PowerShell completion instead. Native PowerShell commands are registered
+against a `Path` or `LiteralPath` parameter when present, otherwise their first
+positional string parameter; native applications use native command completion.
 
 Valid mapping modes are `path`, `directory`, and `file`. See
 [Interactive Menu](./menu.md) for details.

@@ -89,6 +89,32 @@ fn init_unknown_shell_fails_with_diagnostic() {
 }
 
 #[test]
+fn init_native_menu_is_power_shell_only() {
+    let output = Command::new(dx_bin())
+        .args(["init", "bash", "--native-menu"])
+        .output()
+        .expect("run init bash --native-menu");
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("--native-menu is only supported for pwsh")
+    );
+}
+
+#[test]
+fn init_rejects_tui_and_native_menu_together() {
+    let output = Command::new(dx_bin())
+        .args(["init", "pwsh", "--menu", "--native-menu"])
+        .output()
+        .expect("run conflicting menu modes");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cannot be used with"));
+}
+
+#[test]
 fn init_bash_with_command_not_found_flag_includes_handler() {
     let output = Command::new(dx_bin())
         .args(["init", "bash", "--command-not-found"])
