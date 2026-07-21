@@ -1,2 +1,5 @@
 /target
 .memsearch/
+.agents/
+.claude/
+skills-lock.json
