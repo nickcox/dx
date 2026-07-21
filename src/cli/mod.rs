@@ -70,7 +70,8 @@ pub fn completion_script(shell: crate::hooks::Shell) -> String {
         }
     }
     let script = String::from_utf8(output).expect("clap completion scripts are UTF-8");
-    let script = match shell {
+
+    match shell {
         crate::hooks::Shell::Bash => script.replace(" --psreadline-mode", ""),
         crate::hooks::Shell::Zsh | crate::hooks::Shell::Fish => script
             .lines()
@@ -110,8 +111,7 @@ pub fn completion_script(shell: crate::hooks::Shell) -> String {
                 "$element.Value -eq $wordToComplete)",
                 "$i -eq ($commandElements.Count - 1))",
             ),
-    };
-    script
+    }
 }
 
 pub fn run() -> i32 {

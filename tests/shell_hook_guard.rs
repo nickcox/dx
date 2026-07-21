@@ -70,13 +70,13 @@ fn run_shell(shell: &str, script: &str, cwd: &Path) -> Output {
 fn bash_generated_hook_command_not_found_guard_prevents_recursive_resolve_calls() {
     let temp_dir = common::temp_dir("hook-guard");
     let temp = temp_dir.path();
-    let hook = write_generated_hook(&temp, "bash");
+    let hook = write_generated_hook(temp, "bash");
     let script = format!(
         "source \"{hook}\"; __dx_calls=0; dx() {{ __dx_calls=$((__dx_calls+1)); return 0; }}; DX_RESOLVE_GUARD=1; command_not_found_handle \"./foo\" >/dev/null 2>&1; status=$?; printf '%s:%s' \"$status\" \"$__dx_calls\"",
         hook = hook.display()
     );
 
-    let output = run_shell("bash", &script, &temp);
+    let output = run_shell("bash", &script, temp);
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -92,7 +92,7 @@ fn bash_generated_hook_command_not_found_resolves_path_like_command_once() {
     let temp_dir = common::temp_dir("hook-resolve");
     let temp = temp_dir.path();
     let target = temp.join("target");
-    let hook = write_generated_hook(&temp, "bash");
+    let hook = write_generated_hook(temp, "bash");
     fs::create_dir_all(&target).expect("create target");
 
     let script = format!(
@@ -101,7 +101,7 @@ fn bash_generated_hook_command_not_found_resolves_path_like_command_once() {
         target = target.display(),
     );
 
-    let output = run_shell("bash", &script, &temp);
+    let output = run_shell("bash", &script, temp);
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -130,7 +130,7 @@ fn bash_generated_hook_cd_wrapper_invokes_dx_once_and_changes_directory() {
     let temp = temp_dir.path();
     let target = temp.join("project");
     let marker = temp.join("dx-called.log");
-    let hook = write_generated_hook(&temp, "bash");
+    let hook = write_generated_hook(temp, "bash");
     fs::create_dir_all(&target).expect("create target");
 
     let script = format!(
@@ -140,7 +140,7 @@ fn bash_generated_hook_cd_wrapper_invokes_dx_once_and_changes_directory() {
         target = target.display(),
     );
 
-    let output = run_shell("bash", &script, &temp);
+    let output = run_shell("bash", &script, temp);
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -171,13 +171,13 @@ fn zsh_generated_hook_command_not_found_guard_prevents_recursive_resolve_calls()
     }
     let temp_dir = common::temp_dir("zsh-hook-guard");
     let temp = temp_dir.path();
-    let hook = write_generated_hook(&temp, "zsh");
+    let hook = write_generated_hook(temp, "zsh");
     let script = format!(
         "function compdef() {{ :; }}; source \"{hook}\"; __dx_calls=0; function dx() {{ __dx_calls=$((__dx_calls+1)); return 0; }}; DX_RESOLVE_GUARD=1; command_not_found_handler \"./foo\" >/dev/null 2>&1; rc=$?; printf '%s:%s' \"$rc\" \"$__dx_calls\"",
         hook = hook.display()
     );
 
-    let output = run_shell("zsh", &script, &temp);
+    let output = run_shell("zsh", &script, temp);
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -196,7 +196,7 @@ fn zsh_generated_hook_command_not_found_resolves_path_like_command_once() {
     let temp_dir = common::temp_dir("zsh-hook-resolve");
     let temp = temp_dir.path();
     let target = temp.join("target");
-    let hook = write_generated_hook(&temp, "zsh");
+    let hook = write_generated_hook(temp, "zsh");
     fs::create_dir_all(&target).expect("create target");
 
     let script = format!(
@@ -205,7 +205,7 @@ fn zsh_generated_hook_command_not_found_resolves_path_like_command_once() {
         target = target.display(),
     );
 
-    let output = run_shell("zsh", &script, &temp);
+    let output = run_shell("zsh", &script, temp);
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -232,7 +232,7 @@ fn bash_generated_hook_command_not_found_resolves_delimiter_shortened_command_on
     let temp_dir = common::temp_dir("hook-resolve-delimiter");
     let temp = temp_dir.path();
     let target = temp.join("cd-extras");
-    let hook = write_generated_hook(&temp, "bash");
+    let hook = write_generated_hook(temp, "bash");
     fs::create_dir_all(&target).expect("create target");
 
     let script = format!(
@@ -241,7 +241,7 @@ fn bash_generated_hook_command_not_found_resolves_delimiter_shortened_command_on
         target = target.display(),
     );
 
-    let output = run_shell("bash", &script, &temp);
+    let output = run_shell("bash", &script, temp);
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -267,13 +267,13 @@ fn bash_generated_hook_command_not_found_resolves_delimiter_shortened_command_on
 fn bash_generated_hook_command_not_found_plain_word_still_falls_through() {
     let temp_dir = common::temp_dir("hook-plain-word-fallthrough");
     let temp = temp_dir.path();
-    let hook = write_generated_hook(&temp, "bash");
+    let hook = write_generated_hook(temp, "bash");
     let script = format!(
         "source \"{hook}\"; __dx_calls=0; dx() {{ __dx_calls=$((__dx_calls+1)); return 0; }}; command_not_found_handle \"gti\" >/dev/null 2>&1; status=$?; printf '%s:%s' \"$status\" \"$__dx_calls\"",
         hook = hook.display(),
     );
 
-    let output = run_shell("bash", &script, &temp);
+    let output = run_shell("bash", &script, temp);
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -292,7 +292,7 @@ fn zsh_generated_hook_command_not_found_resolves_doubled_period_command_once() {
     let temp_dir = common::temp_dir("zsh-hook-resolve-gap");
     let temp = temp_dir.path();
     let target = temp.join("PowerShell");
-    let hook = write_generated_hook(&temp, "zsh");
+    let hook = write_generated_hook(temp, "zsh");
     fs::create_dir_all(&target).expect("create target");
 
     let script = format!(
@@ -301,7 +301,7 @@ fn zsh_generated_hook_command_not_found_resolves_doubled_period_command_once() {
         target = target.display(),
     );
 
-    let output = run_shell("zsh", &script, &temp);
+    let output = run_shell("zsh", &script, temp);
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -367,7 +367,7 @@ fn fish_generated_hook_command_not_found_resolves_delimiter_shortened_command_on
     let temp_dir = common::temp_dir("fish-hook-resolve-delimiter");
     let temp = temp_dir.path();
     let target = temp.join("cd-extras");
-    let hook = write_generated_hook(&temp, "fish");
+    let hook = write_generated_hook(temp, "fish");
     fs::create_dir_all(&target).expect("create target");
 
     let script = format!(
@@ -447,7 +447,7 @@ fn zsh_generated_hook_cd_permission_denied_error_does_not_leak_helper_name() {
     let temp_dir = common::temp_dir("zsh-hook-cd-perm-denied");
     let temp = temp_dir.path();
     let blocked = temp.join("blocked");
-    let hook = write_generated_hook(&temp, "zsh");
+    let hook = write_generated_hook(temp, "zsh");
     fs::create_dir_all(&blocked).expect("create blocked dir");
     #[cfg(unix)]
     let _permission_guard = common::PermissionGuard::new(&blocked);
@@ -476,7 +476,7 @@ fn zsh_generated_hook_cd_permission_denied_error_does_not_leak_helper_name() {
         blocked = blocked.display(),
     );
 
-    let output = run_shell("zsh", &script, &temp);
+    let output = run_shell("zsh", &script, temp);
 
     assert!(output.status.success());
     let status = String::from_utf8_lossy(&output.stdout);

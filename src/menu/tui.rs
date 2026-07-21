@@ -533,6 +533,7 @@ mod imp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn select(
         initial_candidates: CompletionCandidates,
         initial_query: &str,
@@ -725,6 +726,7 @@ mod imp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_grid(
         frame: &mut ratatui::Frame<'_>,
         completion: &CompletionCandidates,
@@ -754,6 +756,7 @@ mod imp {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_list(
         frame: &mut ratatui::Frame<'_>,
         labels: &[String],
@@ -826,6 +829,7 @@ mod imp {
         frame.render_widget(status, chunks[1]);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run_loop(
         initial_candidates: CompletionCandidates,
         initial_query: &str,
@@ -1390,7 +1394,7 @@ mod imp {
 
     fn refinement_cap(width: usize, refinement: &str) -> usize {
         let natural = text_width(refinement);
-        let cap = (width / 3).max(4).min(32);
+        let cap = (width / 3).clamp(4, 32);
         natural.min(cap)
     }
 

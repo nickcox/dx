@@ -194,42 +194,38 @@ fn parse_color_value(val: &str) -> Style {
                 i += 1;
                 if i < parts.len() && parts[i] == "5" {
                     i += 1;
-                    if i < parts.len() {
-                        if let Ok(n) = parts[i].parse::<u8>() {
-                            style = style.fg(Color::Indexed(n));
-                        }
+                    if i < parts.len()
+                        && let Ok(n) = parts[i].parse::<u8>()
+                    {
+                        style = style.fg(Color::Indexed(n));
                     }
-                } else if i < parts.len() && parts[i] == "2" {
-                    if i + 3 < parts.len() {
-                        let r = parts[i + 1].parse::<u8>().ok();
-                        let g = parts[i + 2].parse::<u8>().ok();
-                        let b = parts[i + 3].parse::<u8>().ok();
-                        if let (Some(r), Some(g), Some(b)) = (r, g, b) {
-                            style = style.fg(Color::Rgb(r, g, b));
-                        }
-                        i += 3;
+                } else if i < parts.len() && parts[i] == "2" && i + 3 < parts.len() {
+                    let r = parts[i + 1].parse::<u8>().ok();
+                    let g = parts[i + 2].parse::<u8>().ok();
+                    let b = parts[i + 3].parse::<u8>().ok();
+                    if let (Some(r), Some(g), Some(b)) = (r, g, b) {
+                        style = style.fg(Color::Rgb(r, g, b));
                     }
+                    i += 3;
                 }
             }
             "48" => {
                 i += 1;
                 if i < parts.len() && parts[i] == "5" {
                     i += 1;
-                    if i < parts.len() {
-                        if let Ok(n) = parts[i].parse::<u8>() {
-                            style = style.bg(Color::Indexed(n));
-                        }
+                    if i < parts.len()
+                        && let Ok(n) = parts[i].parse::<u8>()
+                    {
+                        style = style.bg(Color::Indexed(n));
                     }
-                } else if i < parts.len() && parts[i] == "2" {
-                    if i + 3 < parts.len() {
-                        let r = parts[i + 1].parse::<u8>().ok();
-                        let g = parts[i + 2].parse::<u8>().ok();
-                        let b = parts[i + 3].parse::<u8>().ok();
-                        if let (Some(r), Some(g), Some(b)) = (r, g, b) {
-                            style = style.bg(Color::Rgb(r, g, b));
-                        }
-                        i += 3;
+                } else if i < parts.len() && parts[i] == "2" && i + 3 < parts.len() {
+                    let r = parts[i + 1].parse::<u8>().ok();
+                    let g = parts[i + 2].parse::<u8>().ok();
+                    let b = parts[i + 3].parse::<u8>().ok();
+                    if let (Some(r), Some(g), Some(b)) = (r, g, b) {
+                        style = style.bg(Color::Rgb(r, g, b));
                     }
+                    i += 3;
                 }
             }
             n => {

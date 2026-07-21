@@ -223,8 +223,7 @@ mod test_replace_seam {
         }
         let _reset = ResetOnDrop;
 
-        let result = operation();
-        result
+        operation()
     }
 
     pub(super) fn should_fail_replace_once() -> bool {

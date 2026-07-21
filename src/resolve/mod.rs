@@ -195,10 +195,10 @@ pub(super) struct PreparedQuery {
     pub fallback_policy: FallbackPolicy,
 }
 
-pub(super) fn prepare_search_query<'a>(
+pub(super) fn prepare_search_query(
     cwd: &Path,
     configured_roots: &[PathBuf],
-    raw_query: &'a str,
+    raw_query: &str,
     prefix_fallback: FilesystemPrefixFallback,
 ) -> Result<PreparedQuery, ResolveError> {
     if raw_query.is_empty() {

@@ -263,7 +263,6 @@ mod tests {
             AppConfig {
                 search_roots: roots,
                 resolve: crate::config::ResolveOptions { case_sensitive },
-                ..AppConfig::default()
             },
             bookmarks::lookup,
         )
@@ -409,7 +408,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let expected = vec![
+        let expected = [
             "cbravo".to_string(),
             "cobalt".to_string(),
             "Code".to_string(),

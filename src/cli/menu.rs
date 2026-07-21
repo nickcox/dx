@@ -291,10 +291,10 @@ fn parse_menu_border() -> bool {
     let Ok(raw) = std::env::var("DX_MENU_BORDER") else {
         return false;
     };
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => true,
-        _ => false,
-    }
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 fn parse_menu_ls_colors() -> Option<crate::menu::ls_colors::LsColorsConfig> {
@@ -586,13 +586,8 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
             0
         }
         MenuAction::Noop => {
-            if debug {
-                match menu_result {
-                    None => {
-                        eprintln!("[dx-menu-debug] tui unavailable -> noop");
-                    }
-                    _ => {}
-                }
+            if debug && menu_result.is_none() {
+                eprintln!("[dx-menu-debug] tui unavailable -> noop");
             }
             println!("{}", MenuAction::noop().to_json());
             0

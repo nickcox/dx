@@ -132,8 +132,7 @@ impl ParsedSegment {
                     search_literal = false;
                 }
                 SegmentToken::Delimiter(delimiter) => {
-                    if let Some(offset) = candidate[cursor..]
-                        .as_bytes()
+                    if let Some(offset) = candidate.as_bytes()[cursor..]
                         .iter()
                         .position(|byte| *byte == *delimiter as u8)
                     {
