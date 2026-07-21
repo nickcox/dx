@@ -1,10 +1,10 @@
 use super::MenuCommandMapping;
 use super::common::{
-    DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS, apply_template_replacements,
-    render_posix_menu_eligible_case_pattern, render_posix_wrapper_declarations,
-    render_zsh_completion_bindings, render_zsh_completion_functions, render_zsh_menu_mapping_case,
-    shell_words,
+    apply_template_replacements, render_posix_menu_eligible_case_pattern,
+    render_posix_wrapper_declarations, render_zsh_completion_bindings,
+    render_zsh_completion_functions, render_zsh_menu_mapping_case,
 };
+use crate::{cli, hooks::Shell};
 
 pub fn generate_with_mappings(
     command_not_found: bool,
@@ -192,29 +192,7 @@ __DX_POSIX_WRAPPER_DECLARATIONS__
 
 __DX_ZSH_COMPLETION_FUNCTIONS__
 
-_dx_complete_dx() {
-  local cur="$words[CURRENT]"
-  local sub="$words[2]"
-
-  if (( CURRENT == 2 )); then
-    compadd -- __DX_TOP_LEVEL_SUBCOMMANDS__
-    return 0
-  fi
-
-  case "$sub" in
-    resolve)
-      _dx_complete_paths
-      ;;
-    complete)
-      if (( CURRENT == 3 )); then
-        compadd -- __DX_COMPLETE_MODES__
-      fi
-      ;;
-    *)
-      ;;
-  esac
-  return 0
-}
+__DX_CLAP_COMPLETION__
 
 __DX_ZSH_COMPLETION_BINDINGS__
 "#,
@@ -379,11 +357,7 @@ command_not_found_handler() {
     apply_template_replacements(
         script,
         [
-            (
-                "__DX_TOP_LEVEL_SUBCOMMANDS__",
-                shell_words(DX_TOP_LEVEL_SUBCOMMANDS),
-            ),
-            ("__DX_COMPLETE_MODES__", shell_words(DX_COMPLETE_MODES)),
+            ("__DX_CLAP_COMPLETION__", cli::completion_script(Shell::Zsh)),
             (
                 "__DX_ZSH_COMPLETION_BINDINGS__",
                 render_zsh_completion_bindings(),

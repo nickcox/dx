@@ -8,7 +8,7 @@ shell code; it does not modify profile files itself.
 
 | Option | Behavior |
 |---|---|
-| No flag | Directory wrappers, navigation commands, and normal completions |
+| No flag | Directory wrappers, navigation commands, and completions |
 | `--menu` | Adds the interactive completion menu |
 | `--command-not-found` | Lets path-like unknown commands resolve as directories |
 
@@ -148,6 +148,11 @@ The generated hooks provide these interactive commands:
 
 The hooks also set `DX_SESSION` when it is not already present. This session ID
 keeps each shell's back, forward, and recent-directory state separate.
+
+`dx` command completion is generated from its Clap command definition. It
+completes subcommands, options, enum values, and ordinary filesystem paths.
+The navigation wrappers retain their runtime-aware directory, history, and
+frecency candidates. Bookmark names and session IDs are not completed yet.
 
 ## Command-Not-Found Integration
 

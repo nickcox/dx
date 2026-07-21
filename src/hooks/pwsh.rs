@@ -3,6 +3,7 @@ use super::common::{
     render_pwsh_completion_bindings, render_pwsh_menu_mapping_list,
     render_pwsh_native_completion_bindings,
 };
+use crate::{cli, hooks::Shell};
 use thiserror::Error;
 
 use super::{InitMenuMode, MenuCommandMapping};
@@ -1117,11 +1118,16 @@ Export-ModuleMember -Function Set-DxLocation, Step-Up, Undo-Location, Redo-Locat
 "#,
     );
 
-    let completion_bindings = if native_menu {
+    let navigation_completion_bindings = if native_menu {
         render_pwsh_native_completion_bindings()
     } else {
         render_pwsh_completion_bindings()
     };
+    let completion_bindings = format!(
+        "{}\n\n{}",
+        cli::completion_script(Shell::Pwsh),
+        navigation_completion_bindings
+    );
 
     apply_template_replacements(
         script,

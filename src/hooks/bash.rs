@@ -1,10 +1,10 @@
 use super::MenuCommandMapping;
 use super::common::{
-    DX_COMPLETE_MODES, DX_TOP_LEVEL_SUBCOMMANDS, apply_template_replacements,
-    render_bash_completion_bindings, render_bash_completion_functions,
+    apply_template_replacements, render_bash_completion_bindings, render_bash_completion_functions,
     render_bash_menu_fallback_case, render_bash_menu_mapping_case,
-    render_posix_wrapper_declarations, shell_words,
+    render_posix_wrapper_declarations,
 };
+use crate::{cli, hooks::Shell};
 
 pub fn generate_with_mappings(
     command_not_found: bool,
@@ -196,33 +196,7 @@ __DX_POSIX_WRAPPER_DECLARATIONS__
 
 __DX_BASH_COMPLETION_FUNCTIONS__
 
-_dx_complete_dx() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  local sub="${COMP_WORDS[1]:-}"
-  COMPREPLY=()
-
-  if [[ ${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "__DX_TOP_LEVEL_SUBCOMMANDS__" -- "$cur") )
-    return 0
-  fi
-
-  case "$sub" in
-    resolve)
-      _dx_complete_paths
-      ;;
-    complete)
-      if [[ ${COMP_CWORD} -eq 2 ]]; then
-        COMPREPLY=( $(compgen -W "__DX_COMPLETE_MODES__" -- "$cur") )
-      fi
-      ;;
-    stack)
-      return 1
-      ;;
-    *)
-      ;;
-  esac
-  return 0
-}
+__DX_CLAP_COMPLETION__
 
 __DX_BASH_COMPLETION_BINDINGS__
 "#,
@@ -398,10 +372,9 @@ command_not_found_handle() {
         script,
         [
             (
-                "__DX_TOP_LEVEL_SUBCOMMANDS__",
-                shell_words(DX_TOP_LEVEL_SUBCOMMANDS),
+                "__DX_CLAP_COMPLETION__",
+                cli::completion_script(Shell::Bash),
             ),
-            ("__DX_COMPLETE_MODES__", shell_words(DX_COMPLETE_MODES)),
             (
                 "__DX_BASH_COMPLETION_BINDINGS__",
                 render_bash_completion_bindings(),

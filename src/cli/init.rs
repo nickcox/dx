@@ -1,13 +1,28 @@
+use clap::ValueEnum;
+
 use crate::hooks::{self, InitMenuMode, Shell, parse_menu_command_mappings, parse_pwsh_menu_key};
 
-pub fn run_init(shell: &str, command_not_found: bool, menu: bool, native_menu: bool) -> i32 {
-    let Some(shell) = Shell::parse(shell) else {
-        eprintln!(
-            "dx init: unsupported shell '{shell}' (supported: {})",
-            Shell::supported_list()
-        );
-        return 1;
-    };
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum InitShell {
+    Bash,
+    Zsh,
+    Fish,
+    Pwsh,
+}
+
+impl From<InitShell> for Shell {
+    fn from(value: InitShell) -> Self {
+        match value {
+            InitShell::Bash => Self::Bash,
+            InitShell::Zsh => Self::Zsh,
+            InitShell::Fish => Self::Fish,
+            InitShell::Pwsh => Self::Pwsh,
+        }
+    }
+}
+
+pub fn run_init(shell: InitShell, command_not_found: bool, menu: bool, native_menu: bool) -> i32 {
+    let shell = shell.into();
 
     if native_menu && shell != Shell::Pwsh {
         eprintln!("dx init: --native-menu is only supported for pwsh");
@@ -67,20 +82,14 @@ pub fn run_init(shell: &str, command_not_found: bool, menu: bool, native_menu: b
 mod tests {
     use crate::test_support::ScopedProcess;
 
-    use super::run_init;
-
-    #[test]
-    fn init_rejects_unknown_shell() {
-        let code = run_init("unknown", false, false, false);
-        assert_eq!(code, 1);
-    }
+    use super::{InitShell, run_init};
 
     #[test]
     fn init_rejects_invalid_menu_mappings_when_menu_enabled() {
         let mut process = ScopedProcess::new();
         process.set("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry");
 
-        let code = run_init("bash", false, true, false);
+        let code = run_init(InitShell::Bash, false, true, false);
 
         assert_eq!(code, 1);
     }
@@ -90,7 +99,7 @@ mod tests {
         let mut process = ScopedProcess::new();
         process.set("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry");
 
-        let code = run_init("bash", false, false, false);
+        let code = run_init(InitShell::Bash, false, false, false);
 
         assert_eq!(code, 0);
     }

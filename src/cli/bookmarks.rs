@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use clap::Subcommand;
+use clap::{Subcommand, ValueHint};
 
 use crate::bookmarks::{BookmarkError, BookmarkStore, storage};
 
@@ -12,6 +12,7 @@ pub enum BookmarksCommand {
         /// Bookmark name (alphanumeric, hyphens, underscores)
         name: String,
         /// Directory path to bookmark (defaults to current directory)
+        #[arg(value_hint = ValueHint::DirPath)]
         path: Option<String>,
     },
     /// Remove a saved bookmark

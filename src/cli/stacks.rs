@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use clap::{Args, Subcommand, ValueEnum};
+use clap::{Args, Subcommand, ValueEnum, ValueHint};
 
 use crate::common;
 use crate::complete;
@@ -26,6 +26,7 @@ pub enum StackListDirection {
 
 #[derive(Debug, Args)]
 pub struct StackPushCommand {
+    #[arg(value_hint = ValueHint::DirPath)]
     pub path: String,
     #[arg(long)]
     pub session: Option<String>,

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use clap::{Args, ValueEnum};
+use clap::{Args, ValueEnum, ValueHint};
 
 use crate::complete::CompletionMode;
 use crate::menu::{
@@ -73,6 +73,7 @@ pub struct MenuCommand {
 
     /// Working directory (defaults to current directory)
     #[arg(long)]
+    #[arg(value_hint = ValueHint::DirPath)]
     pub cwd: Option<PathBuf>,
 
     /// Session identifier (defaults to DX_SESSION env var)

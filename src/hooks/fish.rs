@@ -1,9 +1,9 @@
 use super::MenuCommandMapping;
 use super::common::{
     MENU_ELIGIBLE_COMMANDS, apply_template_replacements, fish_case_words,
-    render_fish_completion_bindings, render_fish_dx_root_completion_bindings,
-    render_fish_menu_mapping_cases,
+    render_fish_completion_bindings, render_fish_menu_mapping_cases,
 };
+use crate::{cli, hooks::Shell};
 
 pub fn generate_with_mappings(
     command_not_found: bool,
@@ -245,7 +245,7 @@ function cdr
   __dx_jump_mode recents "$argv[1]"
 end
 
-__DX_FISH_DX_ROOT_COMPLETION_BINDINGS__
+__DX_CLAP_COMPLETION__
 
 __DX_FISH_COMPLETION_BINDINGS__
 "#,
@@ -403,8 +403,8 @@ end
         script,
         [
             (
-                "__DX_FISH_DX_ROOT_COMPLETION_BINDINGS__",
-                render_fish_dx_root_completion_bindings(),
+                "__DX_CLAP_COMPLETION__",
+                cli::completion_script(Shell::Fish),
             ),
             (
                 "__DX_FISH_COMPLETION_BINDINGS__",

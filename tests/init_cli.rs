@@ -1,5 +1,6 @@
 mod common;
 
+use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -17,7 +18,7 @@ fn init_bash_prints_non_empty_output() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.trim().is_empty());
-    assert!(stdout.contains("_dx_complete_dx dx"));
+    assert!(stdout.contains("complete -F _dx -o bashdefault -o default dx"));
     assert!(stdout.contains("up()"));
     assert!(stdout.contains("back()"));
     assert!(stdout.contains("forward()"));
@@ -33,7 +34,7 @@ fn init_zsh_prints_non_empty_output() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.trim().is_empty());
-    assert!(stdout.contains("compdef _dx_complete_dx dx"));
+    assert!(stdout.contains("#compdef dx"));
     assert!(stdout.contains("compdef _dx_complete_ancestors up"));
     assert!(stdout.contains("up()"));
     assert!(stdout.contains("back()"));
@@ -66,13 +67,44 @@ fn init_pwsh_prints_non_empty_output() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.trim().is_empty());
-    assert!(stdout.contains("Register-ArgumentCompleter -CommandName dx"));
+    assert!(stdout.contains("Register-ArgumentCompleter -Native -CommandName 'dx'"));
     assert!(stdout.contains("function Step-Up"));
     assert!(stdout.contains("function Undo-Location"));
     assert!(stdout.contains("function Redo-Location"));
     assert!(stdout.contains("__dx_set_alias up Step-Up"));
     assert!(stdout.contains("__dx_set_alias back Undo-Location"));
     assert!(stdout.contains("__dx_set_alias forward Redo-Location"));
+}
+
+#[test]
+fn pwsh_completes_partial_dx_subcommands() {
+    if !common::tool_available("pwsh") {
+        return;
+    }
+
+    let binary_path = dx_bin();
+    let bin_dir = binary_path.parent().expect("dx binary parent directory");
+    let mut paths = vec![bin_dir.to_path_buf()];
+    paths.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
+    let path = env::join_paths(paths)
+        .expect("join PATH")
+        .to_string_lossy()
+        .replace('\'', "''");
+    let binary = binary_path.display().to_string().replace('\'', "''");
+    let script = format!(
+        "$env:PATH = '{path}'; Invoke-Expression ((& '{binary}' init pwsh | Out-String)); (TabExpansion2 -inputScript 'dx r' -cursorColumn 4).CompletionMatches | ForEach-Object {{ $_.CompletionText }}"
+    );
+    let output = Command::new("pwsh")
+        .args(["-NoProfile", "-Command", &script])
+        .output()
+        .expect("run PowerShell completion");
+
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|value| value == "resolve")
+    );
 }
 
 #[test]
@@ -84,7 +116,7 @@ fn init_unknown_shell_fails_with_diagnostic() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("unsupported shell"));
+    assert!(stderr.contains("invalid value"));
     assert!(stderr.contains("bash, zsh, fish, pwsh"));
 }
 

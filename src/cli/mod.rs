@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 
 use crate::resolve::Resolver;
 
@@ -19,6 +19,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Resolve {
+        #[arg(value_hint = ValueHint::DirPath)]
         query: String,
         #[arg(long)]
         list: bool,
@@ -26,7 +27,7 @@ enum Commands {
         json: bool,
     },
     Init {
-        shell: String,
+        shell: init::InitShell,
         #[arg(long = "command-not-found")]
         command_not_found: bool,
         #[arg(long, conflicts_with = "native_menu")]
@@ -55,6 +56,64 @@ enum Commands {
     Menu(menu::MenuCommand),
 }
 
+pub fn completion_script(shell: crate::hooks::Shell) -> String {
+    use clap_complete::{generate, shells};
+
+    let mut command = Cli::command();
+    let mut output = Vec::new();
+    match shell {
+        crate::hooks::Shell::Bash => generate(shells::Bash, &mut command, "dx", &mut output),
+        crate::hooks::Shell::Zsh => generate(shells::Zsh, &mut command, "dx", &mut output),
+        crate::hooks::Shell::Fish => generate(shells::Fish, &mut command, "dx", &mut output),
+        crate::hooks::Shell::Pwsh => {
+            generate(shells::PowerShell, &mut command, "dx", &mut output);
+        }
+    }
+    let script = String::from_utf8(output).expect("clap completion scripts are UTF-8");
+    let script = match shell {
+        crate::hooks::Shell::Bash => script.replace(" --psreadline-mode", ""),
+        crate::hooks::Shell::Zsh | crate::hooks::Shell::Fish => script
+            .lines()
+            .filter(|line| !line.contains("psreadline-mode"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        crate::hooks::Shell::Pwsh => script
+            .lines()
+            .filter(|line| !line.contains("psreadline-mode"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .replace("using namespace System.Management.Automation\n", "")
+            .replace(
+                "using namespace System.Management.Automation.Language\n",
+                "",
+            )
+            .replace(
+                "[CompletionResult]",
+                "[System.Management.Automation.CompletionResult]",
+            )
+            .replace(
+                "[CompletionResultType]",
+                "[System.Management.Automation.CompletionResultType]",
+            )
+            .replace(
+                "[StringConstantExpressionAst]",
+                "[System.Management.Automation.Language.StringConstantExpressionAst]",
+            )
+            .replace(
+                "[StringConstantType]",
+                "[System.Management.Automation.Language.StringConstantType]",
+            )
+            // Clap's PowerShell script compares the final AST token with the
+            // completion word. PowerShell may pass a differently quoted word,
+            // so always treat the final token as the incomplete value.
+            .replace(
+                "$element.Value -eq $wordToComplete)",
+                "$i -eq ($commandElements.Count - 1))",
+            ),
+    };
+    script
+}
+
 pub fn run() -> i32 {
     let cli = Cli::parse();
 
@@ -64,7 +123,7 @@ pub fn run() -> i32 {
             command_not_found,
             menu,
             native_menu,
-        } => init::run_init(&shell, command_not_found, menu, native_menu),
+        } => init::run_init(shell, command_not_found, menu, native_menu),
         Commands::Resolve { query, list, json } => {
             with_resolver(|resolver| resolve::run_resolve(resolver, &query, list, json))
         }
