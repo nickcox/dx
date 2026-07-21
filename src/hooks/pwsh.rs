@@ -513,7 +513,9 @@ function __dx_quote_completion_path {
     ) {
         $value += [System.IO.Path]::DirectorySeparatorChar
     }
-    if ($value -notmatch '[\s()\[\]{}!#$&*?;<>|\\''"`~]') {
+    # Backslash is the canonical Windows path separator and is neither an escape
+    # character nor an operator in PowerShell, so it must not trigger quoting.
+    if ($value -notmatch '[\s()\[\]{}!#$&*?;<>|''"`~]') {
         return $value
     }
     return "'" + $value.Replace("'", "''") + "'"

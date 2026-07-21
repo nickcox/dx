@@ -384,7 +384,7 @@ Remove-Item Env:DX_MENU_ITEM_MAX_LEN
     );
     let cd_text = cd_directory["text"].as_str().expect("cd completion text");
     assert!(!cd_text.starts_with('\''));
-    assert!(cd_text.ends_with("alpha-dir/"));
+    assert!(cd_text.ends_with(&format!("alpha-dir{}", std::path::MAIN_SEPARATOR)));
     assert_eq!(
         result["quoted"]
             .as_array()
