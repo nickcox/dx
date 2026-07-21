@@ -252,7 +252,10 @@ fn parse_color_value(val: &str) -> Style {
                         28 => style = style.remove_modifier(Modifier::HIDDEN),
                         29 => style = style.remove_modifier(Modifier::CROSSED_OUT),
                         30..=37 => style = style.fg(standard_color(num - 30)),
-                        38 | 48 => unreachable!(),
+                        // Extended-color introducers ("38"/"48") are consumed by the
+                        // dedicated string arms above, so they never reach this numeric
+                        // match; ignore them defensively rather than panicking.
+                        38 | 48 => {}
                         39 => style = style.fg(Color::Reset),
                         40..=47 => style = style.bg(standard_color(num - 40)),
                         49 => style = style.bg(Color::Reset),

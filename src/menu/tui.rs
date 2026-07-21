@@ -1360,14 +1360,13 @@ mod imp {
         };
         let selected_with_overflow = format!("{selected_path}{overflow}");
 
-        if refinement.is_none() {
+        let Some(refinement) = refinement else {
             if text_width(&selected_with_overflow) <= width {
                 return selected_with_overflow;
             }
             return truncate_for_cell(selected_path, width);
-        }
+        };
 
-        let refinement = refinement.unwrap();
         if let Some(text) = join_status_parts(width, &selected_with_overflow, &refinement) {
             return text;
         }
