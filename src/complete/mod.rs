@@ -239,6 +239,19 @@ pub fn relative_path_from(cwd: &Path, path: &Path) -> Option<PathBuf> {
     Some(relative)
 }
 
+/// Format a path relative to `cwd` while retaining a parent-relative anchor.
+///
+/// The current directory normally shortens to `.`, but `../<cwd-basename>` is
+/// equivalent and preserves an explicit `../` query style.
+pub fn parent_relative_path_from(cwd: &Path, path: &Path) -> Option<PathBuf> {
+    let relative = relative_path_from(cwd, path)?;
+    if relative != Path::new(".") {
+        return Some(relative);
+    }
+
+    Some(PathBuf::from("..").join(cwd.file_name()?))
+}
+
 pub fn cwd_relative_label(path: &Path, cwd: &Path, dot_prefix: bool) -> Option<String> {
     let rel = path.strip_prefix(cwd).ok()?;
     let cleaned = sanitize_relative_components(rel);

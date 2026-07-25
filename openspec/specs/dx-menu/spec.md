@@ -331,7 +331,7 @@ When the active query starts with `~` or `~/`, candidates under the user's home 
 
 When the active query starts with `/`, candidates SHALL be displayed as absolute paths.
 
-Candidate label style SHALL NOT change candidate sourcing, filtering, ranking, selected candidate identity, status-row selected path display, JSON action shape, or accepted replacement text.
+Candidate label style SHALL NOT change candidate sourcing, filtering, ranking, selected candidate identity, status-row selected path display, or JSON action shape. Accepted filesystem replacements SHALL preserve the same explicit query anchor when the selected path is representable under that anchor.
 
 #### Scenario: Empty cd query shows bare cwd children
 - **WHEN** `dx menu` opens for `cd <tab>` in `/Users/nick/project`
@@ -426,11 +426,15 @@ Dynamic height changes SHALL preserve stdout for final JSON action output and SH
 ### Requirement: Selection Replacement Semantics
 For `replace` actions, `replaceStart` and `replaceEnd` SHALL define a half-open byte range in the original buffer to replace. `value` SHALL be the formatted replacement token produced for the selected candidate.
 
-For `paths` mode, the replacement formatter SHALL preserve the user's query style when practical:
+For filesystem path modes, the replacement formatter SHALL preserve the user's explicit query style when the selected path is representable under that anchor:
 
-- cwd-relative selections MAY be emitted as `./child/`
-- parent-relative selections MAY be emitted as `../sibling/`
+- bare cwd-relative selections SHALL be emitted without an implicit `./` prefix
+- `./` selections SHALL preserve a `./` prefix
+- parent-relative selections SHALL preserve a `../` prefix
+- home-relative selections SHALL preserve a `~/` prefix
 - explicitly absolute input SHALL preserve absolute replacement output
+
+If the selected path cannot be represented under the explicit dot-relative, parent-relative, or home-relative anchor, the replacement formatter SHALL emit the selected absolute path rather than changing to another relative style.
 
 Paths-mode replacements SHALL include a trailing slash and MAY include shell quoting when needed for the selected path text.
 
@@ -442,13 +446,25 @@ For non-`paths` modes, replacements SHALL identify the selected destination with
 
 Replacement bounds SHALL only target the active query token under the cursor and SHALL NOT modify unrelated buffer segments.
 
-#### Scenario: Relative query preserves dot-slash style
+#### Scenario: Bare relative query preserves compact style
 - **WHEN** buffer is `cd b`, cwd contains `./benches`, and the selected candidate is that child directory
-- **THEN** the returned replacement value MAY be `./benches/`
+- **THEN** the returned replacement value SHALL be `benches/`
 
 #### Scenario: Explicit absolute query preserves absolute replacement
 - **WHEN** buffer is `cd /tmp/b`, the selected candidate is `/tmp/benches`, and `paths` mode is active
 - **THEN** the returned replacement value SHALL be `/tmp/benches/`
+
+#### Scenario: Home query preserves home replacement
+- **WHEN** buffer is `cd ~`, the selected candidate is the user's home directory, and `paths` mode is active
+- **THEN** the returned replacement value SHALL be `~/`
+
+#### Scenario: Parent query keeps its anchor for the current directory
+- **WHEN** buffer is `cd ../w`, cwd is `/tmp/work`, and the selected candidate is `/tmp/work`
+- **THEN** the returned replacement value SHALL be `../work/` rather than `.` or an absolute path
+
+#### Scenario: Home path quoting preserves tilde expansion
+- **WHEN** a home-relative directory selection contains whitespace
+- **THEN** the returned replacement value SHALL leave `~/` unquoted and quote or escape only the remaining path text
 
 #### Scenario: Quoted directory replacement keeps slash inside quotes
 - **WHEN** the selected directory replacement requires shell quoting

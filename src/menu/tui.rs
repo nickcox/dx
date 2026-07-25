@@ -53,7 +53,9 @@ mod imp {
         },
     };
 
-    use crate::menu::MenuMode;
+    use crate::menu::{MenuMode, QueryStyle};
+
+    type CandidateLabelStyle = QueryStyle;
     use crate::menu::ls_colors::LsColorsConfig;
     use crate::resolve::CompletionCandidates;
 
@@ -482,54 +484,24 @@ mod imp {
         })
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum CandidateLabelStyle {
-        Compact,
-        BareRelative,
-        DotRelative,
-        ParentRelative,
-        HomeRelative,
-        Absolute,
-    }
-
-    impl CandidateLabelStyle {
-        fn from_query(mode: MenuMode, query: &str) -> Self {
-            if !mode.prefers_query_relative_rendering() {
-                return Self::Compact;
-            }
-
-            if query.starts_with('/') {
-                Self::Absolute
-            } else if query.starts_with('~') {
-                Self::HomeRelative
-            } else if query == ".." || query.starts_with("../") {
-                Self::ParentRelative
-            } else if query.starts_with("./") {
-                Self::DotRelative
-            } else {
-                Self::BareRelative
-            }
-        }
-    }
-
     fn display_label_for_style(
         path: &Path,
         cwd: &Path,
         home: Option<&Path>,
-        style: CandidateLabelStyle,
+        style: QueryStyle,
     ) -> String {
         match style {
-            CandidateLabelStyle::Compact => display_label(path, cwd, home, true),
-            CandidateLabelStyle::BareRelative => cwd_relative_label_for_display(path, cwd, false)
+            QueryStyle::Compact => display_label(path, cwd, home, true),
+            QueryStyle::BareRelative => cwd_relative_label_for_display(path, cwd, false)
                 .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            CandidateLabelStyle::DotRelative => cwd_relative_label_for_display(path, cwd, true)
+            QueryStyle::DotRelative => cwd_relative_label_for_display(path, cwd, true)
                 .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            CandidateLabelStyle::ParentRelative => crate::complete::relative_path_from(cwd, path)
+            QueryStyle::ParentRelative => crate::complete::parent_relative_path_from(cwd, path)
                 .map(|relative| relative.display().to_string())
                 .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            CandidateLabelStyle::HomeRelative => crate::complete::home_relative_label(path, home)
+            QueryStyle::HomeRelative => crate::complete::home_relative_label(path, home)
                 .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            CandidateLabelStyle::Absolute => path.display().to_string(),
+            QueryStyle::Absolute => path.display().to_string(),
         }
     }
 
@@ -599,7 +571,7 @@ mod imp {
         let (cols, rows) = terminal_ops.size().ok()?;
 
         let home = dirs::home_dir();
-        let initial_label_style = CandidateLabelStyle::from_query(mode, initial_query);
+        let initial_label_style = QueryStyle::from_query(mode, initial_query);
         let initial_labels: Vec<String> = initial_candidates
             .paths
             .iter()
@@ -1977,6 +1949,16 @@ mod imp {
             assert_eq!(
                 display_label_for_style(path, cwd, None, CandidateLabelStyle::ParentRelative),
                 "../sibling"
+            );
+        }
+
+        #[test]
+        fn display_label_for_parent_query_keeps_anchor_for_cwd_candidate() {
+            let cwd = Path::new("/Users/nick/project");
+
+            assert_eq!(
+                display_label_for_style(cwd, cwd, None, CandidateLabelStyle::ParentRelative),
+                "../project"
             );
         }
 

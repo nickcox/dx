@@ -1449,7 +1449,7 @@ fn menu_paths_mode_honors_explicit_cwd() {
 
 #[cfg(unix)]
 #[test]
-fn menu_paths_mode_relative_query_uses_dot_slash_replacement() {
+fn menu_paths_mode_bare_query_uses_bare_relative_replacement() {
     let explicit_cwd = common::temp_dir("explicit-cwd-relative-rendering");
     let child = explicit_cwd.path().join("benches");
     fs::create_dir_all(&child).expect("create benches child dir");
@@ -1482,14 +1482,7 @@ fn menu_paths_mode_relative_query_uses_dot_slash_replacement() {
     let value = parsed["value"]
         .as_str()
         .expect("replace action should include value");
-    assert_eq!(
-        value,
-        format!(
-            ".{}benches{}",
-            std::path::MAIN_SEPARATOR,
-            std::path::MAIN_SEPARATOR
-        )
-    );
+    assert_eq!(value, format!("benches{}", std::path::MAIN_SEPARATOR));
 }
 
 #[cfg(unix)]
@@ -1531,6 +1524,38 @@ fn menu_paths_mode_explicit_absolute_query_preserves_absolute_replacement() {
         .expect("replace action should include value");
     let expected = format!("{}{}", child.display(), std::path::MAIN_SEPARATOR);
     assert_eq!(value, expected);
+}
+
+#[cfg(unix)]
+#[test]
+fn menu_paths_mode_home_query_preserves_home_replacement() {
+    let root = common::temp_dir("menu-home-query-replacement");
+    let home = root.path().join("home");
+    let cwd = root.path().join("work/nested/project");
+    let child = home.join("code");
+    fs::create_dir_all(&child).expect("create home child directory");
+    fs::create_dir_all(&cwd).expect("create nested working directory");
+
+    let buffer = "cd ~/c";
+    let output = dx()
+        .args([
+            "menu",
+            "--buffer",
+            buffer,
+            "--cursor",
+            &buffer.len().to_string(),
+            "--cwd",
+            cwd.to_str().expect("cwd should be valid utf-8"),
+        ])
+        .env("HOME", &home)
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be a valid menu action");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["value"], "~/code/");
 }
 
 #[cfg(unix)]
@@ -1582,6 +1607,34 @@ fn menu_paths_mode_parent_relative_query_preserves_parent_prefix_replacement() {
 
 #[cfg(unix)]
 #[test]
+fn menu_paths_mode_parent_relative_query_keeps_anchor_for_cwd_candidate() {
+    let root = common::temp_dir("menu-parent-query-cwd-candidate");
+    let cwd = root.path().join("work");
+    fs::create_dir_all(&cwd).expect("create working directory");
+
+    let buffer = "cd ../w";
+    let output = dx()
+        .args([
+            "menu",
+            "--buffer",
+            buffer,
+            "--cursor",
+            &buffer.len().to_string(),
+            "--cwd",
+            cwd.to_str().expect("cwd should be valid utf-8"),
+        ])
+        .output()
+        .expect("dx menu should run");
+
+    assert!(output.status.success());
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be a valid menu action");
+    assert_eq!(parsed["action"], "replace");
+    assert_eq!(parsed["value"], "../work/");
+}
+
+#[cfg(unix)]
+#[test]
 fn mapped_path_mode_returns_single_file_candidate_replace() {
     let explicit_cwd = common::temp_dir("mapped-path-file");
     let file = explicit_cwd.path().join("alpha.txt");
@@ -1606,7 +1659,7 @@ fn mapped_path_mode_returns_single_file_candidate_replace() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json");
     assert_eq!(parsed["action"], "replace");
-    assert_eq!(parsed["value"], "./alpha.txt");
+    assert_eq!(parsed["value"], "alpha.txt");
     assert_eq!(parsed["terminal"], "clean");
 }
 
@@ -1640,11 +1693,7 @@ fn mapped_directory_mode_excludes_files() {
     assert_eq!(parsed["action"], "replace");
     assert_eq!(
         parsed["value"],
-        format!(
-            ".{}alpha-dir{}",
-            std::path::MAIN_SEPARATOR,
-            std::path::MAIN_SEPARATOR
-        )
+        format!("alpha-dir{}", std::path::MAIN_SEPARATOR)
     );
     assert_eq!(parsed["terminal"], "clean");
 }
@@ -1677,7 +1726,7 @@ fn mapped_file_mode_excludes_directories() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid json");
     assert_eq!(parsed["action"], "replace");
-    assert_eq!(parsed["value"], "./alpha.txt");
+    assert_eq!(parsed["value"], "alpha.txt");
     assert_eq!(parsed["terminal"], "clean");
 }
 

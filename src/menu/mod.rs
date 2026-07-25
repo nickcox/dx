@@ -18,7 +18,7 @@ pub use action::{MenuAction, TerminalGeometry, TerminalState};
 pub use buffer::{
     ParsedBuffer, parse_buffer, parse_buffer_with_mode, parse_buffer_with_override_mode,
 };
-pub use mode::MenuMode;
+pub use mode::{MenuMode, QueryStyle};
 pub use tui::MenuResult;
 
 /// Source completion candidates for the given mode and query.

@@ -4,7 +4,8 @@ use clap::{Args, ValueEnum, ValueHint};
 
 use crate::complete::CompletionMode;
 use crate::menu::{
-    self, MenuAction, MenuMode, MenuResult, parse_buffer_with_override_mode, tui::QueryFn,
+    self, MenuAction, MenuMode, MenuResult, QueryStyle, parse_buffer_with_override_mode,
+    tui::QueryFn,
 };
 use crate::resolve::Resolver;
 
@@ -145,7 +146,7 @@ fn format_selected_path_for_query_style_checked(
     selected: &Path,
     mode: MenuMode,
     cwd: &Path,
-    prefer_relative_paths: bool,
+    style: QueryStyle,
     shell: MenuShellArg,
 ) -> Option<String> {
     let append_trailing_slash = matches!(
@@ -153,34 +154,88 @@ fn format_selected_path_for_query_style_checked(
         MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory
     ) || (mode == MenuMode::Path && selected.is_dir());
 
-    match mode {
-        MenuMode::Completion(CompletionMode::Paths)
-        | MenuMode::Path
-        | MenuMode::Directory
-        | MenuMode::File
-            if prefer_relative_paths =>
-        {
-            if let Some(relative) = crate::complete::relative_path_from(cwd, selected) {
-                let rel_path = if relative == Path::new(".") {
-                    PathBuf::from(format!(".{}", std::path::MAIN_SEPARATOR))
-                } else {
-                    if relative.starts_with("..") {
-                        relative
-                    } else {
-                        PathBuf::from(format!(".{}", std::path::MAIN_SEPARATOR)).join(relative)
-                    }
-                };
-                format_selected_path_with_trailing_separator(
-                    &rel_path,
+    if !mode.prefers_query_relative_rendering() {
+        return format_selected_path_with_trailing_separator(
+            selected,
+            append_trailing_slash,
+            shell,
+        );
+    }
+
+    match style {
+        QueryStyle::Compact | QueryStyle::Absolute => {
+            format_selected_path_with_trailing_separator(selected, append_trailing_slash, shell)
+        }
+        QueryStyle::HomeRelative => dirs::home_dir()
+            .and_then(|home| {
+                format_home_relative_path(selected, &home, append_trailing_slash, shell)
+            })
+            .or_else(|| {
+                format_selected_path_with_trailing_separator(selected, append_trailing_slash, shell)
+            }),
+        QueryStyle::BareRelative | QueryStyle::DotRelative | QueryStyle::ParentRelative => {
+            let relative_path = if style == QueryStyle::ParentRelative {
+                crate::complete::parent_relative_path_from(cwd, selected)
+            } else {
+                crate::complete::relative_path_from(cwd, selected)
+            };
+            let Some(relative) = relative_path else {
+                return format_selected_path_with_trailing_separator(
+                    selected,
                     append_trailing_slash,
                     shell,
-                )
-            } else {
-                format_selected_path_with_trailing_separator(selected, append_trailing_slash, shell)
-            }
+                );
+            };
+
+            let relative = match style {
+                QueryStyle::BareRelative => relative,
+                QueryStyle::DotRelative if relative == Path::new(".") => {
+                    PathBuf::from(format!(".{}", std::path::MAIN_SEPARATOR))
+                }
+                QueryStyle::DotRelative => {
+                    PathBuf::from(format!(".{}", std::path::MAIN_SEPARATOR)).join(relative)
+                }
+                QueryStyle::ParentRelative if relative.starts_with("..") => relative,
+                // A parent-rooted query must never silently become cwd-relative.
+                QueryStyle::ParentRelative => {
+                    return format_selected_path_with_trailing_separator(
+                        selected,
+                        append_trailing_slash,
+                        shell,
+                    );
+                }
+                _ => unreachable!(),
+            };
+            format_selected_path_with_trailing_separator(&relative, append_trailing_slash, shell)
         }
-        _ => format_selected_path_with_trailing_separator(selected, append_trailing_slash, shell),
     }
+}
+
+fn format_home_relative_path(
+    selected: &Path,
+    home: &Path,
+    append_trailing_separator: bool,
+    shell: MenuShellArg,
+) -> Option<String> {
+    let relative = selected.strip_prefix(home).ok()?;
+    if relative.as_os_str().is_empty() {
+        return Some(if append_trailing_separator {
+            format!("~{}", std::path::MAIN_SEPARATOR)
+        } else {
+            "~".to_string()
+        });
+    }
+
+    let mut suffix = relative.to_str()?.to_string();
+    if append_trailing_separator {
+        suffix.push(std::path::MAIN_SEPARATOR);
+    }
+    // Keep `~/` outside quotes: quoting a tilde prevents POSIX shells from expanding it.
+    Some(format!(
+        "~{}{}",
+        std::path::MAIN_SEPARATOR,
+        shell.quote(&suffix)?
+    ))
 }
 
 #[cfg(test)]
@@ -194,21 +249,20 @@ fn format_selected_path_for_query_style(
         selected,
         mode,
         cwd,
-        prefer_relative_paths,
+        if prefer_relative_paths {
+            if crate::complete::relative_path_from(cwd, selected)
+                .is_some_and(|relative| relative.starts_with(".."))
+            {
+                QueryStyle::ParentRelative
+            } else {
+                QueryStyle::DotRelative
+            }
+        } else {
+            QueryStyle::Absolute
+        },
         MenuShellArg::Bash,
     )
     .expect("test path has no control characters")
-}
-
-fn has_explicit_absolute_input(query: Option<&str>, mode: MenuMode) -> bool {
-    mode.prefers_query_relative_rendering()
-        && query.is_some_and(|query| {
-            matches!(
-                crate::resolve::path_query::PathQuery::new(query).kind,
-                crate::resolve::path_query::QueryKind::Absolute
-                    | crate::resolve::path_query::QueryKind::RootRelative
-            )
-        })
 }
 
 /// Returns true if the string contains characters that require shell quoting.
@@ -340,7 +394,7 @@ fn menu_result_to_action_with_shell(
     parsed: &menu::ParsedBuffer,
     mode: MenuMode,
     cwd: &Path,
-    prefer_relative_paths: bool,
+    style: QueryStyle,
     shell: MenuShellArg,
 ) -> MenuAction {
     match result {
@@ -350,13 +404,9 @@ fn menu_result_to_action_with_shell(
             geometry,
             ..
         }) => {
-            let Some(formatted) = format_selected_path_for_query_style_checked(
-                &value,
-                mode,
-                cwd,
-                prefer_relative_paths,
-                shell,
-            ) else {
+            let Some(formatted) =
+                format_selected_path_for_query_style_checked(&value, mode, cwd, style, shell)
+            else {
                 return MenuAction::noop();
             };
             let replacement = if parsed.needs_space_prefix {
@@ -415,7 +465,11 @@ fn menu_result_to_action(
         parsed,
         mode,
         cwd,
-        prefer_relative_paths,
+        if prefer_relative_paths {
+            QueryStyle::DotRelative
+        } else {
+            QueryStyle::Absolute
+        },
         MenuShellArg::Bash,
     )
 }
@@ -506,7 +560,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
     }
 
     let initial_query = parsed.query.clone().unwrap_or_default();
-    let prefer_relative_paths = !has_explicit_absolute_input(parsed.query.as_deref(), parsed.mode);
+    let query_style = QueryStyle::from_query(parsed.mode, parsed.query.as_deref().unwrap_or(""));
 
     let query_fn: QueryFn<'_> = Box::new(|q: &str| {
         let resolved_q =
@@ -551,7 +605,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
         &parsed,
         parsed.mode,
         &cwd,
-        prefer_relative_paths,
+        query_style,
         cmd.shell,
     );
     match action_for_shell(action, &cmd.buffer, cmd.shell) {
@@ -845,7 +899,7 @@ mod tests {
             &parsed,
             parsed.mode,
             Path::new("/tmp"),
-            false,
+            QueryStyle::Absolute,
             MenuShellArg::Bash,
         );
 
@@ -872,7 +926,7 @@ mod tests {
             &parsed,
             parsed.mode,
             Path::new("/tmp"),
-            false,
+            QueryStyle::Absolute,
             MenuShellArg::Bash,
         );
 
@@ -1093,6 +1147,52 @@ mod tests {
             true,
         );
         assert_eq!(result, "../../outer/");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_relative_replacement_keeps_anchor_for_cwd_candidate() {
+        let cwd = Path::new("/tmp/work");
+        let result = format_selected_path_for_query_style_checked(
+            cwd,
+            MenuMode::Completion(CompletionMode::Paths),
+            cwd,
+            QueryStyle::ParentRelative,
+            MenuShellArg::Bash,
+        );
+
+        assert_eq!(result, Some("../work/".to_string()));
+    }
+
+    #[test]
+    fn home_relative_replacement_keeps_tilde_unquoted() {
+        let home = Path::new("/tmp/home");
+        assert_eq!(
+            format_home_relative_path(
+                Path::new("/tmp/home/Project Files"),
+                home,
+                true,
+                MenuShellArg::Bash,
+            ),
+            Some("~/'Project Files/'".to_string())
+        );
+        assert_eq!(
+            format_home_relative_path(home, home, true, MenuShellArg::Zsh),
+            Some("~/".to_string())
+        );
+    }
+
+    #[test]
+    fn bare_relative_replacement_has_no_implicit_dot_prefix() {
+        let result = format_selected_path_for_query_style_checked(
+            Path::new("/tmp/work/benches"),
+            MenuMode::Completion(CompletionMode::Paths),
+            Path::new("/tmp/work"),
+            QueryStyle::BareRelative,
+            MenuShellArg::Bash,
+        );
+
+        assert_eq!(result, Some("benches/".to_string()));
     }
 
     #[cfg(unix)]
