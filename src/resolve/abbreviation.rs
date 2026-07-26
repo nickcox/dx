@@ -1,37 +1,18 @@
 use std::path::PathBuf;
 
+use super::traversal::{OnIoError, TraversalError};
 use super::{path_query, traversal};
 
-pub fn resolve_abbreviation(roots: &[PathBuf], query: &str, case_sensitive: bool) -> Vec<PathBuf> {
-    if !path_query::has_separator(query) {
-        return Vec::new();
-    }
-
-    let segments = parse_query_segments(query, case_sensitive);
-
-    if segments.is_empty() {
-        return Vec::new();
-    }
-
-    roots
-        .iter()
-        .filter(|root| root.is_dir())
-        .flat_map(|root| {
-            traversal::traverse_segment_paths(vec![root.clone()], &segments, |name, segment| {
-                segment.matches(name)
-            })
-        })
-        .collect()
-}
-
-pub fn resolve_abbreviation_exact(
+pub fn resolve_abbreviation(
     roots: &[PathBuf],
     query: &str,
     case_sensitive: bool,
-) -> Result<Vec<PathBuf>, (PathBuf, std::io::Error)> {
+    on_error: OnIoError,
+) -> Result<Vec<PathBuf>, TraversalError> {
     if !path_query::has_separator(query) {
         return Ok(Vec::new());
     }
+
     let segments = parse_query_segments(query, case_sensitive);
     if segments.is_empty() {
         return Ok(Vec::new());
@@ -44,12 +25,14 @@ pub fn resolve_abbreviation_exact(
         if !root.is_dir() {
             continue;
         }
-        matches.extend(traversal::try_traverse_segment_paths(
+        matches.extend(traversal::traverse_segment_paths(
             vec![root.clone()],
             &segments,
             |name, segment| segment.matches(name),
+            on_error,
         )?);
     }
+
     Ok(matches)
 }
 
@@ -232,7 +215,8 @@ mod tests {
         let target = root.join("project/src/components/button");
         fs::create_dir_all(&target).expect("create dirs");
 
-        let matches = resolve_abbreviation(&[root], "pro/sr/com/bu", true);
+        let matches = resolve_abbreviation(&[root], "pro/sr/com/bu", true, OnIoError::Skip)
+            .expect("skip policy never fails");
 
         assert_eq!(matches, vec![target]);
     }
@@ -243,7 +227,8 @@ mod tests {
         let root = temp.path().join("root");
         fs::create_dir_all(&root).expect("create dir");
 
-        let matches = resolve_abbreviation(&[root], "project", true);
+        let matches = resolve_abbreviation(&[root], "project", true, OnIoError::Skip)
+            .expect("skip policy never fails");
         assert!(matches.is_empty());
     }
 
@@ -254,7 +239,8 @@ mod tests {
         let target = root.join("Project/Source");
         fs::create_dir_all(&target).expect("create dirs");
 
-        let matches = resolve_abbreviation(&[root], "pro/sou", false);
+        let matches = resolve_abbreviation(&[root], "pro/sou", false, OnIoError::Skip)
+            .expect("skip policy never fails");
 
         assert_eq!(matches, vec![target]);
     }
@@ -265,7 +251,8 @@ mod tests {
         let root = temp.path().join("root");
         fs::create_dir_all(root.join("project/src/components")).expect("create dirs");
 
-        let matches = resolve_abbreviation(&[root], "pro/zzz", true);
+        let matches = resolve_abbreviation(&[root], "pro/zzz", true, OnIoError::Skip)
+            .expect("skip policy never fails");
 
         assert!(matches.is_empty());
     }

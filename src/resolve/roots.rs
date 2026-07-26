@@ -1,10 +1,15 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use super::traversal::{OnIoError, TraversalError};
 use super::{abbreviation::matches_segment, path_query, traversal};
 
-pub fn resolve_fallbacks(roots: &[PathBuf], query: &str, case_sensitive: bool) -> Vec<PathBuf> {
-    let has_slash = path_query::has_separator(query);
+pub fn resolve_fallbacks(
+    roots: &[PathBuf],
+    query: &str,
+    case_sensitive: bool,
+    on_error: OnIoError,
+) -> Result<Vec<PathBuf>, TraversalError> {
+    let has_separator = path_query::has_separator(query);
     let segments = path_query::segments(query);
 
     let mut matches = Vec::new();
@@ -14,107 +19,25 @@ pub fn resolve_fallbacks(roots: &[PathBuf], query: &str, case_sensitive: bool) -
             continue;
         }
 
-        if !has_slash {
+        // A single-segment query can name a child outright; the segment scan
+        // below only ever matches under the abbreviation rules.
+        if !has_separator {
             let direct = root.join(query);
-            if direct.is_dir() {
+            if traversal::is_directory(&direct, on_error)? {
                 matches.push(direct);
             }
         }
 
-        if has_slash {
-            matches.extend(traversal::traverse_segment_paths(
-                vec![root.to_path_buf()],
-                &segments,
-                |name, segment| matches_segment(name, segment, case_sensitive),
-            ));
-        } else {
-            matches.extend(resolve_single_segment(root, query, case_sensitive));
-        }
+        matches.extend(traversal::traverse_segment_paths(
+            vec![root.clone()],
+            &segments,
+            |name, segment| matches_segment(name, segment, case_sensitive),
+            on_error,
+        )?);
     }
 
     matches.sort();
     matches.dedup();
-    matches
-}
-
-pub fn resolve_fallbacks_exact(
-    roots: &[PathBuf],
-    query: &str,
-    case_sensitive: bool,
-) -> Result<Vec<PathBuf>, (PathBuf, std::io::Error)> {
-    let has_separator = path_query::has_separator(query);
-    let segments = path_query::segments(query);
-    let mut matches = Vec::new();
-
-    for root in roots {
-        if !root.is_dir() {
-            continue;
-        }
-        if !has_separator {
-            let direct = root.join(query);
-            match fs::metadata(&direct) {
-                Ok(metadata) if metadata.is_dir() => matches.push(direct),
-                Ok(_) | Err(_) => {}
-            }
-        }
-        if has_separator {
-            matches.extend(traversal::try_traverse_segment_paths(
-                vec![root.clone()],
-                &segments,
-                |name, segment| matches_segment(name, segment, case_sensitive),
-            )?);
-        } else {
-            matches.extend(resolve_single_segment_exact(root, query, case_sensitive)?);
-        }
-    }
-    matches.sort();
-    matches.dedup();
-    Ok(matches)
-}
-
-fn resolve_single_segment(root: &Path, segment: &str, case_sensitive: bool) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(root) else {
-        return Vec::new();
-    };
-
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            if !path.is_dir() {
-                return None;
-            }
-            let name = entry.file_name();
-            let name = name.to_str()?;
-            if matches_segment(name, segment, case_sensitive) {
-                Some(path)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-}
-
-fn resolve_single_segment_exact(
-    root: &Path,
-    segment: &str,
-    case_sensitive: bool,
-) -> Result<Vec<PathBuf>, (PathBuf, std::io::Error)> {
-    let entries = fs::read_dir(root).map_err(|source| (root.to_path_buf(), source))?;
-    let mut matches = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|source| (root.to_path_buf(), source))?;
-        let path = entry.path();
-        let name = entry.file_name();
-        if let Some(name) = name.to_str()
-            && matches_segment(name, segment, case_sensitive)
-        {
-            let metadata = entry.metadata().map_err(|source| (path.clone(), source))?;
-            if metadata.is_dir() {
-                matches.push(path);
-            }
-        }
-    }
     Ok(matches)
 }
 
@@ -132,7 +55,8 @@ mod tests {
         let target = root.join("myproject");
         fs::create_dir_all(&target).expect("create dirs");
 
-        let matches = resolve_fallbacks(&[root], "myproject", true);
+        let matches = resolve_fallbacks(&[root], "myproject", true, OnIoError::Skip)
+            .expect("skip policy never fails");
         assert_eq!(matches, vec![target]);
     }
 
@@ -143,7 +67,8 @@ mod tests {
         let target = root.join("project/src/components");
         fs::create_dir_all(&target).expect("create dirs");
 
-        let matches = resolve_fallbacks(&[root], "pro/sr/com", true);
+        let matches = resolve_fallbacks(&[root], "pro/sr/com", true, OnIoError::Skip)
+            .expect("skip policy never fails");
         assert_eq!(matches, vec![target]);
     }
 
@@ -154,7 +79,8 @@ mod tests {
         let target = root.join("cd-extras");
         fs::create_dir_all(&target).expect("create dirs");
 
-        let matches = resolve_fallbacks(&[root], "cd-e", true);
+        let matches = resolve_fallbacks(&[root], "cd-e", true, OnIoError::Skip)
+            .expect("skip policy never fails");
         assert_eq!(matches, vec![target]);
     }
 
@@ -165,7 +91,8 @@ mod tests {
         let target = root.join("project/PowerShell/src/Microsoft.PowerShell.SDK");
         fs::create_dir_all(&target).expect("create dirs");
 
-        let matches = resolve_fallbacks(&[root], "pro/p..shell/s/.sdk", false);
+        let matches = resolve_fallbacks(&[root], "pro/p..shell/s/.sdk", false, OnIoError::Skip)
+            .expect("skip policy never fails");
         assert_eq!(matches, vec![target]);
     }
 }

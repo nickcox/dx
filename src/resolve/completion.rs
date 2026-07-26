@@ -116,11 +116,16 @@ impl Resolver {
             push_unique(&mut output, &mut seen, path);
         }
 
+        // Completion would rather show a partial list than nothing, so an
+        // unreadable directory is skipped instead of failing the whole query.
+        // `Skip` never returns `Err`, hence the default.
         let mut search_candidates = resolve_search_candidates(
             &prepared.fallback_policy.effective_roots,
             &prepared.effective_query,
             self.config.resolve.case_sensitive,
-        );
+            traversal::OnIoError::Skip,
+        )
+        .unwrap_or_default();
         prepare_candidates(&mut search_candidates, probe_limit);
         for candidate in search_candidates {
             push_unique(&mut output, &mut seen, candidate);

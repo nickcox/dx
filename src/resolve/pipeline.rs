@@ -1,6 +1,7 @@
 use super::{
     FilesystemPrefixFallback, ResolveError, ResolveQuery, ResolveResult, Resolver,
-    prepare_candidates, prepare_search_query, resolve_search_candidates_exact, traversal,
+    prepare_candidates, prepare_search_query, resolve_search_candidates, traversal,
+    traversal::OnIoError,
 };
 
 impl Resolver {
@@ -22,10 +23,13 @@ impl Resolver {
             return Ok(ResolveResult { path });
         }
 
-        let mut candidates = resolve_search_candidates_exact(
+        // Resolution must not silently drop candidates it could not read: a
+        // narrowed set could turn a genuine ambiguity into a confident answer.
+        let mut candidates = resolve_search_candidates(
             &prepared.fallback_policy.effective_roots,
             &prepared.effective_query,
             self.config.resolve.case_sensitive,
+            OnIoError::Propagate,
         )?;
 
         if candidates.is_empty() {
@@ -37,18 +41,17 @@ impl Resolver {
             return Err(ResolveError::NotFound);
         }
 
+        // Deduplicate before counting, so overlapping roots can never report a
+        // single destination as ambiguous.
+        prepare_candidates(&mut candidates, None);
+
         if candidates.len() == 1 {
             return Ok(ResolveResult {
                 path: candidates.remove(0),
             });
         }
 
-        prepare_candidates(&mut candidates, None);
-
-        Err(ResolveError::Ambiguous {
-            count: candidates.len(),
-            candidates,
-        })
+        Err(ResolveError::Ambiguous { candidates })
     }
 }
 
@@ -312,10 +315,7 @@ mod tests {
         let err = resolver.resolve(query).expect_err("should be ambiguous");
         assert!(matches!(
             err,
-            ResolveError::Ambiguous {
-                count: 2,
-                candidates: _
-            }
+            ResolveError::Ambiguous { candidates } if candidates.len() == 2
         ));
     }
 
@@ -390,10 +390,7 @@ mod tests {
             .expect_err("delimiter-aware query should be ambiguous");
         assert!(matches!(
             err,
-            ResolveError::Ambiguous {
-                count: 2,
-                candidates: _
-            }
+            ResolveError::Ambiguous { candidates } if candidates.len() == 2
         ));
     }
 

@@ -41,11 +41,8 @@ pub enum ResolveError {
         #[source]
         source: std::io::Error,
     },
-    #[error("query is ambiguous ({count} matches)")]
-    Ambiguous {
-        candidates: Vec<PathBuf>,
-        count: usize,
-    },
+    #[error("query is ambiguous ({} matches)", .candidates.len())]
+    Ambiguous { candidates: Vec<PathBuf> },
     #[error("unable to resolve query")]
     NotFound,
 }
@@ -263,29 +260,27 @@ pub(super) fn prepare_search_query(
     })
 }
 
+/// Abbreviation matches first, falling back to a root scan only when the
+/// abbreviation pass finds nothing.
+///
+/// `on_error` decides whether an unreadable directory is skipped or surfaced —
+/// the single knob that separates completion from resolution.
 pub(super) fn resolve_search_candidates(
     effective_roots: &[PathBuf],
     query: &str,
     case_sensitive: bool,
-) -> Vec<PathBuf> {
-    let mut candidates = abbreviation::resolve_abbreviation(effective_roots, query, case_sensitive);
-    if candidates.is_empty() {
-        candidates = roots::resolve_fallbacks(effective_roots, query, case_sensitive);
-    }
-    candidates
-}
-
-pub(super) fn resolve_search_candidates_exact(
-    effective_roots: &[PathBuf],
-    query: &str,
-    case_sensitive: bool,
+    on_error: traversal::OnIoError,
 ) -> Result<Vec<PathBuf>, ResolveError> {
     let mut candidates =
-        abbreviation::resolve_abbreviation_exact(effective_roots, query, case_sensitive)
-            .map_err(|(path, source)| ResolveError::Filesystem { path, source })?;
+        abbreviation::resolve_abbreviation(effective_roots, query, case_sensitive, on_error)
+            .map_err(filesystem_error)?;
     if candidates.is_empty() {
-        candidates = roots::resolve_fallbacks_exact(effective_roots, query, case_sensitive)
-            .map_err(|(path, source)| ResolveError::Filesystem { path, source })?;
+        candidates = roots::resolve_fallbacks(effective_roots, query, case_sensitive, on_error)
+            .map_err(filesystem_error)?;
     }
     Ok(candidates)
+}
+
+fn filesystem_error((path, source): traversal::TraversalError) -> ResolveError {
+    ResolveError::Filesystem { path, source }
 }
