@@ -7,7 +7,6 @@ pub mod tui;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use crate::common;
 use crate::complete::{
     self, CompletionMode, ancestors, recents as recents_mode, stack as stack_mode,
 };
@@ -56,17 +55,17 @@ pub fn source_candidates_with_meta(
         MenuMode::Completion(CompletionMode::Paths) => resolver
             .collect_completion_candidates_with_limit_and_cwd(query.unwrap_or(""), limit, cwd),
         MenuMode::Completion(CompletionMode::Ancestors) => {
-            apply_limit_with_has_more(ancestors::complete(query), limit)
+            CompletionCandidates::limited(ancestors::complete(query), limit)
         }
         MenuMode::Completion(CompletionMode::Frecents) => {
             let provider = ZoxideProvider::default();
-            apply_limit_with_has_more(complete::complete_frecents(&provider, query), limit)
+            CompletionCandidates::limited(complete::complete_frecents(&provider, query), limit)
         }
         MenuMode::Completion(CompletionMode::Recents) => {
-            apply_limit_with_has_more(recents_mode::complete(session, query), limit)
+            CompletionCandidates::limited(recents_mode::complete(session, query), limit)
         }
         MenuMode::Completion(CompletionMode::Stack(direction)) => {
-            apply_limit_with_has_more(stack_mode::complete(session, direction, query), limit)
+            CompletionCandidates::limited(stack_mode::complete(session, direction, query), limit)
         }
         MenuMode::Path | MenuMode::Directory | MenuMode::File => complete::filesystem::complete(
             resolver,
@@ -108,12 +107,6 @@ pub fn source_candidates_with_meta(
         paths: filtered,
         has_more: raw_meta.has_more,
     }
-}
-
-fn apply_limit_with_has_more(paths: Vec<PathBuf>, limit: Option<usize>) -> CompletionCandidates {
-    let (paths, has_more) = common::truncate_with_has_more(paths, limit);
-
-    CompletionCandidates { paths, has_more }
 }
 
 #[cfg(test)]

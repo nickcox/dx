@@ -80,8 +80,7 @@ pub fn complete(
         }
     }
 
-    let (paths, has_more) = common::truncate_with_has_more(combined, limit);
-    CompletionCandidates { paths, has_more }
+    CompletionCandidates::limited(combined, limit)
 }
 
 fn parent_directories(resolver: &Resolver, cwd: &Path, query: &str) -> (Vec<PathBuf>, String) {
@@ -162,27 +161,8 @@ fn list_children(parent: &Path, leaf_prefix: &str, kind: FilesystemCompletionKin
         }
     }
 
-    sort_by_basename(&mut results);
+    common::sort_by_basename(&mut results);
     results
-}
-
-fn sort_by_basename(results: &mut [PathBuf]) {
-    results.sort_by(|left, right| {
-        let left_name = left
-            .file_name()
-            .map(|name| name.to_string_lossy())
-            .unwrap_or_else(|| left.as_os_str().to_string_lossy());
-        let right_name = right
-            .file_name()
-            .map(|name| name.to_string_lossy())
-            .unwrap_or_else(|| right.as_os_str().to_string_lossy());
-
-        left_name
-            .to_ascii_lowercase()
-            .cmp(&right_name.to_ascii_lowercase())
-            .then_with(|| left_name.cmp(&right_name))
-            .then_with(|| left.as_os_str().cmp(right.as_os_str()))
-    });
 }
 
 #[cfg(test)]

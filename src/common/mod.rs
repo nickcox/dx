@@ -36,6 +36,26 @@ pub fn ascii_lowercase(value: &[u8]) -> Vec<u8> {
     value.iter().map(u8::to_ascii_lowercase).collect()
 }
 
+/// Orders candidates by basename, case-insensitively, then by the raw basename
+/// and finally the whole path so the result is total. Compares encoded bytes
+/// rather than `to_string_lossy`, which collapses distinct non-UTF-8 names onto
+/// the same replacement character.
+pub fn sort_by_basename(results: &mut [PathBuf]) {
+    results.sort_by(|left, right| {
+        let left_name = left.file_name().unwrap_or(left.as_os_str());
+        let right_name = right.file_name().unwrap_or(right.as_os_str());
+
+        ascii_lowercase(left_name.as_encoded_bytes())
+            .cmp(&ascii_lowercase(right_name.as_encoded_bytes()))
+            .then_with(|| {
+                left_name
+                    .as_encoded_bytes()
+                    .cmp(right_name.as_encoded_bytes())
+            })
+            .then_with(|| left.as_os_str().cmp(right.as_os_str()))
+    });
+}
+
 pub fn is_valid_identifier(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -190,6 +210,46 @@ mod tests {
     use crate::test_support;
 
     use super::{AtomicWriteError, Durability, map_atomic_write_error, write_atomic_replace};
+
+    #[test]
+    fn sort_by_basename_orders_case_insensitively_then_exactly() {
+        let mut paths = vec![
+            super::PathBuf::from("/a/Beta"),
+            super::PathBuf::from("/a/alpha"),
+            super::PathBuf::from("/a/beta"),
+            super::PathBuf::from("/z/alpha"),
+        ];
+        super::sort_by_basename(&mut paths);
+        let names: Vec<String> = paths
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["/a/alpha", "/z/alpha", "/a/Beta", "/a/beta"]);
+    }
+
+    /// The lossy sort this replaced ordered these two the other way round: it
+    /// maps the invalid byte `0xff` onto U+FFFD (`ef bf bd`), which sorts before
+    /// the valid U+FFFF (`ef bf bf`), while the raw byte sorts after it.
+    #[cfg(unix)]
+    #[test]
+    fn sort_by_basename_orders_non_utf8_names_by_their_actual_bytes() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let name = |bytes: &[u8]| super::PathBuf::from("/a").join(OsStr::from_bytes(bytes));
+        let mut paths = vec![name(b"\xff"), name("\u{ffff}".as_bytes())];
+        super::sort_by_basename(&mut paths);
+
+        let basenames: Vec<Vec<u8>> = paths
+            .iter()
+            .map(|path| path.file_name().unwrap().as_bytes().to_vec())
+            .collect();
+        assert_eq!(
+            basenames,
+            vec![b"\xef\xbf\xbf".to_vec(), b"\xff".to_vec()],
+            "0xff must sort after 0xef, not be folded onto U+FFFD first"
+        );
+    }
 
     #[test]
     fn atomic_write_error_mapping_dispatches_to_correct_closure() {

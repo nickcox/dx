@@ -70,7 +70,7 @@ impl Resolver {
             // For explicit filesystem-prefix queries, prefer filesystem-derived
             // results when present.
             if !output.is_empty() {
-                return apply_completion_limit(output, limit);
+                return CompletionCandidates::limited(output, limit);
             }
         }
 
@@ -82,7 +82,7 @@ impl Resolver {
         ) {
             Ok(value) => value,
             Err(super::ResolveError::EmptyQuery | super::ResolveError::PathNotFound(_)) => {
-                return apply_completion_limit(output, limit);
+                return CompletionCandidates::limited(output, limit);
             }
             Err(
                 super::ResolveError::Ambiguous { .. }
@@ -90,12 +90,12 @@ impl Resolver {
                 | super::ResolveError::DriveRelativePath(_)
                 | super::ResolveError::Filesystem { .. },
             ) => {
-                return apply_completion_limit(output, limit);
+                return CompletionCandidates::limited(output, limit);
             }
         };
 
         if prepared.effective_query.is_empty() {
-            return apply_completion_limit(output, limit);
+            return CompletionCandidates::limited(output, limit);
         }
 
         let probe_limit = limit.map(|value| value.saturating_add(1));
@@ -137,29 +137,8 @@ impl Resolver {
             common::push_unique(&mut output, &mut seen, path);
         }
 
-        apply_completion_limit(output, limit)
+        CompletionCandidates::limited(output, limit)
     }
-}
-
-fn apply_completion_limit(paths: Vec<PathBuf>, limit: Option<usize>) -> CompletionCandidates {
-    let (paths, has_more) = common::truncate_with_has_more(paths, limit);
-    CompletionCandidates { paths, has_more }
-}
-
-fn sort_filesystem_candidates_by_basename(results: &mut [PathBuf]) {
-    results.sort_by(|left, right| {
-        let left_name = left.file_name().unwrap_or(left.as_os_str());
-        let right_name = right.file_name().unwrap_or(right.as_os_str());
-
-        common::ascii_lowercase(left_name.as_encoded_bytes())
-            .cmp(&common::ascii_lowercase(right_name.as_encoded_bytes()))
-            .then_with(|| {
-                left_name
-                    .as_encoded_bytes()
-                    .cmp(right_name.as_encoded_bytes())
-            })
-            .then_with(|| left.as_os_str().cmp(right.as_os_str()))
-    });
 }
 
 /// Expand a filesystem path prefix by reading the parent directory and
@@ -190,7 +169,7 @@ fn exact_directory_candidates(path: &Path, has_trailing_separator: bool) -> Opti
     }
 
     let mut results = child_directory_candidates(path);
-    sort_filesystem_candidates_by_basename(&mut results);
+    common::sort_by_basename(&mut results);
     Some(results)
 }
 
@@ -234,7 +213,7 @@ fn prefix_directory_candidates(path: &Path) -> Vec<PathBuf> {
             results.push(entry.path());
         }
     }
-    sort_filesystem_candidates_by_basename(&mut results);
+    common::sort_by_basename(&mut results);
     results
 }
 
@@ -429,7 +408,7 @@ mod tests {
             PathBuf::from("/tmp/cbravo"),
         ];
 
-        sort_filesystem_candidates_by_basename(&mut results);
+        common::sort_by_basename(&mut results);
 
         let ordered = results
             .iter()

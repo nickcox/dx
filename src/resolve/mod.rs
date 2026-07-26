@@ -60,6 +60,12 @@ pub struct CompletionCandidates {
 }
 
 impl CompletionCandidates {
+    /// Truncates to `limit`, recording whether anything was dropped.
+    pub fn limited(paths: Vec<PathBuf>, limit: Option<usize>) -> Self {
+        let (paths, has_more) = crate::common::truncate_with_has_more(paths, limit);
+        Self { paths, has_more }
+    }
+
     pub fn empty() -> Self {
         Self {
             paths: Vec::new(),
