@@ -68,15 +68,14 @@ pub fn source_candidates_with_meta(
         MenuMode::Completion(CompletionMode::Stack(direction)) => {
             apply_limit_with_has_more(stack_mode::complete(session, direction, query), limit)
         }
-        MenuMode::Path | MenuMode::Directory | MenuMode::File => {
-            let kind = match mode {
-                MenuMode::Path => complete::filesystem::FilesystemCompletionKind::Path,
-                MenuMode::Directory => complete::filesystem::FilesystemCompletionKind::Directory,
-                MenuMode::File => complete::filesystem::FilesystemCompletionKind::File,
-                MenuMode::Completion(_) => unreachable!(),
-            };
-            complete::filesystem::complete(resolver, query, cwd, limit, kind)
-        }
+        MenuMode::Path | MenuMode::Directory | MenuMode::File => complete::filesystem::complete(
+            resolver,
+            query,
+            cwd,
+            limit,
+            mode.filesystem_kind()
+                .expect("mapped filesystem modes always carry a kind"),
+        ),
     };
 
     let canonical_cwd = match mode {

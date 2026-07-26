@@ -1,38 +1,15 @@
 use std::collections::HashSet;
 use std::fmt;
 
+use clap::ValueEnum;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MenuMappingMode {
-    Path,
-    Directory,
-    File,
-}
-
-impl MenuMappingMode {
-    pub fn as_cli_arg(self) -> &'static str {
-        match self {
-            Self::Path => "path",
-            Self::Directory => "directory",
-            Self::File => "file",
-        }
-    }
-
-    fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "path" => Some(Self::Path),
-            "directory" => Some(Self::Directory),
-            "file" => Some(Self::File),
-            _ => None,
-        }
-    }
-}
+use crate::complete::filesystem::FilesystemCompletionKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuCommandMapping {
     command: MenuCommandName,
-    mode: MenuMappingMode,
+    mode: FilesystemCompletionKind,
 }
 
 impl MenuCommandMapping {
@@ -40,7 +17,7 @@ impl MenuCommandMapping {
         self.command.as_str()
     }
 
-    pub fn mode(&self) -> MenuMappingMode {
+    pub fn mode(&self) -> FilesystemCompletionKind {
         self.mode
     }
 }
@@ -121,7 +98,7 @@ pub fn parse_menu_command_mappings(
             });
         };
 
-        let Some(mode) = MenuMappingMode::parse(mode) else {
+        let Ok(mode) = FilesystemCompletionKind::from_str(mode.trim(), true) else {
             return Err(MenuCommandMappingError::InvalidMode {
                 entry: entry.to_string(),
                 mode: mode.trim().to_string(),
@@ -142,7 +119,7 @@ pub fn parse_menu_command_mappings(
 
 #[cfg(test)]
 mod tests {
-    use super::{MenuCommandMappingError, MenuMappingMode, parse_menu_command_mappings};
+    use super::{FilesystemCompletionKind, MenuCommandMappingError, parse_menu_command_mappings};
 
     #[test]
     fn parses_valid_menu_mappings() {
@@ -156,9 +133,9 @@ mod tests {
         assert_eq!(
             values,
             vec![
-                ("ls", MenuMappingMode::Path),
-                ("open", MenuMappingMode::Directory),
-                ("cat", MenuMappingMode::File),
+                ("ls", FilesystemCompletionKind::Path),
+                ("open", FilesystemCompletionKind::Directory),
+                ("cat", FilesystemCompletionKind::File),
             ]
         );
     }

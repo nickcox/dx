@@ -1,8 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use clap::{Args, ValueEnum, ValueHint};
+use clap::{Args, ValueHint};
 
 use crate::complete::CompletionMode;
+use crate::complete::filesystem::FilesystemCompletionKind;
+use crate::hooks::Shell;
 use crate::menu::{
     self, MenuAction, MenuMode, MenuResult, QueryStyle, parse_buffer_with_override_mode,
     tui::QueryFn,
@@ -11,57 +13,34 @@ use crate::resolve::Resolver;
 
 use super::CliError;
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum MenuModeArg {
-    Path,
-    Directory,
-    File,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum MenuShellArg {
-    Bash,
-    Zsh,
-    Fish,
-    Pwsh,
-}
-
-impl MenuShellArg {
-    fn quote(self, path: &str) -> Option<String> {
-        if path.chars().any(char::is_control) {
-            return None;
-        }
-
-        let quoted = match self {
-            Self::Bash | Self::Zsh => quote_posix(path),
-            Self::Fish => quote_fish(path),
-            Self::Pwsh => quote_pwsh(path),
-        };
-        Some(quoted)
+/// Quotes `path` using `shell`'s syntax, or `None` when the path holds control
+/// characters that no quoting can make safe to inject into a buffer.
+fn quote_for_shell(shell: Shell, path: &str) -> Option<String> {
+    if path.chars().any(char::is_control) {
+        return None;
     }
 
-    fn offset_from_byte(self, buffer: &str, byte_offset: usize) -> Option<usize> {
-        if byte_offset > buffer.len() || !buffer.is_char_boundary(byte_offset) {
-            return None;
-        }
-
-        let prefix = &buffer[..byte_offset];
-        Some(match self {
-            Self::Bash => byte_offset,
-            Self::Zsh | Self::Fish => prefix.chars().count(),
-            Self::Pwsh => prefix.encode_utf16().count(),
-        })
-    }
+    Some(match shell {
+        Shell::Bash | Shell::Zsh => quote_posix(path),
+        Shell::Fish => quote_fish(path),
+        Shell::Pwsh => quote_pwsh(path),
+    })
 }
 
-impl MenuModeArg {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Path => "path",
-            Self::Directory => "directory",
-            Self::File => "file",
-        }
+/// Converts a UTF-8 byte offset into the buffer unit the shell's line editor
+/// counts in: bytes for Bash, characters for Zsh and Fish, UTF-16 code units
+/// for PowerShell.
+fn offset_from_byte(shell: Shell, buffer: &str, byte_offset: usize) -> Option<usize> {
+    if byte_offset > buffer.len() || !buffer.is_char_boundary(byte_offset) {
+        return None;
     }
+
+    let prefix = &buffer[..byte_offset];
+    Some(match shell {
+        Shell::Bash => byte_offset,
+        Shell::Zsh | Shell::Fish => prefix.chars().count(),
+        Shell::Pwsh => prefix.encode_utf16().count(),
+    })
 }
 
 #[derive(Debug, Args)]
@@ -93,11 +72,11 @@ pub struct MenuCommand {
 
     /// Explicit mapped-command menu mode for init-generated external command hooks
     #[arg(long, value_enum)]
-    pub mode: Option<MenuModeArg>,
+    pub mode: Option<FilesystemCompletionKind>,
 
     /// Shell syntax used for replacement text
-    #[arg(long, value_enum, default_value_t = MenuShellArg::Bash)]
-    pub shell: MenuShellArg,
+    #[arg(long, value_enum, default_value_t = Shell::Bash)]
+    pub shell: Shell,
 }
 
 /// Format a resolved path for insertion into the shell buffer.
@@ -124,7 +103,7 @@ fn format_selected_path(path: &str, mode: MenuMode) -> String {
     format_selected_path_with_trailing_separator(
         Path::new(path),
         append_trailing_slash,
-        MenuShellArg::Bash,
+        Shell::Bash,
     )
     .expect("test path has no control characters")
 }
@@ -132,7 +111,7 @@ fn format_selected_path(path: &str, mode: MenuMode) -> String {
 fn format_selected_path_with_trailing_separator(
     path: &Path,
     append_trailing_separator: bool,
-    shell: MenuShellArg,
+    shell: Shell,
 ) -> Option<String> {
     let path = if append_trailing_separator {
         let mut path = path.to_path_buf();
@@ -141,7 +120,7 @@ fn format_selected_path_with_trailing_separator(
     } else {
         path.to_path_buf()
     };
-    shell.quote(path.to_str()?)
+    quote_for_shell(shell, path.to_str()?)
 }
 
 fn format_selected_path_for_query_style_checked(
@@ -149,7 +128,7 @@ fn format_selected_path_for_query_style_checked(
     mode: MenuMode,
     cwd: &Path,
     style: QueryStyle,
-    shell: MenuShellArg,
+    shell: Shell,
 ) -> Option<String> {
     let append_trailing_slash = matches!(
         mode,
@@ -217,7 +196,7 @@ fn format_home_relative_path(
     selected: &Path,
     home: &Path,
     append_trailing_separator: bool,
-    shell: MenuShellArg,
+    shell: Shell,
 ) -> Option<String> {
     let relative = selected.strip_prefix(home).ok()?;
     if relative.as_os_str().is_empty() {
@@ -236,7 +215,7 @@ fn format_home_relative_path(
     Some(format!(
         "~{}{}",
         std::path::MAIN_SEPARATOR,
-        shell.quote(&suffix)?
+        quote_for_shell(shell, &suffix)?
     ))
 }
 
@@ -262,7 +241,7 @@ fn format_selected_path_for_query_style(
         } else {
             QueryStyle::Absolute
         },
-        MenuShellArg::Bash,
+        Shell::Bash,
     )
     .expect("test path has no control characters")
 }
@@ -397,7 +376,7 @@ fn menu_result_to_action_with_shell(
     mode: MenuMode,
     cwd: &Path,
     style: QueryStyle,
-    shell: MenuShellArg,
+    shell: Shell,
 ) -> MenuAction {
     match result {
         Some(MenuResult::Selected {
@@ -433,7 +412,7 @@ fn menu_result_to_action_with_shell(
     }
 }
 
-fn action_for_shell(action: MenuAction, buffer: &str, shell: MenuShellArg) -> MenuAction {
+fn action_for_shell(action: MenuAction, buffer: &str, shell: Shell) -> MenuAction {
     let MenuAction::Replace {
         replace_start,
         replace_end,
@@ -446,8 +425,8 @@ fn action_for_shell(action: MenuAction, buffer: &str, shell: MenuShellArg) -> Me
     };
 
     let (Some(replace_start), Some(replace_end)) = (
-        shell.offset_from_byte(buffer, replace_start),
-        shell.offset_from_byte(buffer, replace_end),
+        offset_from_byte(shell, buffer, replace_start),
+        offset_from_byte(shell, buffer, replace_end),
     ) else {
         return MenuAction::noop();
     };
@@ -472,7 +451,7 @@ fn menu_result_to_action(
         } else {
             QueryStyle::Absolute
         },
-        MenuShellArg::Bash,
+        Shell::Bash,
     )
 }
 
@@ -487,12 +466,11 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
         );
     }
 
-    let override_mode = cmd.mode.map(MenuModeArg::as_str);
     let parsed = match parse_buffer_with_override_mode(
         &cmd.buffer,
         cmd.cursor,
         cmd.psreadline_mode,
-        override_mode,
+        cmd.mode,
     ) {
         Some(parsed) => parsed,
         None => {
@@ -826,31 +804,19 @@ mod tests {
         let path = "/tmp/it's here";
 
         assert_eq!(
-            format_selected_path_with_trailing_separator(
-                Path::new(path),
-                false,
-                MenuShellArg::Bash
-            ),
+            format_selected_path_with_trailing_separator(Path::new(path), false, Shell::Bash),
             Some("'/tmp/it'\\''s here'".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_separator(Path::new(path), false, MenuShellArg::Zsh),
+            format_selected_path_with_trailing_separator(Path::new(path), false, Shell::Zsh),
             Some("'/tmp/it'\\''s here'".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_separator(
-                Path::new(path),
-                false,
-                MenuShellArg::Fish
-            ),
+            format_selected_path_with_trailing_separator(Path::new(path), false, Shell::Fish),
             Some("/tmp/it\\'s\\ here".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_separator(
-                Path::new(path),
-                false,
-                MenuShellArg::Pwsh
-            ),
+            format_selected_path_with_trailing_separator(Path::new(path), false, Shell::Pwsh),
             Some("'/tmp/it''s here'".to_string())
         );
     }
@@ -862,7 +828,7 @@ mod tests {
             format_selected_path_with_trailing_separator(
                 Path::new(r"C:\Project Files"),
                 true,
-                MenuShellArg::Pwsh,
+                Shell::Pwsh,
             ),
             Some(r"'C:\Project Files\'".to_string())
         );
@@ -870,7 +836,7 @@ mod tests {
             format_selected_path_with_trailing_separator(
                 Path::new(r"\\server\share\folder"),
                 true,
-                MenuShellArg::Pwsh,
+                Shell::Pwsh,
             ),
             Some(r"'\\server\share\folder\'".to_string())
         );
@@ -901,7 +867,7 @@ mod tests {
             parsed.mode,
             Path::new("/tmp"),
             QueryStyle::Absolute,
-            MenuShellArg::Bash,
+            Shell::Bash,
         );
 
         assert_eq!(action, MenuAction::Noop);
@@ -928,7 +894,7 @@ mod tests {
             parsed.mode,
             Path::new("/tmp"),
             QueryStyle::Absolute,
-            MenuShellArg::Bash,
+            Shell::Bash,
         );
 
         assert_eq!(action, MenuAction::Noop);
@@ -939,10 +905,10 @@ mod tests {
         let action = MenuAction::replace(3, 7, "x".to_string(), TerminalState::Clean, None);
         let buffer = "cd \u{00e9}\u{00e9}";
 
-        let zsh = action_for_shell(action.clone(), buffer, MenuShellArg::Zsh);
-        let fish = action_for_shell(action.clone(), buffer, MenuShellArg::Fish);
-        let pwsh = action_for_shell(action.clone(), buffer, MenuShellArg::Pwsh);
-        let bash = action_for_shell(action, buffer, MenuShellArg::Bash);
+        let zsh = action_for_shell(action.clone(), buffer, Shell::Zsh);
+        let fish = action_for_shell(action.clone(), buffer, Shell::Fish);
+        let pwsh = action_for_shell(action.clone(), buffer, Shell::Pwsh);
+        let bash = action_for_shell(action, buffer, Shell::Bash);
 
         for action in [zsh, fish] {
             let MenuAction::Replace {
@@ -981,7 +947,7 @@ mod tests {
         let action = action_for_shell(
             MenuAction::replace(3, buffer.len(), "x".to_string(), TerminalState::Clean, None),
             buffer,
-            MenuShellArg::Pwsh,
+            Shell::Pwsh,
         );
 
         let MenuAction::Replace {
@@ -1159,7 +1125,7 @@ mod tests {
             MenuMode::Completion(CompletionMode::Paths),
             cwd,
             QueryStyle::ParentRelative,
-            MenuShellArg::Bash,
+            Shell::Bash,
         );
 
         assert_eq!(result, Some("../work/".to_string()));
@@ -1173,12 +1139,12 @@ mod tests {
                 Path::new("/tmp/home/Project Files"),
                 home,
                 true,
-                MenuShellArg::Bash,
+                Shell::Bash,
             ),
             Some("~/'Project Files/'".to_string())
         );
         assert_eq!(
-            format_home_relative_path(home, home, true, MenuShellArg::Zsh),
+            format_home_relative_path(home, home, true, Shell::Zsh),
             Some("~/".to_string())
         );
     }
@@ -1190,7 +1156,7 @@ mod tests {
             MenuMode::Completion(CompletionMode::Paths),
             Path::new("/tmp/work"),
             QueryStyle::BareRelative,
-            MenuShellArg::Bash,
+            Shell::Bash,
         );
 
         assert_eq!(result, Some("benches/".to_string()));

@@ -1,4 +1,5 @@
 use crate::complete::CompletionMode;
+use crate::complete::filesystem::FilesystemCompletionKind;
 use crate::resolve::path_query::{PathQuery, QueryKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7,6 +8,16 @@ pub enum MenuMode {
     Path,
     Directory,
     File,
+}
+
+impl From<FilesystemCompletionKind> for MenuMode {
+    fn from(kind: FilesystemCompletionKind) -> Self {
+        match kind {
+            FilesystemCompletionKind::Path => Self::Path,
+            FilesystemCompletionKind::Directory => Self::Directory,
+            FilesystemCompletionKind::File => Self::File,
+        }
+    }
 }
 
 /// The explicit filesystem anchor expressed by the active query.
@@ -59,7 +70,18 @@ impl MenuMode {
     }
 
     pub fn is_mapped_filesystem_mode(self) -> bool {
-        matches!(self, Self::Path | Self::Directory | Self::File)
+        self.filesystem_kind().is_some()
+    }
+
+    /// The filesystem kind this mode scans for, or `None` for the built-in
+    /// completion modes, which source candidates from `dx complete` instead.
+    pub fn filesystem_kind(self) -> Option<FilesystemCompletionKind> {
+        match self {
+            Self::Path => Some(FilesystemCompletionKind::Path),
+            Self::Directory => Some(FilesystemCompletionKind::Directory),
+            Self::File => Some(FilesystemCompletionKind::File),
+            Self::Completion(_) => None,
+        }
     }
 }
 

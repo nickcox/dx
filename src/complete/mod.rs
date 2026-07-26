@@ -7,6 +7,7 @@ pub mod stack;
 
 use std::path::{Component, Path, PathBuf};
 
+use clap::ValueEnum;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -22,7 +23,9 @@ pub enum CompletionMode {
     Stack(StackDirection),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which half of the session stack a lookup walks. Doubles as the
+/// `dx complete stack --direction` argument type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum StackDirection {
     Back,
     Forward,

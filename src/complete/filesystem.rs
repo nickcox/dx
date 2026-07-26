@@ -1,16 +1,36 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use clap::ValueEnum;
+
 use crate::common;
 use crate::resolve::path_query::{PathQuery, QueryKind};
 use crate::resolve::precedence;
 use crate::resolve::{CompletionCandidates, Resolver};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What a filesystem completion is allowed to return.
+///
+/// This is the one spelling of "path | directory | file" in the crate: it backs
+/// `dx complete filesystem <KIND>`, `dx menu --mode`, and the mode half of
+/// `DX_MENU_COMMAND_MAPPINGS`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FilesystemCompletionKind {
     Path,
     Directory,
     File,
+}
+
+impl FilesystemCompletionKind {
+    /// The literal accepted on the command line and inside
+    /// `DX_MENU_COMMAND_MAPPINGS`. Kept in step with clap's value names by
+    /// `cli_arg_names_match_clap_value_names`.
+    pub fn as_cli_arg(self) -> &'static str {
+        match self {
+            Self::Path => "path",
+            Self::Directory => "directory",
+            Self::File => "file",
+        }
+    }
 }
 
 pub fn complete(
@@ -169,5 +189,35 @@ fn push_unique_path(output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path
     let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
     if seen.insert(canonical) {
         output.push(path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_arg_names_match_clap_value_names() {
+        for kind in FilesystemCompletionKind::value_variants() {
+            let clap_name = kind
+                .to_possible_value()
+                .expect("every kind is selectable on the command line");
+            assert_eq!(kind.as_cli_arg(), clap_name.get_name());
+        }
+    }
+
+    #[test]
+    fn cli_arg_names_round_trip_case_insensitively() {
+        for kind in FilesystemCompletionKind::value_variants() {
+            assert_eq!(
+                FilesystemCompletionKind::from_str(kind.as_cli_arg(), true).expect("round trip"),
+                *kind
+            );
+        }
+        assert_eq!(
+            FilesystemCompletionKind::from_str("DIRECTORY", true).expect("case insensitive"),
+            FilesystemCompletionKind::Directory
+        );
+        assert!(FilesystemCompletionKind::from_str("nonsense", true).is_err());
     }
 }

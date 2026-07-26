@@ -1,5 +1,6 @@
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 
+use crate::hooks::Shell;
 use crate::resolve::Resolver;
 
 mod bookmarks;
@@ -30,7 +31,7 @@ enum Commands {
         json: bool,
     },
     Init {
-        shell: init::InitShell,
+        shell: Shell,
         #[arg(long = "command-not-found")]
         command_not_found: bool,
         #[arg(long, conflicts_with = "native_menu")]
@@ -59,29 +60,29 @@ enum Commands {
     Menu(menu::MenuCommand),
 }
 
-pub fn completion_script(shell: crate::hooks::Shell) -> String {
+pub fn completion_script(shell: Shell) -> String {
     use clap_complete::{generate, shells};
 
     let mut command = Cli::command();
     let mut output = Vec::new();
     match shell {
-        crate::hooks::Shell::Bash => generate(shells::Bash, &mut command, "dx", &mut output),
-        crate::hooks::Shell::Zsh => generate(shells::Zsh, &mut command, "dx", &mut output),
-        crate::hooks::Shell::Fish => generate(shells::Fish, &mut command, "dx", &mut output),
-        crate::hooks::Shell::Pwsh => {
+        Shell::Bash => generate(shells::Bash, &mut command, "dx", &mut output),
+        Shell::Zsh => generate(shells::Zsh, &mut command, "dx", &mut output),
+        Shell::Fish => generate(shells::Fish, &mut command, "dx", &mut output),
+        Shell::Pwsh => {
             generate(shells::PowerShell, &mut command, "dx", &mut output);
         }
     }
     let script = String::from_utf8(output).expect("clap completion scripts are UTF-8");
 
     match shell {
-        crate::hooks::Shell::Bash => script.replace(" --psreadline-mode", ""),
-        crate::hooks::Shell::Zsh | crate::hooks::Shell::Fish => script
+        Shell::Bash => script.replace(" --psreadline-mode", ""),
+        Shell::Zsh | Shell::Fish => script
             .lines()
             .filter(|line| !line.contains("psreadline-mode"))
             .collect::<Vec<_>>()
             .join("\n"),
-        crate::hooks::Shell::Pwsh => script
+        Shell::Pwsh => script
             .lines()
             .filter(|line| !line.contains("psreadline-mode"))
             .collect::<Vec<_>>()

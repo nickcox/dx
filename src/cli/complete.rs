@@ -2,8 +2,9 @@ use clap::{Subcommand, ValueEnum};
 
 use crate::common;
 use crate::complete::{
-    self, StackDirection, ancestors, filesystem as filesystem_mode, paths as paths_mode,
-    recents as recents_mode, stack as stack_mode,
+    self, StackDirection, ancestors, filesystem as filesystem_mode,
+    filesystem::FilesystemCompletionKind, paths as paths_mode, recents as recents_mode,
+    stack as stack_mode,
 };
 use crate::frecency::ZoxideProvider;
 use crate::resolve::Resolver;
@@ -44,7 +45,7 @@ pub enum CompleteCommand {
     },
     Stack {
         #[arg(long, value_enum)]
-        direction: StackDirectionArg,
+        direction: StackDirection,
         query: Option<String>,
         #[arg(long)]
         session: Option<String>,
@@ -55,45 +56,13 @@ pub enum CompleteCommand {
     },
     Filesystem {
         #[arg(value_enum)]
-        kind: FilesystemKindArg,
+        kind: FilesystemCompletionKind,
         query: Option<String>,
         #[arg(long)]
         json: bool,
         #[arg(long = "limit", alias = "list")]
         limit: Option<usize>,
     },
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum FilesystemKindArg {
-    Path,
-    Directory,
-    File,
-}
-
-impl From<FilesystemKindArg> for filesystem_mode::FilesystemCompletionKind {
-    fn from(value: FilesystemKindArg) -> Self {
-        match value {
-            FilesystemKindArg::Path => Self::Path,
-            FilesystemKindArg::Directory => Self::Directory,
-            FilesystemKindArg::File => Self::File,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum StackDirectionArg {
-    Back,
-    Forward,
-}
-
-impl From<StackDirectionArg> for StackDirection {
-    fn from(value: StackDirectionArg) -> Self {
-        match value {
-            StackDirectionArg::Back => StackDirection::Back,
-            StackDirectionArg::Forward => StackDirection::Forward,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -142,7 +111,7 @@ pub fn run_complete(resolver: &Resolver, command: CompleteCommand) -> Result<(),
         } => {
             let session = resolve_session(session.as_deref());
             (
-                stack_mode::complete(session.as_deref(), direction.into(), query.as_deref()),
+                stack_mode::complete(session.as_deref(), direction, query.as_deref()),
                 json,
                 limit,
             )
@@ -154,7 +123,7 @@ pub fn run_complete(resolver: &Resolver, command: CompleteCommand) -> Result<(),
             limit,
         } => {
             let candidates =
-                filesystem_mode::complete(resolver, query.as_deref(), None, limit, kind.into());
+                filesystem_mode::complete(resolver, query.as_deref(), None, limit, kind);
             (candidates.paths, json, None)
         }
     };

@@ -5,12 +5,15 @@ mod mappings;
 mod pwsh;
 mod zsh;
 
-pub use mappings::{
-    MenuCommandMapping, MenuCommandMappingError, MenuMappingMode, parse_menu_command_mappings,
-};
+use clap::ValueEnum;
+
+pub use mappings::{MenuCommandMapping, MenuCommandMappingError, parse_menu_command_mappings};
 pub use pwsh::{PwshMenuKeyError, parse_pwsh_menu_key};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The shells `dx` can generate hooks for. Doubles as the `dx init <SHELL>` and
+/// `dx menu --shell` argument type, so the accepted spellings and the hook
+/// dispatch table can never drift apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Shell {
     Bash,
     Zsh,
@@ -23,22 +26,6 @@ pub enum InitMenuMode {
     Disabled,
     Tui,
     NativePwsh,
-}
-
-impl Shell {
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "bash" => Some(Self::Bash),
-            "zsh" => Some(Self::Zsh),
-            "fish" => Some(Self::Fish),
-            "pwsh" => Some(Self::Pwsh),
-            _ => None,
-        }
-    }
-
-    pub fn supported_list() -> &'static str {
-        "bash, zsh, fish, pwsh"
-    }
 }
 
 pub fn generate(shell: Shell, command_not_found: bool, menu: bool) -> String {

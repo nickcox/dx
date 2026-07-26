@@ -1,3 +1,4 @@
+use crate::complete::filesystem::FilesystemCompletionKind;
 use crate::complete::{CompletionMode, StackDirection};
 use crate::menu::MenuMode;
 
@@ -94,15 +95,6 @@ fn command_to_mode(command: &str) -> Option<CompletionMode> {
     }
 }
 
-fn mapped_mode_to_menu_mode(mode: &str) -> Option<MenuMode> {
-    match mode.trim().to_ascii_lowercase().as_str() {
-        "path" => Some(MenuMode::Path),
-        "directory" => Some(MenuMode::Directory),
-        "file" => Some(MenuMode::File),
-        _ => None,
-    }
-}
-
 /// Parses a command-line buffer at the given cursor byte position to extract
 /// the completion mode, query string, and replacement byte range.
 ///
@@ -116,13 +108,12 @@ pub fn parse_buffer_with_override_mode(
     buffer: &str,
     cursor: usize,
     psreadline_mode: bool,
-    override_mode: Option<&str>,
+    override_mode: Option<FilesystemCompletionKind>,
 ) -> Option<ParsedBuffer> {
-    if let Some(mode) = override_mode {
-        return parse_buffer_for_mapped_mode(buffer, cursor, mapped_mode_to_menu_mode(mode)?);
+    match override_mode {
+        Some(kind) => parse_buffer_for_mapped_mode(buffer, cursor, kind.into()),
+        None => parse_buffer_with_mode(buffer, cursor, psreadline_mode),
     }
-
-    parse_buffer_with_mode(buffer, cursor, psreadline_mode)
 }
 
 /// Parses a command-line buffer with optional shell-mode behavior toggles.
