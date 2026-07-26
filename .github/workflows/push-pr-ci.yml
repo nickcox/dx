@@ -86,39 +86,77 @@ jobs:
         run: cargo build --locked
 
       # The hook templates in src/hooks/templates cannot be linted directly:
-      # placeholders such as __DX_BASH_MENU_FALLBACK_CASE__ sit inside `case`
-      # blocks, where a bare word is a syntax error until it is substituted.
-      # Linting the generated scripts checks the artifact users actually eval.
+      # placeholders such as __DX_BASH_MENU_FALLBACK_CASE__ sit inside `case` blocks, where a bare
+      # word is a syntax error until substituted. Linting the generated scripts checks the actual artifacts.
+      #
+      # Extensions matter: e.g. PSScriptAnalyzer silently skips anything that is not .ps1/.psm1/.psd1
       - name: Generate every hook script
         run: |
           mkdir -p target/hooks
+          extension() {
+            case "$1" in
+              bash) echo sh ;;
+              zsh) echo zsh ;;
+              fish) echo fish ;;
+              pwsh) echo ps1 ;;
+            esac
+          }
           for shell in bash zsh fish pwsh; do
             for flags in "" "--command-not-found" "--menu" "--menu --command-not-found"; do
-              suffix="$(echo "$flags" | tr -d ' -' )"
-              ./target/debug/dx init "$shell" $flags > "target/hooks/$shell${suffix:+-$suffix}.txt"
+              suffix="$(echo "$flags" | tr -d ' -')"
+              ./target/debug/dx init "$shell" $flags \
+                > "target/hooks/$shell${suffix:+-$suffix}.$(extension "$shell")"
             done
           done
-          ./target/debug/dx init pwsh --native-menu > target/hooks/pwsh-nativemenu.txt
+          ./target/debug/dx init pwsh --native-menu > target/hooks/pwsh-nativemenu.ps1
 
       # The checked-in goldens are linted too, so a blind `DX_UPDATE_GOLDENS=1`
       # regeneration cannot land a script that no longer parses.
       - name: shellcheck (bash)
         run: |
-          for f in target/hooks/bash*.txt src/hooks/goldens/*.sh; do
+          for f in target/hooks/bash*.sh src/hooks/goldens/*.sh; do
             echo "== $f"; shellcheck -s bash -S error "$f"
           done
 
       - name: Parse-check bash, zsh and fish
         run: |
-          for f in target/hooks/bash*.txt src/hooks/goldens/*.sh; do bash -n "$f"; done
-          for f in target/hooks/zsh*.txt src/hooks/goldens/*.zsh; do zsh -n "$f"; done
-          for f in target/hooks/fish*.txt src/hooks/goldens/*.fish; do fish -n "$f"; done
+          for f in target/hooks/bash*.sh src/hooks/goldens/*.sh; do bash -n "$f"; done
+          for f in target/hooks/zsh*.zsh src/hooks/goldens/*.zsh; do zsh -n "$f"; done
+          for f in target/hooks/fish*.fish src/hooks/goldens/*.fish; do fish -n "$f"; done
+
+      # Rules excluded as inapplicable to a generated shell hook.
+      # Exclude list so that unanticipated errors still fail the build.
+      - name: PSScriptAnalyzer (pwsh)
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          $excluded = @(
+            'PSAvoidGlobalVars',                           # hooks need cross-invocation state
+            'PSReviewUnusedParameter',                     # PowerShell mandates the completer signature
+            'PSProvideCommentHelp',                        # internal hook functions
+            'PSUseShouldProcessForStateChangingFunctions', # a cd wrapper does not want -WhatIf
+            'PSAvoidUsingWriteHost',                       # deliberate init-time warning
+            'PSAvoidUsingEmptyCatchBlock',                 # best-effort cleanup; a hook must not break the prompt
+            'PSUseBOMForUnicodeEncodedFile'                # delivered via stdout to Invoke-Expression, never read from disk
+          )
+          # -Path takes one string, so analyse each root separately; -ErrorAction
+          # Stop keeps a failed call from passing as "no findings".
+          $found = @()
+          foreach ($root in @('target/hooks', 'src/hooks/goldens')) {
+            $found += @(Invoke-ScriptAnalyzer -Path $root -Severity Error, Warning `
+              -ExcludeRule $excluded -ErrorAction Stop)
+          }
+          if ($found.Count) {
+            $found | Format-Table RuleName, ScriptName, Line, Message -AutoSize
+            exit 1
+          }
+          Write-Host "PSScriptAnalyzer clean"
 
       - name: Parse-check pwsh
         shell: pwsh
         run: |
           $failed = $false
-          foreach ($file in @(Get-ChildItem target/hooks/pwsh*.txt) +
+          foreach ($file in @(Get-ChildItem target/hooks/pwsh*.ps1) +
                             @(Get-ChildItem src/hooks/goldens/*.ps1)) {
             $errors = $null
             $tokens = $null
