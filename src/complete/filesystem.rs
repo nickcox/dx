@@ -69,14 +69,14 @@ pub fn complete(
             if kind == FilesystemCompletionKind::Directory && !path.is_dir() {
                 continue;
             }
-            push_unique_path(&mut combined, &mut seen, path);
+            common::push_unique(&mut combined, &mut seen, path);
         }
     }
 
     let (parents, leaf_prefix) = parent_directories(resolver, &cwd, raw_query);
     for parent in parents {
         for child in list_children(&parent, &leaf_prefix, kind) {
-            push_unique_path(&mut combined, &mut seen, child);
+            common::push_unique(&mut combined, &mut seen, child);
         }
     }
 
@@ -183,12 +183,6 @@ fn sort_by_basename(results: &mut [PathBuf]) {
             .then_with(|| left_name.cmp(&right_name))
             .then_with(|| left.as_os_str().cmp(right.as_os_str()))
     });
-}
-
-fn push_unique_path(output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
-    if seen.insert(path.clone()) {
-        output.push(path);
-    }
 }
 
 #[cfg(test)]

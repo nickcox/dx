@@ -25,8 +25,6 @@ pub struct SessionStack {
 pub enum StackError {
     #[error("path must be absolute: {0}")]
     PathNotAbsolute(String),
-    #[error("nothing to pop")]
-    NothingToPop,
     #[error("nothing to undo")]
     NothingToUndo,
     #[error("nothing to redo")]
@@ -71,14 +69,6 @@ impl SessionStack {
                 history.drain(..excess);
             }
         }
-    }
-
-    pub fn pop(&mut self) -> Result<PathBuf, StackError> {
-        let next = self.undo.last().ok_or(StackError::NothingToPop)?;
-        ensure_absolute(next)?;
-        let next = self.undo.pop().expect("checked non-empty undo stack");
-        self.cwd = Some(next.clone());
-        Ok(next)
     }
 
     pub fn undo(&mut self) -> Result<PathBuf, StackError> {
@@ -203,32 +193,6 @@ mod tests {
             .push(PathBuf::from("relative/path"))
             .expect_err("relative path fails");
         assert!(matches!(err, StackError::PathNotAbsolute(_)));
-    }
-
-    #[test]
-    fn pop_returns_top_undo_without_touching_redo() {
-        let mut stack = SessionStack {
-            cwd: Some(p("/a")),
-            undo: vec![p("/b"), p("/c")],
-            redo: vec![p("/d")],
-        };
-
-        let output = stack.pop().expect("pop");
-
-        assert_eq!(output, p("/c"));
-        assert_eq!(stack.cwd, Some(p("/c")));
-        assert_eq!(stack.undo, vec![p("/b")]);
-        assert_eq!(stack.redo, vec![p("/d")]);
-    }
-
-    #[test]
-    fn pop_fails_when_undo_empty() {
-        let mut stack = SessionStack {
-            cwd: Some(p("/a")),
-            ..SessionStack::default()
-        };
-        let err = stack.pop().expect_err("pop fails");
-        assert_eq!(err, StackError::NothingToPop);
     }
 
     #[test]

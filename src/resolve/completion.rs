@@ -64,7 +64,7 @@ impl Resolver {
         if query.is_filesystem_prefix() {
             let candidates = expand_filesystem_prefix(&effective_cwd, query);
             for path in candidates {
-                push_unique(&mut output, &mut seen, path);
+                common::push_unique(&mut output, &mut seen, path);
             }
 
             // For explicit filesystem-prefix queries, prefer filesystem-derived
@@ -105,7 +105,7 @@ impl Resolver {
             && prepared.fallback_policy.allow_direct_injection()
             && path.is_dir()
         {
-            push_unique(&mut output, &mut seen, path);
+            common::push_unique(&mut output, &mut seen, path);
         }
 
         if prepared.fallback_policy.allow_step_up
@@ -113,7 +113,7 @@ impl Resolver {
                 traversal::resolve_step_up(&effective_cwd, &prepared.effective_query)
             && path.is_dir()
         {
-            push_unique(&mut output, &mut seen, path);
+            common::push_unique(&mut output, &mut seen, path);
         }
 
         // Completion would rather show a partial list than nothing, so an
@@ -128,22 +128,16 @@ impl Resolver {
         .unwrap_or_default();
         prepare_candidates(&mut search_candidates, probe_limit);
         for candidate in search_candidates {
-            push_unique(&mut output, &mut seen, candidate);
+            common::push_unique(&mut output, &mut seen, candidate);
         }
 
         if prepared.fallback_policy.allow_bookmark_lookup
             && let Some(path) = (self.bookmark_lookup)(&prepared.effective_query)
         {
-            push_unique(&mut output, &mut seen, path);
+            common::push_unique(&mut output, &mut seen, path);
         }
 
         apply_completion_limit(output, limit)
-    }
-}
-
-fn push_unique(output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, candidate: PathBuf) {
-    if seen.insert(candidate.clone()) {
-        output.push(candidate);
     }
 }
 
@@ -157,8 +151,8 @@ fn sort_filesystem_candidates_by_basename(results: &mut [PathBuf]) {
         let left_name = left.file_name().unwrap_or(left.as_os_str());
         let right_name = right.file_name().unwrap_or(right.as_os_str());
 
-        ascii_lowercase(left_name.as_encoded_bytes())
-            .cmp(&ascii_lowercase(right_name.as_encoded_bytes()))
+        common::ascii_lowercase(left_name.as_encoded_bytes())
+            .cmp(&common::ascii_lowercase(right_name.as_encoded_bytes()))
             .then_with(|| {
                 left_name
                     .as_encoded_bytes()
@@ -166,10 +160,6 @@ fn sort_filesystem_candidates_by_basename(results: &mut [PathBuf]) {
             })
             .then_with(|| left.as_os_str().cmp(right.as_os_str()))
     });
-}
-
-fn ascii_lowercase(value: &[u8]) -> Vec<u8> {
-    value.iter().map(u8::to_ascii_lowercase).collect()
 }
 
 /// Expand a filesystem path prefix by reading the parent directory and
@@ -507,8 +497,8 @@ mod tests {
         let mut output = Vec::new();
         let mut seen = HashSet::new();
 
-        push_unique(&mut output, &mut seen, first.clone());
-        push_unique(&mut output, &mut seen, second.clone());
+        common::push_unique(&mut output, &mut seen, first.clone());
+        common::push_unique(&mut output, &mut seen, second.clone());
 
         assert_eq!(output, vec![first, second]);
     }

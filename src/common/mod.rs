@@ -20,6 +20,22 @@ pub fn truncate_with_has_more<T>(mut values: Vec<T>, limit: Option<usize>) -> (V
     (values, has_more)
 }
 
+/// Appends `candidate` unless an equal path was already pushed.
+pub fn push_unique(
+    output: &mut Vec<PathBuf>,
+    seen: &mut std::collections::HashSet<PathBuf>,
+    candidate: PathBuf,
+) {
+    if seen.insert(candidate.clone()) {
+        output.push(candidate);
+    }
+}
+
+/// ASCII-lowercases raw path bytes, which may not be UTF-8.
+pub fn ascii_lowercase(value: &[u8]) -> Vec<u8> {
+    value.iter().map(u8::to_ascii_lowercase).collect()
+}
+
 pub fn is_valid_identifier(value: &str) -> bool {
     !value.is_empty()
         && value

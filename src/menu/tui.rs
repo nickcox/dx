@@ -1021,7 +1021,7 @@ mod imp {
 
     fn compute_list_rows(rows_total: usize, max_rows: u16) -> u16 {
         let cap = max_rows.max(1);
-        cap.min(rows_total.max(1) as u16)
+        cap.min(u16::try_from(rows_total.max(1)).unwrap_or(u16::MAX))
     }
 
     fn compute_rendered_height(
@@ -1881,6 +1881,16 @@ mod imp {
             assert_eq!(terminal_ops.disable_calls.get(), 1);
             assert!(terminal_ops.output_contains(b"\x1b[2K"));
             assert!(terminal_ops.output_contains(b"\x1b[?25h"));
+        }
+
+        #[test]
+        fn list_rows_saturate_instead_of_wrapping_past_u16() {
+            // `rows_total as u16` turned 65536 rows into 0, rendering an empty
+            // menu. Reachable with a large DX_MAX_MENU_RESULTS.
+            assert_eq!(compute_list_rows(65_536, 20), 20);
+            assert_eq!(compute_list_rows(usize::MAX, 20), 20);
+            assert_eq!(compute_list_rows(5, 20), 5);
+            assert_eq!(compute_list_rows(0, 20), 1);
         }
 
         #[test]

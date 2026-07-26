@@ -43,11 +43,7 @@ fn normalize_query(query: &str) -> Vec<u8> {
         path = path.components().skip(1).collect();
     }
 
-    ascii_lowercase(path.as_os_str().as_encoded_bytes())
-}
-
-fn ascii_lowercase(value: &[u8]) -> Vec<u8> {
-    value.iter().map(u8::to_ascii_lowercase).collect()
+    crate::common::ascii_lowercase(path.as_os_str().as_encoded_bytes())
 }
 
 pub fn filter_candidates(candidates: &[PathBuf], query: &str) -> Vec<PathBuf> {
@@ -63,10 +59,10 @@ pub fn filter_candidates(candidates: &[PathBuf], query: &str) -> Vec<PathBuf> {
     let mut substring = Vec::new();
 
     for candidate in candidates {
-        let full_lower = ascii_lowercase(candidate.as_os_str().as_encoded_bytes());
+        let full_lower = crate::common::ascii_lowercase(candidate.as_os_str().as_encoded_bytes());
         let basename_lower = candidate
             .file_name()
-            .map(|value| ascii_lowercase(value.as_encoded_bytes()))
+            .map(|value| crate::common::ascii_lowercase(value.as_encoded_bytes()))
             .unwrap_or_default();
 
         if full_lower == query {
@@ -110,7 +106,7 @@ pub fn filter_candidates(candidates: &[PathBuf], query: &str) -> Vec<PathBuf> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{ascii_lowercase, filter_candidates, normalize_query};
+    use super::{filter_candidates, normalize_query};
 
     // --- normalize_query ---
 
@@ -123,7 +119,9 @@ mod tests {
     #[test]
     fn normalize_expands_tilde() {
         if let Some(home) = dirs::home_dir() {
-            let expected = ascii_lowercase(home.join("projects").as_os_str().as_encoded_bytes());
+            let expected = crate::common::ascii_lowercase(
+                home.join("projects").as_os_str().as_encoded_bytes(),
+            );
             assert_eq!(normalize_query("~/projects"), expected);
         }
     }
@@ -131,7 +129,7 @@ mod tests {
     #[test]
     fn normalize_bare_tilde() {
         if let Some(home) = dirs::home_dir() {
-            let expected = ascii_lowercase(home.as_os_str().as_encoded_bytes());
+            let expected = crate::common::ascii_lowercase(home.as_os_str().as_encoded_bytes());
             assert_eq!(normalize_query("~"), expected);
         }
     }
@@ -144,7 +142,9 @@ mod tests {
     #[test]
     fn normalize_trailing_slash_and_tilde() {
         if let Some(home) = dirs::home_dir() {
-            let expected = ascii_lowercase(home.join("projects").as_os_str().as_encoded_bytes());
+            let expected = crate::common::ascii_lowercase(
+                home.join("projects").as_os_str().as_encoded_bytes(),
+            );
             assert_eq!(normalize_query("~/projects/"), expected);
         }
     }

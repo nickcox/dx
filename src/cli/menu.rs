@@ -158,14 +158,19 @@ fn format_selected_path_for_query_style_checked(
                 }
                 QueryStyle::ParentRelative if relative.starts_with("..") => relative,
                 // A parent-rooted query must never silently become cwd-relative.
-                QueryStyle::ParentRelative => {
+                // The remaining styles are excluded by the outer arm; falling
+                // back to the absolute form keeps that unverifiable claim from
+                // being a panic.
+                QueryStyle::ParentRelative
+                | QueryStyle::Compact
+                | QueryStyle::HomeRelative
+                | QueryStyle::Absolute => {
                     return format_selected_path_with_trailing_separator(
                         selected,
                         append_trailing_slash,
                         shell,
                     );
                 }
-                _ => unreachable!(),
             };
             format_selected_path_with_trailing_separator(&relative, append_trailing_slash, shell)
         }
