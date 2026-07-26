@@ -341,7 +341,8 @@ fn action_for_shell(action: MenuAction, buffer: &str, shell: Shell) -> MenuActio
 }
 
 pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
-    let debug = std::env::var("DX_MENU_DEBUG").is_ok_and(|v| v == "1");
+    let debug =
+        std::env::var("DX_MENU_DEBUG").is_ok_and(|value| crate::config::parse_bool(&value, false));
     let session = super::complete::resolve_session(cmd.session.as_deref());
 
     if debug {

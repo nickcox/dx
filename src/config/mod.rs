@@ -213,16 +213,11 @@ fn merge_environment(mut base: AppConfig) -> AppConfig {
         base.menu.max_results = menu_max_results(value, base.menu.max_results);
     }
 
-    // These two keep their original truthiness rules; unifying them on
-    // `parse_bool` is a separate, user-visible change.
     if let Ok(raw) = env::var("DX_MENU_BORDER") {
-        base.menu.border = matches!(
-            raw.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        );
+        base.menu.border = parse_bool(&raw, base.menu.border);
     }
     if let Ok(raw) = env::var("DX_MENU_LS_COLORS") {
-        base.menu.ls_colors = raw.trim() == "1";
+        base.menu.ls_colors = parse_bool(&raw, base.menu.ls_colors);
     }
 
     base
@@ -237,7 +232,10 @@ fn env_i64(name: &str) -> Option<i64> {
     trimmed.parse::<i64>().ok()
 }
 
-fn parse_bool(input: &str, default: bool) -> bool {
+/// The one truthiness rule for every `dx` boolean, from any source. An
+/// unrecognised value keeps `default`, so it falls through to the next layer of
+/// precedence rather than silently meaning "off".
+pub(crate) fn parse_bool(input: &str, default: bool) -> bool {
     match input.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => true,
         "0" | "false" | "no" | "off" => false,
@@ -449,19 +447,47 @@ case_sensitive = false
     }
 
     #[test]
-    fn border_and_ls_colors_keep_their_existing_truthiness() {
-        // Unified with `parse_bool` in a follow-up; pinned here so that change
-        // is visible as a diff rather than a silent shift.
-        assert!(load_with("", &[("DX_MENU_BORDER", "true")]).menu.border);
-        assert!(load_with("", &[("DX_MENU_BORDER", "on")]).menu.border);
-        assert!(!load_with("", &[("DX_MENU_BORDER", "banana")]).menu.border);
+    fn every_boolean_accepts_the_same_spellings() {
+        for value in ["1", "true", "yes", "on", "TRUE", " on "] {
+            assert!(
+                load_with("", &[("DX_MENU_BORDER", value)]).menu.border,
+                "border should be enabled by {value:?}"
+            );
+            assert!(
+                load_with("", &[("DX_MENU_LS_COLORS", value)])
+                    .menu
+                    .ls_colors,
+                "ls_colors should be enabled by {value:?}"
+            );
+        }
 
-        assert!(load_with("", &[("DX_MENU_LS_COLORS", "1")]).menu.ls_colors);
-        assert!(
-            !load_with("", &[("DX_MENU_LS_COLORS", "true")])
-                .menu
-                .ls_colors
-        );
+        let file = "[menu]\nborder = true\nls_colors = true\n";
+        for value in ["0", "false", "no", "off"] {
+            let menu = load_with(
+                file,
+                &[("DX_MENU_BORDER", value), ("DX_MENU_LS_COLORS", value)],
+            )
+            .menu;
+            assert!(!menu.border, "border should be disabled by {value:?}");
+            assert!(!menu.ls_colors, "ls_colors should be disabled by {value:?}");
+        }
+    }
+
+    #[test]
+    fn an_unrecognised_boolean_falls_through_to_the_config_file() {
+        // `DX_MENU_LS_COLORS=banana` used to mean "off" and override the file.
+        let file = "[menu]\nborder = true\nls_colors = true\n";
+        let menu = load_with(
+            file,
+            &[
+                ("DX_MENU_BORDER", "banana"),
+                ("DX_MENU_LS_COLORS", "banana"),
+            ],
+        )
+        .menu;
+
+        assert!(menu.border);
+        assert!(menu.ls_colors);
     }
 
     #[test]
