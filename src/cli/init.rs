@@ -1,6 +1,7 @@
+use crate::config::AppConfig;
 use crate::hooks::{
-    self, DEFAULT_PWSH_MENU_KEY, HookOptions, InitMenuMode, Shell, parse_menu_command_mappings,
-    parse_pwsh_menu_key,
+    self, DEFAULT_PWSH_MENU_KEY, HookOptions, InitMenuMode, MenuCommandMapping, Shell,
+    parse_menu_command_mappings, parse_pwsh_menu_key,
 };
 
 use super::CliError;
@@ -23,20 +24,16 @@ pub fn run_init(
         InitMenuMode::Disabled
     };
 
+    let config = load_config_leniently();
+
     let mappings = if menu_mode == InitMenuMode::Disabled {
         Vec::new()
     } else {
-        match std::env::var("DX_MENU_COMMAND_MAPPINGS") {
-            Ok(raw) => parse_menu_command_mappings(&raw)?,
-            Err(_) => Vec::new(),
-        }
+        menu_command_mappings(config.menu.command_mappings.as_deref())?
     };
 
     let pwsh_menu_key = if menu_mode == InitMenuMode::Tui && shell == Shell::Pwsh {
-        match std::env::var("DX_PWSH_MENU_KEY") {
-            Ok(raw) => parse_pwsh_menu_key(&raw)?,
-            Err(_) => DEFAULT_PWSH_MENU_KEY.to_string(),
-        }
+        pwsh_menu_key(config.menu.pwsh_key.as_deref())?
     } else {
         DEFAULT_PWSH_MENU_KEY.to_string()
     };
@@ -54,6 +51,50 @@ pub fn run_init(
         )
     );
     Ok(())
+}
+
+/// `dx init` output is evaluated by shell profiles, so a broken config file must
+/// not stop a usable hook being emitted. Every other subcommand still fails
+/// loudly, since a wrong search root should not be silently ignored.
+fn load_config_leniently() -> AppConfig {
+    match AppConfig::load() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("dx init: warning: ignoring config file: {error}");
+            AppConfig::default()
+        }
+    }
+}
+
+/// The environment wins, and a bad value there is an error the user can fix
+/// immediately. A bad value in the config file is only a warning, for the same
+/// reason `load_config_leniently` exists.
+fn menu_command_mappings(from_file: Option<&str>) -> Result<Vec<MenuCommandMapping>, CliError> {
+    if let Ok(raw) = std::env::var("DX_MENU_COMMAND_MAPPINGS") {
+        return Ok(parse_menu_command_mappings(&raw)?);
+    }
+
+    let Some(raw) = from_file else {
+        return Ok(Vec::new());
+    };
+    Ok(parse_menu_command_mappings(raw).unwrap_or_else(|error| {
+        eprintln!("dx init: warning: ignoring menu.command_mappings: {error}");
+        Vec::new()
+    }))
+}
+
+fn pwsh_menu_key(from_file: Option<&str>) -> Result<String, CliError> {
+    if let Ok(raw) = std::env::var("DX_PWSH_MENU_KEY") {
+        return Ok(parse_pwsh_menu_key(&raw)?);
+    }
+
+    let Some(raw) = from_file else {
+        return Ok(DEFAULT_PWSH_MENU_KEY.to_string());
+    };
+    Ok(parse_pwsh_menu_key(raw).unwrap_or_else(|error| {
+        eprintln!("dx init: warning: ignoring menu.pwsh_key: {error}");
+        DEFAULT_PWSH_MENU_KEY.to_string()
+    }))
 }
 
 #[cfg(test)]

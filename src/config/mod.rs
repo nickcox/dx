@@ -27,6 +27,12 @@ pub struct MenuSettings {
     pub max_rows: u16,
     pub max_results: usize,
     pub ls_colors: bool,
+    /// Read by `dx init` and baked into the generated hook. Unlike the settings
+    /// above these hold the *config-file* value only: `dx init` prefers the
+    /// environment and treats a bad value here as a warning rather than a
+    /// failure, so a broken config file cannot stop a shell profile loading.
+    pub command_mappings: Option<String>,
+    pub pwsh_key: Option<String>,
 }
 
 impl Default for MenuSettings {
@@ -37,6 +43,8 @@ impl Default for MenuSettings {
             max_rows: 20,
             max_results: 1000,
             ls_colors: false,
+            command_mappings: None,
+            pwsh_key: None,
         }
     }
 }
@@ -89,6 +97,8 @@ struct MenuConfig {
     max_rows: Option<i64>,
     max_results: Option<i64>,
     ls_colors: Option<bool>,
+    command_mappings: Option<String>,
+    pwsh_key: Option<String>,
 }
 
 impl AppConfig {
@@ -162,6 +172,15 @@ fn merge_toml(mut base: AppConfig, parsed: TomlConfig) -> AppConfig {
     }
     if let Some(ls_colors) = parsed.menu.ls_colors {
         base.menu.ls_colors = ls_colors;
+    }
+    // Deliberately not merged in `merge_environment`: `dx init` reads the
+    // environment itself so it can keep failing loudly on a value the user just
+    // typed while only warning about the file.
+    if let Some(mappings) = parsed.menu.command_mappings {
+        base.menu.command_mappings = Some(mappings);
+    }
+    if let Some(key) = parsed.menu.pwsh_key {
+        base.menu.pwsh_key = Some(key);
     }
 
     base

@@ -181,3 +181,111 @@ fn init_zsh_with_command_not_found_flag_includes_handler() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("command_not_found_handler"));
 }
+
+/// `dx init` with a setting in the config file, and the environment cleared so
+/// only the file can supply it.
+fn init_with_config(body: &str, args: &[&str], env: &[(&str, &str)]) -> std::process::Output {
+    let temp = common::temp_dir("init-config");
+    let file = temp.path().join("dx.toml");
+    std::fs::write(&file, body).expect("write config file");
+
+    let mut command = Command::new(dx_bin());
+    command.args(["init"]).args(args).env("DX_CONFIG", &file);
+    for name in ["DX_MENU_COMMAND_MAPPINGS", "DX_PWSH_MENU_KEY"] {
+        command.env_remove(name);
+    }
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    command.output().expect("run dx init")
+}
+
+#[test]
+fn config_file_settings_produce_the_same_script_as_the_environment() {
+    let from_file = init_with_config(
+        "[menu]\ncommand_mappings = \"ls=path,cat=file\"\npwsh_key = \"F12\"\n",
+        &["pwsh", "--menu"],
+        &[],
+    );
+
+    let from_env = Command::new(dx_bin())
+        .args(["init", "pwsh", "--menu"])
+        .env_remove("DX_CONFIG")
+        .env("DX_MENU_COMMAND_MAPPINGS", "ls=path,cat=file")
+        .env("DX_PWSH_MENU_KEY", "F12")
+        .output()
+        .expect("run dx init");
+
+    assert!(from_file.status.success());
+    assert!(from_env.status.success());
+    assert_eq!(from_file.stdout, from_env.stdout);
+}
+
+#[test]
+fn the_environment_overrides_config_file_settings() {
+    let output = init_with_config(
+        "[menu]\npwsh_key = \"F12\"\n",
+        &["pwsh", "--menu"],
+        &[("DX_PWSH_MENU_KEY", "F5")],
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Set-PSReadLineKeyHandler -Key 'F5'"));
+    assert!(!stdout.contains("Set-PSReadLineKeyHandler -Key 'F12'"));
+}
+
+#[test]
+fn a_broken_config_file_still_emits_a_usable_hook() {
+    // The output is evaluated by shell profiles, so failing here would break
+    // shell startup — much worse than ignoring the file.
+    let output = init_with_config("{this is not toml\n", &["bash", "--menu"], &[]);
+
+    assert!(
+        output.status.success(),
+        "init must not fail on a bad config"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("cd()"),
+        "a real hook should still be emitted"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("warning: ignoring config file"),
+        "the problem should still be reported; stderr: {stderr}"
+    );
+}
+
+#[test]
+fn invalid_mappings_in_the_config_file_warn_rather_than_fail() {
+    let output = init_with_config(
+        "[menu]\ncommand_mappings = \"ls=path,badentry\"\n",
+        &["bash", "--menu"],
+        &[],
+    );
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("warning: ignoring menu.command_mappings"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn invalid_mappings_in_the_environment_still_fail() {
+    // A value the user just typed is worth failing on; a stale config file is not.
+    let output = init_with_config(
+        "",
+        &["bash", "--menu"],
+        &[("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry")],
+    );
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid DX_MENU_COMMAND_MAPPINGS"),
+        "stderr: {stderr}"
+    );
+}
