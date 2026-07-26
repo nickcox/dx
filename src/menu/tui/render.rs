@@ -12,7 +12,7 @@ use crate::menu::ls_colors::LsColorsConfig;
 use crate::resolve::CompletionCandidates;
 
 use super::MenuOptions;
-use super::layout::{MenuLayoutPlan, build_scrollbar, menu_scrollbar_render_area};
+use super::layout::{MenuLayoutPlan, build_scrollbar};
 use super::selection::visible_window;
 use super::status::build_status_text;
 use super::width::{pad_to_width, truncate_for_cell};
@@ -110,11 +110,11 @@ pub(super) fn render_grid(
     }
     frame.render_widget(grid, layout.content_area);
 
-    if layout.scrollbar_needed {
+    if let Some(area) = layout.scrollbar_area {
         let selected_row = selected / layout.metrics.columns;
         let mut scrollbar_state =
             ScrollbarState::new(layout.metrics.rows_total).position(selected_row);
-        render_scrollbar(frame, layout, show_border, &mut scrollbar_state);
+        render_scrollbar(frame, area, show_border, &mut scrollbar_state);
     }
 }
 
@@ -164,20 +164,19 @@ pub(super) fn render_list(
 
     frame.render_stateful_widget(list, layout.content_area, list_state);
 
-    if layout.scrollbar_needed {
+    if let Some(area) = layout.scrollbar_area {
         let selected = list_state.selected().unwrap_or(0);
         let mut scrollbar_state = ScrollbarState::new(labels.len()).position(selected);
-        render_scrollbar(frame, layout, show_border, &mut scrollbar_state);
+        render_scrollbar(frame, area, show_border, &mut scrollbar_state);
     }
 }
 
 pub(super) fn render_scrollbar(
     frame: &mut ratatui::Frame<'_>,
-    layout: &MenuLayoutPlan,
+    area: Rect,
     show_border: bool,
     state: &mut ScrollbarState,
 ) {
-    let area = menu_scrollbar_render_area(layout.content_area, layout.scrollbar_area, show_border);
     frame.render_stateful_widget(build_scrollbar(show_border), area, state);
 }
 
@@ -339,5 +338,42 @@ mod tests {
                 .any(|span| span.content.contains('日')),
             "no wide label reached the visible area, so nothing was proven"
         );
+    }
+
+    /// A one-column terminal has no column to spare for a scrollbar. Asking for the
+    /// reserved area anyway panicked with "borderless scrollbar area expected".
+    #[test]
+    fn rendering_into_a_one_column_terminal_does_not_panic() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let names: Vec<String> = (0..20).map(|i| format!("candidate-{i}")).collect();
+        let completion = CompletionCandidates {
+            paths: names.iter().map(PathBuf::from).collect(),
+            has_more: false,
+        };
+        let options = MenuOptions {
+            max_rows: 10,
+            item_max_len: Some(20),
+            ..MenuOptions::default()
+        };
+        let layout = build_menu_layout(Rect::new(0, 0, 1, 4), names.len(), &names, &options);
+        let mut terminal = Terminal::new(TestBackend::new(1, 4)).expect("test backend");
+        let mut list_state = ListState::default();
+        list_state.select(Some(19));
+
+        terminal
+            .draw(|frame| {
+                render_list(
+                    frame,
+                    &completion,
+                    &names,
+                    &options,
+                    &layout,
+                    &mut list_state,
+                );
+                render_grid(frame, &completion, &names, &options, &layout, 19);
+            })
+            .expect("draw");
     }
 }

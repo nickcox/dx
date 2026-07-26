@@ -76,9 +76,11 @@ pub(super) struct LayoutMetrics {
 pub(super) struct MenuLayoutPlan {
     pub(super) content_area: Rect,
     pub(super) divider_area: Option<Rect>,
+    /// Where the scrollbar goes, or `None` when one is unnecessary or there is no
+    /// room to reserve a column. Resolved here so rendering cannot ask for an area
+    /// that was never set aside.
     pub(super) scrollbar_area: Option<Rect>,
     pub(super) visible_rows: usize,
-    pub(super) scrollbar_needed: bool,
     pub(super) metrics: LayoutMetrics,
 }
 
@@ -115,7 +117,7 @@ pub(super) fn build_menu_layout(
     } else {
         item_count > visible_rows && visible_rows > 0
     };
-    let (content_area, scrollbar_area) = split_menu_areas(
+    let (content_area, reserved_column) = split_menu_areas(
         provisional_content_area,
         show_border,
         scrollbar_probe_needed,
@@ -132,12 +134,20 @@ pub(super) fn build_menu_layout(
         item_count > visible_rows && visible_rows > 0
     };
 
+    let scrollbar_area = if !scrollbar_needed {
+        None
+    } else if show_border {
+        Some(bordered_scrollbar_area(content_area))
+    } else {
+        // `None` when the terminal is too narrow to spare a column.
+        reserved_column
+    };
+
     MenuLayoutPlan {
         content_area,
         divider_area: menu_divider_area(list_area, show_border),
         scrollbar_area,
         visible_rows,
-        scrollbar_needed,
         metrics: final_metrics,
     }
 }
@@ -232,20 +242,14 @@ pub(super) fn build_scrollbar(show_border: bool) -> Scrollbar<'static> {
     }
 }
 
-pub(super) fn menu_scrollbar_render_area(
-    content_area: Rect,
-    scrollbar_area: Option<Rect>,
-    show_border: bool,
-) -> Rect {
-    if show_border {
-        Rect {
-            x: content_area.x,
-            y: content_area.y + 1,
-            width: content_area.width,
-            height: content_area.height.saturating_sub(2),
-        }
-    } else {
-        scrollbar_area.expect("borderless scrollbar area expected")
+/// A bordered menu draws its scrollbar over the block's right edge, so the area
+/// is the content area inset by the top and bottom border rows.
+fn bordered_scrollbar_area(content_area: Rect) -> Rect {
+    Rect {
+        x: content_area.x,
+        y: content_area.y + 1,
+        width: content_area.width,
+        height: content_area.height.saturating_sub(2),
     }
 }
 
@@ -333,16 +337,15 @@ mod tests {
     }
 
     #[test]
-    fn borderless_scrollbar_render_area_uses_reserved_column() {
-        let area =
-            menu_scrollbar_render_area(Rect::new(2, 3, 19, 8), Some(Rect::new(21, 3, 1, 8)), false);
-        assert_eq!(area, Rect::new(21, 3, 1, 8));
-    }
-
-    #[test]
-    fn bordered_scrollbar_render_area_uses_inner_height() {
-        let area = menu_scrollbar_render_area(Rect::new(2, 3, 20, 8), None, true);
-        assert_eq!(area, Rect::new(2, 4, 20, 6));
+    fn bordered_scrollbar_area_is_inset_by_the_border_rows() {
+        let labels = vec!["one".to_string(); 50];
+        let layout = build_menu_layout(
+            Rect::new(2, 3, 20, 8),
+            labels.len(),
+            &labels,
+            &bordered_options(Some(8)),
+        );
+        assert_eq!(layout.scrollbar_area, Some(Rect::new(2, 4, 20, 6)));
     }
 
     #[test]
@@ -354,9 +357,34 @@ mod tests {
             &labels,
             &borderless_options(Some(8)),
         );
-        assert!(layout.scrollbar_needed);
         assert_eq!(layout.scrollbar_area, Some(Rect::new(19, 0, 1, 7)));
         assert_eq!(layout.content_area, Rect::new(0, 0, 19, 7));
+    }
+
+    /// A one-column terminal has no column to spare. Rendering used to ask for the
+    /// reserved area regardless and panic on the `None`.
+    #[test]
+    fn no_scrollbar_area_when_the_terminal_cannot_spare_a_column() {
+        let labels: Vec<String> = (0..20).map(|i| format!("candidate-{i}")).collect();
+        let layout = build_menu_layout(
+            Rect::new(0, 0, 1, 4),
+            labels.len(),
+            &labels,
+            &borderless_options(Some(20)),
+        );
+        assert_eq!(layout.scrollbar_area, None);
+    }
+
+    #[test]
+    fn no_scrollbar_area_when_every_candidate_fits() {
+        let labels = vec!["one".to_string(); 3];
+        let layout = build_menu_layout(
+            Rect::new(0, 0, 20, 8),
+            labels.len(),
+            &labels,
+            &borderless_options(Some(8)),
+        );
+        assert_eq!(layout.scrollbar_area, None);
     }
 
     #[test]
