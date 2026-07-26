@@ -186,8 +186,7 @@ fn sort_by_basename(results: &mut [PathBuf]) {
 }
 
 fn push_unique_path(output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
-    let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-    if seen.insert(canonical) {
+    if seen.insert(path.clone()) {
         output.push(path);
     }
 }
@@ -195,6 +194,42 @@ fn push_unique_path(output: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_and_its_target_are_both_offered() {
+        use crate::config::AppConfig;
+        use crate::resolve::Resolver;
+        use crate::test_support;
+
+        let temp = test_support::temp_dir("filesystem-symlink-alias");
+        let real = temp.path().join("real");
+        std::fs::create_dir_all(&real).expect("create target directory");
+        std::os::unix::fs::symlink(&real, temp.path().join("linked")).expect("create symlink");
+
+        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let query = format!("{}/", temp.path().display());
+        let candidates = complete(
+            &resolver,
+            Some(&query),
+            Some(temp.path()),
+            None,
+            FilesystemCompletionKind::Directory,
+        );
+
+        // Deduplicating by canonical path used to hide one of these, and which
+        // one survived depended on readdir order. Both are valid `cd` targets.
+        assert!(
+            candidates.paths.iter().any(|path| path.ends_with("real")),
+            "{:?}",
+            candidates.paths
+        );
+        assert!(
+            candidates.paths.iter().any(|path| path.ends_with("linked")),
+            "{:?}",
+            candidates.paths
+        );
+    }
 
     #[test]
     fn cli_arg_names_match_clap_value_names() {

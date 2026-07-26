@@ -90,13 +90,16 @@ pub fn source_candidates_with_meta(
     let mut filtered = Vec::new();
 
     for p in raw_meta.paths {
-        let canonical = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
-        if let Some(ref ccwd) = canonical_cwd
-            && &canonical == ccwd
-        {
-            continue;
+        // Canonicalising costs ~12us per candidate. Only the cwd filter needs
+        // it, and the modes that use it yield few candidates; the high-volume
+        // filesystem modes leave `canonical_cwd` unset and dedup lexically.
+        if let Some(ref ccwd) = canonical_cwd {
+            let canonical = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
+            if &canonical == ccwd {
+                continue;
+            }
         }
-        if seen.insert(canonical) {
+        if seen.insert(p.clone()) {
             filtered.push(p);
         }
     }
