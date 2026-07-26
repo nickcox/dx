@@ -70,7 +70,10 @@ mod imp {
 
     use crossterm::{
         cursor,
-        event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+        event::{
+            self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+            MouseEvent, MouseEventKind,
+        },
         execute, terminal,
     };
     use nix::sys::select::{FdSet, select as select_fds};
@@ -208,6 +211,7 @@ mod imp {
         use_tty_backend: bool,
         output: Option<Box<dyn Write>>,
         cursor_hidden: bool,
+        mouse_captured: bool,
         reservation: Option<SpaceReservation>,
         cleanup_region: Option<CleanupRegion>,
     }
@@ -223,6 +227,7 @@ mod imp {
                 use_tty_backend,
                 output: None,
                 cursor_hidden: false,
+                mouse_captured: false,
                 reservation: None,
                 cleanup_region: None,
             })
@@ -260,6 +265,15 @@ mod imp {
             self.cleanup_region = Some(CleanupRegion { prompt_row, area });
         }
 
+        /// Without this the terminal keeps the wheel to itself and scrolls its own
+        /// scrollback, so the menu never sees the gesture.
+        fn capture_mouse(&mut self) -> std::io::Result<()> {
+            execute!(self.output()?, EnableMouseCapture)?;
+            self.mouse_captured = true;
+            self.output()?.flush()?;
+            Ok(())
+        }
+
         fn hide_cursor(&mut self) -> std::io::Result<()> {
             execute!(self.output()?, cursor::Hide)?;
             self.cursor_hidden = true;
@@ -270,15 +284,16 @@ mod imp {
 
     impl Drop for TerminalSession<'_> {
         fn drop(&mut self) {
-            let has_acquired_output_state =
-                self.cleanup_region.is_some() || self.reservation.is_some() || self.cursor_hidden;
-            if has_acquired_output_state && let Some(output) = self.output.as_mut() {
-                restore_terminal_output(
-                    output,
-                    self.cleanup_region,
-                    self.reservation,
-                    self.cursor_hidden,
-                );
+            let acquired = AcquiredState {
+                cleanup_region: self.cleanup_region,
+                reservation: self.reservation,
+                cursor_hidden: self.cursor_hidden,
+                mouse_captured: self.mouse_captured,
+            };
+            if !acquired.is_empty()
+                && let Some(output) = self.output.as_mut()
+            {
+                restore_terminal_output(output, acquired);
             }
 
             let _ = self.terminal_ops.disable_raw_mode();
@@ -305,12 +320,31 @@ mod imp {
         })
     }
 
-    fn restore_terminal_output<W: Write>(
-        output: &mut W,
+    /// What the session acquired and must hand back.
+    #[derive(Default, Clone, Copy)]
+    struct AcquiredState {
         cleanup_region: Option<CleanupRegion>,
         reservation: Option<SpaceReservation>,
         cursor_hidden: bool,
-    ) {
+        mouse_captured: bool,
+    }
+
+    impl AcquiredState {
+        fn is_empty(self) -> bool {
+            self.cleanup_region.is_none()
+                && self.reservation.is_none()
+                && !self.cursor_hidden
+                && !self.mouse_captured
+        }
+    }
+
+    fn restore_terminal_output<W: Write>(output: &mut W, state: AcquiredState) {
+        let AcquiredState {
+            cleanup_region,
+            reservation,
+            cursor_hidden,
+            mouse_captured,
+        } = state;
         if let Some(region) = cleanup_region {
             let _ = execute!(output, cursor::MoveTo(0, region.prompt_row));
             for row in region.prompt_row.saturating_add(1)..region.area.bottom() {
@@ -327,6 +361,10 @@ mod imp {
 
         if cursor_hidden {
             let _ = execute!(output, cursor::Show);
+        }
+        // Left enabled, the terminal would keep reporting clicks as input once dx exits.
+        if mouse_captured {
+            let _ = execute!(output, DisableMouseCapture);
         }
         let _ = output.flush();
     }
@@ -374,6 +412,7 @@ mod imp {
         MoveLinear(isize),
         MoveGridVertical(isize),
         MovePage(isize),
+        ScrollRow(isize),
         Backspace,
         InputChar(char),
         Ignore,
@@ -403,6 +442,18 @@ mod imp {
                     MenuKeyAction::InputChar(ch)
                 }
             }
+            _ => MenuKeyAction::Ignore,
+        }
+    }
+
+    /// Wheel and trackpad gestures move one row and stop at the ends. Only the
+    /// arrow keys wrap: a gesture has no discrete end, so wrapping would spin the
+    /// selection past the last candidate on a single flick. Horizontal scroll is
+    /// ignored; on a trackpad it fires too easily to bind to a selection change.
+    fn map_mouse_event(mouse: MouseEvent) -> MenuKeyAction {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => MenuKeyAction::ScrollRow(-1),
+            MouseEventKind::ScrollDown => MenuKeyAction::ScrollRow(1),
             _ => MenuKeyAction::Ignore,
         }
     }
@@ -642,6 +693,8 @@ mod imp {
         let menu_top = menu_top_row(prompt_row, rows, height, options.show_border);
         let area = Rect::new(0, menu_top, cols, height);
         session.hide_cursor().ok()?;
+        // Scrolling is a convenience; a terminal that refuses capture still gets a menu.
+        let _ = session.capture_mouse();
         session.set_cleanup_region(prompt_row, area);
 
         run_loop(
@@ -980,12 +1033,16 @@ mod imp {
 
             previous_height = current_height;
 
-            if let Event::Key(key) = event::read().ok()? {
+            {
                 let len = completion.paths.len();
                 let columns = layout.metrics.columns;
                 let use_grid = layout.metrics.use_grid;
 
-                let action = map_key_event(key, use_grid);
+                let action = match event::read().ok()? {
+                    Event::Key(key) => map_key_event(key, use_grid),
+                    Event::Mouse(mouse) => map_mouse_event(mouse),
+                    _ => MenuKeyAction::Ignore,
+                };
 
                 match action {
                     MenuKeyAction::Submit => {
@@ -1007,6 +1064,11 @@ mod imp {
                     MenuKeyAction::MovePage(direction) => {
                         let page_size = page_selection_step(layout.visible_rows, columns, use_grid);
                         move_selection_page(&mut list_state, len, page_size, direction);
+                    }
+                    MenuKeyAction::ScrollRow(direction) => {
+                        // One row is a whole grid line; `move_selection_page` clamps for us.
+                        let step = if use_grid { columns.max(1) } else { 1 };
+                        move_selection_page(&mut list_state, len, step, direction);
                     }
                     MenuKeyAction::Backspace | MenuKeyAction::InputChar(_) => apply_filter_edit(
                         &mut filter_state,
@@ -1556,6 +1618,104 @@ mod imp {
 
         use super::*;
 
+        fn wheel(kind: MouseEventKind) -> MouseEvent {
+            MouseEvent {
+                kind,
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            }
+        }
+
+        #[test]
+        fn wheel_moves_one_row_in_either_layout() {
+            assert_eq!(
+                map_mouse_event(wheel(MouseEventKind::ScrollUp)),
+                MenuKeyAction::ScrollRow(-1)
+            );
+            assert_eq!(
+                map_mouse_event(wheel(MouseEventKind::ScrollDown)),
+                MenuKeyAction::ScrollRow(1)
+            );
+        }
+
+        /// A flick of the wheel must not spin past the last candidate and back to
+        /// the first; only the arrow keys wrap.
+        #[test]
+        fn wheel_stops_at_both_ends_where_the_arrows_wrap() {
+            let mut state = ListState::default();
+
+            state.select(Some(0));
+            move_selection_page(&mut state, 5, 1, -1);
+            assert_eq!(
+                state.selected(),
+                Some(0),
+                "scrolling up past the top wrapped"
+            );
+
+            state.select(Some(4));
+            move_selection_page(&mut state, 5, 1, 1);
+            assert_eq!(
+                state.selected(),
+                Some(4),
+                "scrolling down past the bottom wrapped"
+            );
+
+            // The arrows still wrap, which is what makes the two behaviours distinct.
+            state.select(Some(4));
+            move_selection(&mut state, 5, 1);
+            assert_eq!(state.selected(), Some(0));
+            state.select(Some(0));
+            move_selection(&mut state, 5, -1);
+            assert_eq!(state.selected(), Some(4));
+        }
+
+        #[test]
+        fn other_mouse_events_are_ignored() {
+            for kind in [
+                MouseEventKind::Moved,
+                MouseEventKind::ScrollLeft,
+                MouseEventKind::ScrollRight,
+                MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+            ] {
+                assert_eq!(
+                    map_mouse_event(wheel(kind)),
+                    MenuKeyAction::Ignore,
+                    "{kind:?} should not move the selection"
+                );
+            }
+        }
+
+        /// Capture left on would make the terminal report clicks as input after exit.
+        #[test]
+        fn restore_disables_mouse_capture_it_enabled() {
+            let mut output = Vec::new();
+            restore_terminal_output(
+                &mut output,
+                AcquiredState {
+                    mouse_captured: true,
+                    ..AcquiredState::default()
+                },
+            );
+            let written = String::from_utf8_lossy(&output).into_owned();
+
+            let mut expected = Vec::new();
+            execute!(&mut expected, DisableMouseCapture).expect("write escape");
+            assert!(
+                written.contains(&String::from_utf8_lossy(&expected).into_owned()),
+                "restore did not disable mouse capture: {written:?}"
+            );
+
+            let mut untouched = Vec::new();
+            restore_terminal_output(&mut untouched, AcquiredState::default());
+            assert!(
+                untouched.is_empty(),
+                "restore wrote {untouched:?} without having acquired anything"
+            );
+        }
+
         /// The tests exercise labels one path at a time; production shares a
         /// `LabelContext` across the whole session.
         fn display_label_for_style(
@@ -1813,7 +1973,7 @@ mod imp {
         #[test]
         fn restoration_without_acquired_state_emits_nothing() {
             let mut output = Vec::new();
-            restore_terminal_output(&mut output, None, None, false);
+            restore_terminal_output(&mut output, AcquiredState::default());
             assert!(output.is_empty());
         }
 
@@ -1961,11 +2121,24 @@ mod imp {
                 area: Rect::new(0, 3, 80, 3),
             };
             let mut hidden_output = Vec::new();
-            restore_terminal_output(&mut hidden_output, Some(region), None, true);
+            restore_terminal_output(
+                &mut hidden_output,
+                AcquiredState {
+                    cleanup_region: Some(region),
+                    cursor_hidden: true,
+                    ..AcquiredState::default()
+                },
+            );
             assert!(hidden_output.windows(6).any(|bytes| bytes == b"\x1b[?25h"));
 
             let mut visible_output = Vec::new();
-            restore_terminal_output(&mut visible_output, Some(region), None, false);
+            restore_terminal_output(
+                &mut visible_output,
+                AcquiredState {
+                    cleanup_region: Some(region),
+                    ..AcquiredState::default()
+                },
+            );
             assert!(!visible_output.windows(6).any(|bytes| bytes == b"\x1b[?25h"));
             assert!(visible_output.windows(4).any(|bytes| bytes == b"\x1b[2K"));
         }

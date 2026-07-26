@@ -75,12 +75,20 @@ interactive menu.
 | Key | Action |
 |---|---|
 | Arrow keys | Move selection |
+| Mouse wheel / trackpad scroll | Move selection by one row, stopping at either end |
 | `Tab` / `Shift-Tab` | Move forward or backward |
 | `PageDown` / `PageUp` | Move by one visible page |
 | Printable characters | Refine the current query |
 | `Backspace` | Remove menu-entered refinement |
 | `Enter` | Accept selection |
 | `Escape` / `Ctrl+C` | Cancel without changing the buffer |
+
+While the menu is open dx captures the mouse so it receives scroll events. Text
+selection with the mouse is unavailable for that moment and returns as soon as
+the menu closes; most terminals still allow it if you hold `Shift` or `Option`.
+
+Arrow keys and `Tab` wrap around the ends of the list. Scrolling and the page
+keys stop at the first and last candidate instead.
 
 Backspace cannot broaden the query beyond the text that was present when the
 menu opened. The status row shows the selected resolved path and any refinement
