@@ -51,7 +51,7 @@ pub struct MenuOptions {
     pub item_max_len: Option<usize>,
     pub show_border: bool,
     /// Draw to `/dev/tty` rather than stderr, as PSReadLine requires.
-    pub psreadline_mode: bool,
+    pub use_tty_backend: bool,
     pub ls_colors: Option<LsColorsConfig>,
 }
 
@@ -579,7 +579,7 @@ mod imp {
             options,
         );
         let required_rows = required_rows_below(height, options.show_border);
-        let mut session = TerminalSession::start(terminal_ops, options.psreadline_mode).ok()?;
+        let mut session = TerminalSession::start(terminal_ops, options.use_tty_backend).ok()?;
 
         let measured_prompt_row = match request.prompt_row {
             Some(row) => row,
@@ -803,7 +803,7 @@ mod imp {
             ..
         } = request;
 
-        let writer = terminal_ops.open_output(options.psreadline_mode).ok()?;
+        let writer = terminal_ops.open_output(options.use_tty_backend).ok()?;
 
         let backend = CrosstermBackend::new(writer);
         let mut terminal = Terminal::with_options(

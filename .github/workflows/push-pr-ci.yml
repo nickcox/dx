@@ -69,6 +69,69 @@ jobs:
           nix build .#cdex
           nix run .#dx -- --help
 
+  shell-lint:
+    name: shell-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install shells and shellcheck
+        run: sudo apt-get update && sudo apt-get install -y zsh fish shellcheck
+
+      - name: Build dx
+        run: cargo build --locked
+
+      # The hook templates in src/hooks/templates cannot be linted directly:
+      # placeholders such as __DX_BASH_MENU_FALLBACK_CASE__ sit inside `case`
+      # blocks, where a bare word is a syntax error until it is substituted.
+      # Linting the generated scripts checks the artifact users actually eval.
+      - name: Generate every hook script
+        run: |
+          mkdir -p target/hooks
+          for shell in bash zsh fish pwsh; do
+            for flags in "" "--command-not-found" "--menu" "--menu --command-not-found"; do
+              suffix="$(echo "$flags" | tr -d ' -' )"
+              ./target/debug/dx init "$shell" $flags > "target/hooks/$shell${suffix:+-$suffix}.txt"
+            done
+          done
+          ./target/debug/dx init pwsh --native-menu > target/hooks/pwsh-nativemenu.txt
+
+      # The checked-in goldens are linted too, so a blind `DX_UPDATE_GOLDENS=1`
+      # regeneration cannot land a script that no longer parses.
+      - name: shellcheck (bash)
+        run: |
+          for f in target/hooks/bash*.txt src/hooks/goldens/*.sh; do
+            echo "== $f"; shellcheck -s bash -S error "$f"
+          done
+
+      - name: Parse-check bash, zsh and fish
+        run: |
+          for f in target/hooks/bash*.txt src/hooks/goldens/*.sh; do bash -n "$f"; done
+          for f in target/hooks/zsh*.txt src/hooks/goldens/*.zsh; do zsh -n "$f"; done
+          for f in target/hooks/fish*.txt src/hooks/goldens/*.fish; do fish -n "$f"; done
+
+      - name: Parse-check pwsh
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($file in @(Get-ChildItem target/hooks/pwsh*.txt) +
+                            @(Get-ChildItem src/hooks/goldens/*.ps1)) {
+            $errors = $null
+            $tokens = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $file.FullName, [ref]$tokens, [ref]$errors) > $null
+            if ($errors.Count) {
+              Write-Host "== $($file.Name)"
+              $errors | ForEach-Object { Write-Host $_.Message }
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+
   shell-smoke-ubuntu:
     name: shell-smoke-${{ matrix.shell }}
     runs-on: ubuntu-latest

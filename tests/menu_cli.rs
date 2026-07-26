@@ -255,8 +255,8 @@ fn init_pwsh_with_menu_flag_includes_psreadline_handler() {
         "pwsh with --menu should use fallback helper"
     );
     assert!(
-        stdout.contains("--psreadline-mode"),
-        "pwsh with --menu should invoke dx menu with --psreadline-mode"
+        stdout.contains("dx menu --shell pwsh"),
+        "pwsh with --menu should invoke dx menu in PowerShell mode"
     );
 }
 
@@ -293,7 +293,11 @@ fn init_pwsh_native_menu_uses_structured_argument_completers_without_key_handler
     assert!(stdout.contains("function __dx_truncate_native_label"));
     assert!(!stdout.contains("Test-Path -LiteralPath $value -PathType Container"));
     assert!(!stdout.contains("Set-PSReadLineKeyHandler"));
-    assert!(!stdout.contains("--psreadline-mode"));
+    // `dx menu` treats `--shell pwsh` as "driven by PSReadLine". The native
+    // menu must therefore never invoke `dx menu` at all — it uses PowerShell's
+    // own completion instead. This is the invariant that lets
+    // `MenuCommand::psreadline_mode` be derived from the shell.
+    assert!(!stdout.contains("dx menu --shell pwsh"));
     assert!(!stdout.contains("F12"));
 }
 
@@ -1798,7 +1802,7 @@ fn menu_flagged_cd_replace_span_starts_at_path_token() {
 }
 
 #[test]
-fn menu_psreadline_mode_keeps_posix_flagged_cd_as_fallback() {
+fn pwsh_shell_keeps_posix_flagged_cd_as_fallback() {
     let buffer = "cd -P foo";
     let output = dx()
         .args([
@@ -1807,7 +1811,8 @@ fn menu_psreadline_mode_keeps_posix_flagged_cd_as_fallback() {
             buffer,
             "--cursor",
             &buffer.len().to_string(),
-            "--psreadline-mode",
+            "--shell",
+            "pwsh",
         ])
         .env("DX_MENU_DEBUG", "1")
         .output()

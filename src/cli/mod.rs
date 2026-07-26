@@ -76,46 +76,37 @@ pub fn completion_script(shell: Shell) -> String {
     let script = String::from_utf8(output).expect("clap completion scripts are UTF-8");
 
     match shell {
-        Shell::Bash => script.replace(" --psreadline-mode", ""),
-        Shell::Zsh | Shell::Fish => script
-            .lines()
-            .filter(|line| !line.contains("psreadline-mode"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Shell::Pwsh => script
-            .lines()
-            .filter(|line| !line.contains("psreadline-mode"))
-            .collect::<Vec<_>>()
-            .join("\n")
-            .replace("using namespace System.Management.Automation\n", "")
-            .replace(
-                "using namespace System.Management.Automation.Language\n",
-                "",
-            )
-            .replace(
-                "[CompletionResult]",
-                "[System.Management.Automation.CompletionResult]",
-            )
-            .replace(
-                "[CompletionResultType]",
-                "[System.Management.Automation.CompletionResultType]",
-            )
-            .replace(
-                "[StringConstantExpressionAst]",
-                "[System.Management.Automation.Language.StringConstantExpressionAst]",
-            )
-            .replace(
-                "[StringConstantType]",
-                "[System.Management.Automation.Language.StringConstantType]",
-            )
-            // Clap's PowerShell script compares the final AST token with the
-            // completion word. PowerShell may pass a differently quoted word,
-            // so always treat the final token as the incomplete value.
-            .replace(
-                "$element.Value -eq $wordToComplete)",
-                "$i -eq ($commandElements.Count - 1))",
-            ),
+        // Taken verbatim. `dx` deliberately exposes no hidden arguments, because
+        // `clap_complete` ignores `Arg::hide` and would offer them as
+        // completions — see `MenuCommand::psreadline_mode`.
+        Shell::Bash | Shell::Zsh | Shell::Fish => script,
+        // Clap's PowerShell script compares the final AST token with the
+        // completion word. PowerShell may pass a differently quoted word, so
+        // always treat the final token as the incomplete value. The `using`
+        // statements it emits are relocated by the hook assembler rather than
+        // rewritten away — see `hooks::pwsh::hoist_using_statements`.
+        Shell::Pwsh => patch(
+            script,
+            "$element.Value -eq $wordToComplete)",
+            "$i -eq ($commandElements.Count - 1))",
+        ),
     }
+}
+
+/// Rewrites clap's generated completion script.
+///
+/// # Panics
+///
+/// Panics when `needle` is absent. A silently skipped replacement would ship a
+/// subtly broken completion script; failing loudly turns a clap upgrade into a
+/// test failure instead, since the `hooks` tests generate every shell's script.
+fn patch(script: String, needle: &str, replacement: &str) -> String {
+    assert!(
+        script.contains(needle),
+        "clap completion script no longer contains {needle:?}; \
+         the patch in cli::completion_script needs updating for this clap version"
+    );
+    script.replace(needle, replacement)
 }
 
 pub fn run() -> i32 {

@@ -184,30 +184,6 @@ mod tests {
     }
 
     #[test]
-    fn generate_bash_without_command_not_found_contains_cd_only() {
-        let output = generate(Shell::Bash, &options(false, false));
-        assert!(output.contains("cd()"));
-        assert!(output.contains("up()"));
-        assert!(output.contains("back()"));
-        assert!(output.contains("forward()"));
-        assert!(output.contains("cdf()"));
-        assert!(output.contains("cdr()"));
-        assert!(output.contains("complete -F _dx -o bashdefault -o default dx"));
-        assert!(output.contains("DX_SESSION"));
-        assert!(!output.contains("command_not_found_handle"));
-    }
-
-    #[test]
-    fn bash_back_forward_use_stack_wrapper_not_nav_wrapper() {
-        let output = generate(Shell::Bash, &options(false, false));
-        // back/forward should use __dx_stack_wrapper (dx stack undo/redo), not __dx_nav_wrapper (dx stack push)
-        assert!(output.contains("back() {\n  __dx_stack_wrapper back"));
-        assert!(output.contains("forward() {\n  __dx_stack_wrapper forward"));
-        assert!(output.contains("__dx_stack_wrapper()"));
-        assert!(output.contains("__dx_stack_run stack \"$__dx_undo_or_redo\""));
-    }
-
-    #[test]
     fn bash_up_seeds_origin_before_navigate() {
         let output = generate(Shell::Bash, &options(false, false));
         // __dx_nav_wrapper should call __dx_push_pwd before dx navigate
@@ -354,390 +330,6 @@ mod tests {
     }
 
     #[test]
-    fn zsh_back_forward_use_stack_wrapper() {
-        let output = generate(Shell::Zsh, &options(false, false));
-        assert!(output.contains("back() {\n  __dx_stack_wrapper back"));
-        assert!(output.contains("forward() {\n  __dx_stack_wrapper forward"));
-        assert!(output.contains("__dx_stack_wrapper()"));
-    }
-
-    #[test]
-    fn fish_back_forward_use_stack_wrapper() {
-        let output = generate(Shell::Fish, &options(false, false));
-        assert!(output.contains("function back\n  __dx_stack_wrapper back"));
-        assert!(output.contains("function forward\n  __dx_stack_wrapper forward"));
-        assert!(output.contains("function __dx_stack_wrapper"));
-    }
-
-    #[test]
-    fn generate_bash_with_command_not_found_contains_handler() {
-        let output = generate(Shell::Bash, &options(true, false));
-        assert!(output.contains("cd()"));
-        assert!(output.contains("DX_SESSION"));
-        assert!(output.contains("command_not_found_handle"));
-    }
-
-    #[test]
-    fn generate_zsh_uses_handler_suffix() {
-        let output = generate(Shell::Zsh, &options(true, false));
-        assert!(output.contains("command_not_found_handler"));
-        assert!(output.contains("#compdef dx"));
-        assert!(output.contains("compdef _dx_complete_ancestors up"));
-        assert!(!output.contains("command_not_found_handle()"));
-    }
-
-    #[test]
-    fn generate_fish_without_command_not_found_excludes_handler() {
-        let output = generate(Shell::Fish, &options(false, false));
-        assert!(output.contains("function cd"));
-        assert!(output.contains("function up"));
-        assert!(output.contains("complete -c dx"));
-        assert!(output.contains("DX_SESSION"));
-        assert!(!output.contains("fish_command_not_found"));
-    }
-
-    #[test]
-    fn generate_pwsh_with_command_not_found_includes_guard_and_action() {
-        let output = generate(Shell::Pwsh, &options(true, false));
-        assert!(output.contains("Set-Location"));
-        assert!(output.contains("function Step-Up"));
-        assert!(output.contains("__dx_set_alias up Step-Up"));
-        assert!(output.contains("Register-ArgumentCompleter -Native -CommandName 'dx'"));
-        assert!(output.contains("CommandNotFoundAction"));
-        assert!(output.contains("DX_RESOLVE_GUARD"));
-    }
-
-    #[test]
-    fn generate_pwsh_without_command_not_found_excludes_action() {
-        let output = generate(Shell::Pwsh, &options(false, false));
-        assert!(output.contains("Set-Location"));
-        assert!(!output.contains(
-            "[System.EventHandler[System.Management.Automation.CommandLookupEventArgs]]"
-        ));
-        assert!(!output.contains("$script:__dx_installed_command_not_found_action = $true"));
-    }
-
-    #[test]
-    fn pwsh_imports_in_memory_module_with_cleanup() {
-        let output = generate(Shell::Pwsh, &options(false, false));
-        assert!(
-            output.contains("Get-Module -Name dx | Remove-Module -ErrorAction SilentlyContinue")
-        );
-        assert!(
-            output.contains("$Global:__dx_previous_aliases_for_cleanup = $__dx_previous_aliases")
-        );
-        assert!(output.contains("function global:__dx_restore_aliases {"));
-        assert!(output.contains("New-Module -Name dx -ScriptBlock {"));
-        assert!(output.contains("$ExecutionContext.SessionState.Module.OnRemove += {"));
-        assert!(!output.contains("$MyInvocation.MyCommand.ScriptBlock.Module.OnRemove"));
-        assert!(output.contains("Export-ModuleMember -Function Set-DxLocation, Step-Up, Undo-Location, Redo-Location, Set-FrecentLocation, Set-RecentLocation"));
-        assert!(output.contains("foreach ($__dx_alias_name in @('cd', 'up', '..', 'back', 'forward', 'cd-', 'cd+', 'cdf', 'cdr', 'z'))"));
-        assert!(output.contains("Remove-Item -LiteralPath \"Alias:\\$__dx_alias_name\" -Force -ErrorAction SilentlyContinue"));
-        assert!(output.contains("__dx_restore_aliases"));
-        assert!(output.contains("} | Import-Module -Global"));
-    }
-
-    #[test]
-    fn pwsh_aliases_cd_to_named_location_wrapper() {
-        let output = generate(Shell::Pwsh, &options(false, false));
-        assert!(output.contains("function Set-DxLocation"));
-        assert!(output.contains("__dx_set_alias cd Set-DxLocation"));
-        assert!(output.contains(
-            "Set-Alias -Name $Name -Value $Value -Scope Global -Option $existing.Options -Force"
-        ));
-        assert!(!output.contains("function cd {"));
-        assert!(!output.contains("Remove-Item Alias:cd -ErrorAction SilentlyContinue"));
-    }
-
-    #[test]
-    fn pwsh_location_wrapper_uses_native_parameter_binding() {
-        let output = generate(Shell::Pwsh, &options(false, false));
-        assert!(output.contains("[CmdletBinding(DefaultParameterSetName = 'Path')]"));
-        assert!(output.contains("ValueFromPipeline, ValueFromPipelineByPropertyName"));
-        assert!(output.contains("[Alias('PSPath', 'LP')]"));
-        assert!(output.contains("[switch]$PassThru"));
-        assert!(output.contains("[string]$StackName"));
-        assert!(output.contains("'Microsoft.PowerShell.Management\\Set-Location'"));
-        assert!(output.contains("GetSteppablePipeline($MyInvocation.CommandOrigin)"));
-        assert!(output.contains("$steppablePipeline.Process($_)"));
-        assert!(output.contains("$steppablePipeline.End()"));
-        assert!(output.contains("function __dx_is_resolvable_path"));
-        assert!(output.contains("$PSBoundParameters.ContainsKey('Path')"));
-        assert!(output.contains("$Path -in @('-', '+')"));
-        assert!(output.contains("__dx_push_path $startLocation.Path"));
-        assert!(!output.contains("__dx_oldpwd"));
-        assert!(!output.contains("ValueFromRemainingArguments"));
-    }
-
-    #[test]
-    fn pwsh_uses_idiomatic_primary_navigation_function_names() {
-        let output = generate(Shell::Pwsh, &options(false, false));
-        assert!(output.contains("function Step-Up"));
-        assert!(output.contains("function Undo-Location"));
-        assert!(output.contains("function Redo-Location"));
-        assert!(output.contains("function Set-FrecentLocation"));
-        assert!(output.contains("function Set-RecentLocation"));
-        assert!(!output.contains("function up {"));
-        assert!(!output.contains("function back {"));
-        assert!(!output.contains("function forward {"));
-        assert!(!output.contains("function cdf {"));
-        assert!(!output.contains("function cdr {"));
-    }
-
-    #[test]
-    fn pwsh_installs_short_navigation_aliases() {
-        let output = generate(Shell::Pwsh, &options(false, false));
-        assert!(output.contains("__dx_set_alias up Step-Up"));
-        assert!(output.contains("__dx_set_alias '..' Step-Up"));
-        assert!(output.contains("__dx_set_alias back Undo-Location"));
-        assert!(output.contains("__dx_set_alias 'cd-' Undo-Location"));
-        assert!(output.contains("__dx_set_alias forward Redo-Location"));
-        assert!(output.contains("__dx_set_alias 'cd+' Redo-Location"));
-        assert!(output.contains("__dx_set_alias cdf Set-FrecentLocation"));
-        assert!(output.contains("__dx_set_alias z Set-FrecentLocation"));
-        assert!(output.contains("__dx_set_alias cdr Set-RecentLocation"));
-    }
-
-    #[test]
-    fn pwsh_back_forward_use_stack_wrapper_and_undo_redo() {
-        let output = generate(Shell::Pwsh, &options(false, false));
-        assert!(output.contains("function __dx_stack_wrapper"));
-        assert!(output.contains("$undoOrRedo = if ($Mode -eq 'back') { 'undo' } else { 'redo' }"));
-        assert!(output.contains("__dx_stack_wrapper -Mode back -Selector $Selector"));
-        assert!(output.contains("__dx_stack_wrapper -Mode forward -Selector $Selector"));
-    }
-
-    #[test]
-    fn generate_all_shells_guard_existing_dx_session() {
-        let bash = generate(Shell::Bash, &options(false, false));
-        let zsh = generate(Shell::Zsh, &options(false, false));
-        let fish = generate(Shell::Fish, &options(false, false));
-        let pwsh = generate(Shell::Pwsh, &options(false, false));
-
-        assert!(bash.contains("DX_SESSION:-"));
-        assert!(zsh.contains("DX_SESSION:-"));
-        assert!(fish.contains("if not set -q DX_SESSION"));
-        assert!(pwsh.contains("if (-not $env:DX_SESSION)"));
-    }
-
-    #[test]
-    fn all_shells_freeze_wrapper_and_completion_routing_contracts() {
-        let bash = generate(Shell::Bash, &options(false, false));
-        assert!(bash.contains("cd()"));
-        assert!(bash.contains("up()"));
-        assert!(bash.contains("cdf()"));
-        assert!(bash.contains("z()"));
-        assert!(bash.contains("cdr()"));
-        assert!(bash.contains("back()"));
-        assert!(bash.contains("cd-()"));
-        assert!(bash.contains("forward()"));
-        assert!(bash.contains("cd+()"));
-        assert!(bash.contains("__dx_resolved=\"$(dx resolve \"$__dx_path_arg\" 2>/dev/null)\""));
-        assert!(bash.contains("dx complete paths \"$cur\" 2>/dev/null"));
-        assert!(bash.contains("_dx()"));
-        assert!(!bash.contains("_dx_complete_dx"));
-        assert!(bash.contains("--command-not-found"));
-        assert!(bash.contains("bookmarks"));
-        assert!(bash.contains("filesystem"));
-        assert!(bash.contains("complete -o default -F _dx_complete_paths cd"));
-        assert!(bash.contains("complete -F _dx_complete_stack_back cd-"));
-        assert!(bash.contains("complete -F _dx_complete_stack_forward cd+"));
-
-        let zsh = generate(Shell::Zsh, &options(false, false));
-        assert!(zsh.contains("cd()"));
-        assert!(zsh.contains("up()"));
-        assert!(zsh.contains("cdf()"));
-        assert!(zsh.contains("z()"));
-        assert!(zsh.contains("cdr()"));
-        assert!(zsh.contains("back()"));
-        assert!(zsh.contains("cd-()"));
-        assert!(zsh.contains("forward()"));
-        assert!(zsh.contains("cd+()"));
-        assert!(zsh.contains("__dx_resolved=\"$(dx resolve \"$__dx_path_arg\" 2>/dev/null)\""));
-        assert!(zsh.contains("dx complete paths \"$cur\" 2>/dev/null"));
-        assert!(zsh.contains("#compdef dx"));
-        assert!(!zsh.contains("compdef _dx_complete_dx dx"));
-        assert!(zsh.contains("--command-not-found"));
-        assert!(zsh.contains("bookmarks"));
-        assert!(zsh.contains("filesystem"));
-        assert!(zsh.contains("compdef _dx_complete_paths cd"));
-        assert!(zsh.contains("compdef _dx_complete_stack_back back 'cd-'"));
-        assert!(zsh.contains("compdef _dx_complete_stack_forward forward 'cd+'"));
-
-        let fish = generate(Shell::Fish, &options(false, false));
-        assert!(fish.contains("function cd"));
-        assert!(fish.contains("function up"));
-        assert!(fish.contains("function cdf"));
-        assert!(fish.contains("function z"));
-        assert!(fish.contains("function cdr"));
-        assert!(fish.contains("function back"));
-        assert!(fish.contains("function cd-"));
-        assert!(fish.contains("function forward"));
-        assert!(fish.contains("function cd+"));
-        assert!(fish.contains("set -l __dx_resolved (dx resolve \"$__dx_path_arg\" 2>/dev/null)"));
-        assert!(fish.contains("dx complete paths (commandline -ct) 2>/dev/null"));
-        assert!(fish.contains("complete -c dx"));
-        assert!(fish.contains("-l command-not-found"));
-        assert!(
-            fish.contains("complete -c cd -a '(dx complete paths (commandline -ct) 2>/dev/null)'")
-        );
-        assert!(fish.contains("complete -c back -a '(dx complete stack --direction back (commandline -ct) 2>/dev/null)'"));
-        assert!(fish.contains("complete -c cd+ -a '(dx complete stack --direction forward (commandline -ct) 2>/dev/null)'"));
-
-        let pwsh = generate(Shell::Pwsh, &options(false, false));
-        assert!(pwsh.contains("function Set-DxLocation"));
-        assert!(pwsh.contains("__dx_set_alias cd Set-DxLocation"));
-        assert!(pwsh.contains("function Step-Up"));
-        assert!(pwsh.contains("__dx_set_alias up Step-Up"));
-        assert!(pwsh.contains("__dx_set_alias '..' Step-Up"));
-        assert!(pwsh.contains("function Set-FrecentLocation"));
-        assert!(pwsh.contains("__dx_set_alias cdf Set-FrecentLocation"));
-        assert!(pwsh.contains("__dx_set_alias z Set-FrecentLocation"));
-        assert!(pwsh.contains("function Set-RecentLocation"));
-        assert!(pwsh.contains("__dx_set_alias cdr Set-RecentLocation"));
-        assert!(pwsh.contains("function Undo-Location"));
-        assert!(pwsh.contains("__dx_set_alias back Undo-Location"));
-        assert!(pwsh.contains("__dx_set_alias 'cd-' Undo-Location"));
-        assert!(pwsh.contains("function Redo-Location"));
-        assert!(pwsh.contains("__dx_set_alias forward Redo-Location"));
-        assert!(pwsh.contains("__dx_set_alias 'cd+' Redo-Location"));
-        assert!(pwsh.contains("$resolved = (dx resolve $Path 2>$null)"));
-        assert!(pwsh.contains("__dx_complete_mode -Mode paths -Word $wordToComplete"));
-        assert!(pwsh.contains("Register-ArgumentCompleter -Native -CommandName 'dx'"));
-        assert!(pwsh.contains("--command-not-found"));
-        assert!(pwsh.contains("bookmarks"));
-        assert!(
-            pwsh.contains("Register-ArgumentCompleter -CommandName cd,Set-Location -ScriptBlock")
-        );
-        assert!(pwsh.contains("Register-ArgumentCompleter -CommandName back,cd- -ScriptBlock"));
-        assert!(pwsh.contains("Register-ArgumentCompleter -CommandName forward,cd+ -ScriptBlock"));
-    }
-
-    #[test]
-    fn all_shells_freeze_menu_fallback_contract_markers() {
-        let bash = generate(Shell::Bash, &options(false, true));
-        assert!(!bash.contains(";;&"), "menu mappings must support Bash 3.2");
-        assert!(bash.contains("__dx_json=\"$(dx menu --shell bash --buffer \"$COMP_LINE\" --cursor \"$COMP_POINT\" --cwd \"$PWD\" --session \"${DX_SESSION:-}\" </dev/tty 2>/dev/tty)\" || return 1"));
-        assert!(bash.contains("[[ \"$__dx_action\" == \"cancel\" ]] && return 0"));
-        assert!(bash.contains("[[ \"$__dx_action\" == \"replace\" ]] || return 1"));
-        assert!(bash.contains("(( __dx_re >= __dx_rs )) || return 1"));
-        assert!(bash.contains(
-            "__dx_terminal=\"$(__dx_json_extract_string terminal \"$__dx_json\")\" || return 1"
-        ));
-        assert!(bash.contains(
-            "[[ \"$__dx_terminal\" == \"clean\" || \"$__dx_terminal\" == \"dirty\" ]] || return 1"
-        ));
-        assert!(bash.contains("__dx_menu_terminal=\"$__dx_terminal\""));
-        assert!(bash.contains(
-            "[[ \"$__dx_menu_terminal\" == \"dirty\" && -t 1 ]] && printf '\\r' >/dev/tty"
-        ));
-        assert!(bash.contains(
-            "if __dx_try_menu; then\n    [[ \"$__dx_menu_terminal\" == \"dirty\" && -t 1 ]] && printf '\\r' >/dev/tty\n    return 0\n  fi"
-        ));
-        assert!(bash.contains("case \"$__dx_cmd\" in"));
-
-        let zsh = generate(Shell::Zsh, &options(false, true));
-        assert!(
-            zsh.contains("if [[ $__dx_exit -ne 0 ]]; then\n    zle expand-or-complete\n    return")
-        );
-        assert!(zsh.contains("if [[ \"$__dx_action\" == \"cancel\" ]]; then"));
-        assert!(zsh.contains("CURSOR=${#BUFFER}"));
-        assert!(zsh.contains("zle reset-prompt"));
-        assert!(zsh.contains(
-            "[[ \"$__dx_action\" == \"replace\" ]] || { zle expand-or-complete; return }"
-        ));
-        assert!(zsh.contains("(( __dx_re >= __dx_rs )) || { zle expand-or-complete; return }"));
-        assert!(zsh.contains("(( __dx_re <= ${#BUFFER} )) || { zle expand-or-complete; return }"));
-        assert!(zsh.contains("(( __dx_closed )) || { zle expand-or-complete; return }"));
-        assert!(zsh.contains("[[ -n \"$__dx_value\" ]] || { zle expand-or-complete; return }"));
-        assert!(zsh.contains("local __dx_terminal_marker=\"\\\"terminal\\\":\\\"\""));
-        assert!(zsh.contains(
-            "[[ \"$__dx_terminal\" == \"clean\" || \"$__dx_terminal\" == \"dirty\" ]] || { zle expand-or-complete; return }"
-        ));
-        assert!(zsh.contains("[[ \"$__dx_terminal\" == \"dirty\" ]] && zle reset-prompt"));
-
-        let fish = generate(Shell::Fish, &options(false, true));
-        assert!(fish.contains("set -l json (dx menu --shell fish --buffer \"$buf\" --cursor $cur --cwd \"$PWD\" --session \"$DX_SESSION\" </dev/tty 2>/dev/tty)"));
-        assert!(fish.contains("if test $status -ne 0\n    commandline -f complete\n    return"));
-        assert!(fish.contains("if test \"$action\" = \"cancel\""));
-        assert!(fish.contains("commandline -C (string length -- \"$buf\")"));
-        assert!(fish.contains("if test \"$action\" != \"replace\""));
-        assert!(fish.contains("if test (count $value_match) -lt 2"));
-        assert!(fish.contains("set -l terminal (string replace -r '.*\\\"terminal\\\":\\\"([^\\\"[:space:]]+)\\\".*' '$1' -- \"$json\")"));
-        assert!(fish.contains("if test \"$terminal\" != \"clean\" -a \"$terminal\" != \"dirty\""));
-        assert!(fish.contains("if test $re -lt $rs"));
-        assert!(fish.contains("if test $rs -gt $buflen; or test $re -gt $buflen"));
-        assert!(fish.contains("if test \"$terminal\" = \"dirty\"\n    commandline -f repaint"));
-
-        let pwsh = generate(Shell::Pwsh, &options(false, true));
-        assert!(pwsh.contains("$dxNewMenuKey = 'Tab'"));
-        assert!(pwsh.contains("$Global:__dx_pwsh_menu_key = $dxNewMenuKey"));
-        assert!(pwsh.contains("Get-PSReadLineKeyHandler -Chord $Global:__dx_pwsh_menu_key"));
-        assert!(pwsh.contains("$Global:__dx_pwsh_menu_handler_description = 'dx menu handler'"));
-        assert!(pwsh.contains("function global:__dx_pwsh_menu_fallback"));
-        assert!(pwsh.contains(
-            "$previousHandler.Description -eq $Global:__dx_pwsh_menu_handler_description"
-        ));
-        assert!(pwsh.contains("$dxPreviousMenuKeyVariable = Get-Variable -Name __dx_pwsh_menu_key -Scope Global -ErrorAction SilentlyContinue"));
-        assert!(pwsh.contains("Remove-PSReadLineKeyHandler -Chord $dxPreviousMenuKey"));
-        assert!(pwsh.contains("Set-PSReadLineKeyHandler -Key 'Tab'"));
-        assert!(pwsh.contains(
-            "-BriefDescription 'dx menu' -Description $Global:__dx_pwsh_menu_handler_description"
-        ));
-        assert!(pwsh.contains("'MenuComplete' { [Microsoft.PowerShell.PSConsoleReadLine]::MenuComplete($key, $arg); return }"));
-        assert!(pwsh.contains("$Global:__dx_pwsh_menu_previous_function -eq 'CustomAction'"));
-        assert!(pwsh.contains("dx init: warning: PSReadLine key '$Global:__dx_pwsh_menu_key' was bound to a CustomAction"));
-        assert!(pwsh.contains("Set-PSReadLineKeyHandler -Key 'Tab'"));
-        assert!(pwsh.contains("-ScriptBlock"));
-        assert!(pwsh.contains("$dxMappingSeeds = @()"));
-        assert!(pwsh.contains("$Global:__dx_pwsh_menu_mapped = @{}"));
-        assert!(pwsh.contains("$dxMapped = $Global:__dx_pwsh_menu_mapped"));
-        assert!(pwsh.contains("if ($env:DX_MENU -eq '0' -or -not (Get-Command dx -ErrorAction SilentlyContinue) -or ($first -notin $dxCmds -and -not $dxMenuMode))"));
-        assert!(pwsh.contains("if ($LASTEXITCODE -ne 0 -or -not $json)"));
-        assert!(pwsh.contains("$result = $json | ConvertFrom-Json"));
-        assert!(pwsh.contains("function global:__dx_pwsh_capture_redraw_context"));
-        assert!(pwsh.contains("function global:__dx_pwsh_resolve_redraw_y"));
-        assert!(pwsh.contains("function global:__dx_pwsh_invoke_prompt_at"));
-        assert!(pwsh.contains("[Console]::Write(\"`e[0J\")"));
-        assert!(pwsh.contains(
-            "$expectedRedrawRow = [Math]::Max($Context.RelativeCursorY - $scrollRows, 0)"
-        ));
-        assert!(pwsh.contains("if ($result -and $result.action -eq 'cancel')"));
-        assert!(
-            pwsh.contains("[Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($cursor)")
-        );
-        assert!(pwsh.contains("if (-not $result -or $result.action -ne 'replace')"));
-        assert!(pwsh.contains("if (-not $result.terminal -or ($result.terminal -ne 'clean' -and $result.terminal -ne 'dirty'))"));
-        assert!(pwsh.contains("if ($result.terminal -eq 'dirty')"));
-        assert!(pwsh.contains("if ($result.terminal -eq 'dirty' -and $null -eq $redrawY)"));
-        assert!(pwsh.contains("__dx_pwsh_invoke_prompt_at -RedrawY ([int]$redrawY)"));
-        assert!(pwsh.contains("$result.replaceEnd -gt $line.Length"));
-        assert!(pwsh.contains("PSConsoleReadLine]::InvokePrompt()"));
-        assert!(pwsh.contains("__dx_pwsh_menu_fallback $key $arg"));
-        assert!(pwsh.contains("default { [Microsoft.PowerShell.PSConsoleReadLine]::TabCompleteNext($key, $arg); return }"));
-    }
-
-    #[test]
-    fn pwsh_menu_mappings_expand_aliases_at_hook_load() {
-        let mappings = parse_menu_command_mappings("Get-ChildItem=path").expect("valid mapping");
-        let pwsh = generate(Shell::Pwsh, &menu_options(mappings.clone(), "Tab"));
-
-        assert!(pwsh.contains("$dxMappingSeeds = @('Get-ChildItem=path')"));
-        assert!(pwsh.contains("$dxExplicitMapped = @{}"));
-        assert!(pwsh.contains("$dxDerivedMapped = @{}"));
-        assert!(pwsh.contains("$dxExplicitMapped[$parts[0]] = $parts[1]"));
-        assert!(pwsh.contains(
-            "foreach ($alias in Get-Alias -Definition $command -ErrorAction SilentlyContinue)"
-        ));
-        assert!(pwsh.contains("$dxDerivedMapped[$aliasName] = $mode"));
-        assert!(pwsh.contains("$Global:__dx_pwsh_menu_mapped = @{}"));
-        assert!(pwsh.contains("$dxMapped = $Global:__dx_pwsh_menu_mapped"));
-        assert!(pwsh.contains("if ($dxMapped -and $dxMapped.ContainsKey($first))"));
-        assert!(pwsh.contains("$dxMenuMode = $dxMapped[$first]"));
-        assert!(!pwsh.contains("foreach ($entry in $dxMapped)"));
-    }
-
-    #[test]
     fn pwsh_menu_mapping_precedence_prefers_explicit_over_derived() {
         let mappings =
             parse_menu_command_mappings("Get-ChildItem=path,gci=file").expect("valid mappings");
@@ -758,59 +350,9 @@ mod tests {
     }
 
     #[test]
-    fn pwsh_menu_key_can_be_customized_in_generated_output() {
-        let pwsh = generate(Shell::Pwsh, &menu_options(Vec::new(), "F12"));
-        assert!(pwsh.contains("$dxNewMenuKey = 'F12'"));
-        assert!(pwsh.contains("$Global:__dx_pwsh_menu_key = $dxNewMenuKey"));
-        assert!(pwsh.contains("Set-PSReadLineKeyHandler -Key 'F12'"));
-        assert!(pwsh.contains("-ScriptBlock"));
-    }
-
-    #[test]
     fn pwsh_menu_key_is_ignored_by_non_pwsh_shells() {
         let bash = generate(Shell::Bash, &menu_options(Vec::new(), "F12"));
         assert!(!bash.contains("F12"));
-    }
-
-    #[test]
-    fn all_shells_freeze_command_not_found_guard_contract_markers() {
-        let bash = generate(Shell::Bash, &options(true, false));
-        assert!(bash.contains("command_not_found_handle()"));
-        assert!(bash.contains("if [[ -n \"${DX_RESOLVE_GUARD:-}\" ]]; then"));
-        assert!(bash.contains("if ! __dx_is_path_like \"$__dx_cmd\"; then"));
-        assert!(bash.contains("\"$__dx_cmd\" == *-*"));
-        assert!(bash.contains("\"$__dx_cmd\" == *..*"));
-        assert!(bash.contains(
-            "__dx_resolved=\"$(DX_RESOLVE_GUARD=1 dx resolve \"$__dx_cmd\" 2>/dev/null)\""
-        ));
-
-        let zsh = generate(Shell::Zsh, &options(true, false));
-        assert!(zsh.contains("command_not_found_handler()"));
-        assert!(zsh.contains("if [[ -n \"${DX_RESOLVE_GUARD:-}\" ]]; then"));
-        assert!(zsh.contains("if ! __dx_is_path_like \"$__dx_cmd\"; then"));
-        assert!(zsh.contains("\"$__dx_cmd\" == *-*"));
-        assert!(zsh.contains("\"$__dx_cmd\" == *..*"));
-        assert!(zsh.contains(
-            "__dx_resolved=\"$(DX_RESOLVE_GUARD=1 dx resolve \"$__dx_cmd\" 2>/dev/null)\""
-        ));
-
-        let fish = generate(Shell::Fish, &options(true, false));
-        assert!(fish.contains("function fish_command_not_found --argument __dx_cmd"));
-        assert!(fish.contains("if set -q DX_RESOLVE_GUARD"));
-        assert!(fish.contains("if not __dx_is_path_like \"$__dx_cmd\""));
-        assert!(fish.contains(".*-|.*_|.*\\.\\..*"));
-        assert!(fish.contains("set -lx DX_RESOLVE_GUARD 1"));
-        assert!(fish.contains("set -l __dx_resolved (dx resolve \"$__dx_cmd\" 2>/dev/null)"));
-        assert!(fish.contains("set -e DX_RESOLVE_GUARD"));
-
-        let pwsh = generate(Shell::Pwsh, &options(true, false));
-        assert!(pwsh.contains("CommandNotFoundAction"));
-        assert!(pwsh.contains("if ($env:DX_RESOLVE_GUARD) { return }"));
-        assert!(pwsh.contains("if (-not (__dx_is_path_like $cmd)) { return }"));
-        assert!(pwsh.contains("-match '(/|^\\.|^~|^\\.{3,}$|-|_|\\.\\.)'"));
-        assert!(pwsh.contains("$env:DX_RESOLVE_GUARD = '1'"));
-        assert!(pwsh.contains("$resolved = (dx resolve $cmd 2>$null)"));
-        assert!(pwsh.contains("Remove-Item Env:DX_RESOLVE_GUARD -ErrorAction SilentlyContinue"));
     }
 
     #[test]
@@ -879,36 +421,151 @@ mod tests {
         }
     }
 
+    /// The blocks each `HookOptions` combination is expected to select.
+    ///
+    /// Each marker is a line unique to one optional template, so asserting on
+    /// its presence checks block selection directly — cheaply, and for every
+    /// combination, without storing a golden per combination.
+    const BLOCK_MARKERS: &[(Shell, &str, &str)] = &[
+        (Shell::Bash, "menu", "__dx_try_menu() {"),
+        (
+            Shell::Bash,
+            "command-not-found",
+            "command_not_found_handle() {",
+        ),
+        (Shell::Zsh, "menu", "__dx_menu_widget() {"),
+        (
+            Shell::Zsh,
+            "command-not-found",
+            "command_not_found_handler() {",
+        ),
+        (Shell::Fish, "menu", "function __dx_menu_complete"),
+        (
+            Shell::Fish,
+            "command-not-found",
+            "function fish_command_not_found",
+        ),
+        (
+            Shell::Pwsh,
+            "menu",
+            "function global:__dx_pwsh_menu_fallback",
+        ),
+        (
+            Shell::Pwsh,
+            "command-not-found",
+            "if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandNotFoundAction') {",
+        ),
+    ];
+
     #[test]
-    fn zsh_menu_parses_terminal_and_conditionally_resets_prompt() {
-        let script = generate(Shell::Zsh, &options(false, true));
-        assert!(script.contains(r#"__dx_terminal_marker="\"terminal\":\"""#));
-        assert!(script.contains("__dx_terminal"));
-        assert!(
-            script.contains(r#"[[ "$__dx_terminal" == "clean" || "$__dx_terminal" == "dirty" ]]"#)
-        );
-        assert!(script.contains(r#"[[ "$__dx_terminal" == "dirty" ]] && zle reset-prompt"#));
+    fn options_select_the_expected_template_blocks() {
+        for &(shell, block, marker) in BLOCK_MARKERS {
+            for command_not_found in [false, true] {
+                for menu in [false, true] {
+                    let script = generate(shell, &options(command_not_found, menu));
+                    let expected = match block {
+                        "menu" => menu,
+                        "command-not-found" => command_not_found,
+                        other => panic!("unhandled block {other}"),
+                    };
+                    assert_eq!(
+                        script.contains(marker),
+                        expected,
+                        "{shell:?} {block} block: expected present={expected} \
+                         for command_not_found={command_not_found} menu={menu}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
-    fn fish_menu_parses_terminal_and_conditionally_repaints() {
-        let script = generate(Shell::Fish, &options(false, true));
-        assert!(script.contains(r#"\"terminal\":\""#));
-        assert!(script.contains("terminal"));
-        assert!(script.contains(r#"test "$terminal" != "clean" -a "$terminal" != "dirty""#));
-        assert!(script.contains(r#"if test "$terminal" = "dirty""#));
-        assert!(
-            script.contains("commandline -f repaint"),
-            "repaint should still be present"
+    fn native_menu_replaces_the_psreadline_menu_block() {
+        let native = generate(
+            Shell::Pwsh,
+            &HookOptions {
+                menu_mode: InitMenuMode::NativePwsh,
+                ..HookOptions::default()
+            },
         );
+
+        assert!(native.contains("function __dx_unquote_completion_word"));
+        assert!(!native.contains("function global:__dx_pwsh_menu_fallback"));
+    }
+
+    /// Full-text goldens for the maximal option set of each shell.
+    ///
+    /// The templates are themselves checked in, so a golden per combination
+    /// would repeat one template edit as an identical diff four or five times.
+    /// Pinning the maximal script keeps the bytes that ship under review, while
+    /// `options_select_the_expected_template_blocks` covers the smaller
+    /// combinations.
+    fn golden_cases() -> Vec<(&'static str, String)> {
+        let maximal = options(true, true);
+        vec![
+            (
+                "bash-menu-command-not-found.sh",
+                generate(Shell::Bash, &maximal),
+            ),
+            (
+                "zsh-menu-command-not-found.zsh",
+                generate(Shell::Zsh, &maximal),
+            ),
+            (
+                "fish-menu-command-not-found.fish",
+                generate(Shell::Fish, &maximal),
+            ),
+            (
+                "pwsh-menu-command-not-found.ps1",
+                generate(Shell::Pwsh, &maximal),
+            ),
+            (
+                "pwsh-native-menu-command-not-found.ps1",
+                generate(
+                    Shell::Pwsh,
+                    &HookOptions {
+                        command_not_found: true,
+                        menu_mode: InitMenuMode::NativePwsh,
+                        ..HookOptions::default()
+                    },
+                ),
+            ),
+        ]
+    }
+
+    /// Compares one generated script against its checked-in golden.
+    ///
+    /// Mismatches are collected rather than panicking, so a single run reports
+    /// every difference instead of stopping at the first.
+    fn check_golden(name: &str, actual: &str, mismatches: &mut Vec<String>) {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/hooks/goldens")
+            .join(name);
+
+        if std::env::var_os("DX_UPDATE_GOLDENS").is_some() {
+            std::fs::write(&path, actual).expect("write golden script");
+            return;
+        }
+
+        match std::fs::read_to_string(&path) {
+            Ok(expected) if expected == actual => {}
+            Ok(_) => mismatches.push(name.to_owned()),
+            Err(error) => mismatches.push(format!("{name} ({error})")),
+        }
     }
 
     #[test]
-    fn pwsh_menu_checks_terminal_field_and_conditionally_invokes_prompt() {
-        let script = generate(Shell::Pwsh, &options(false, true));
-        assert!(script.contains(r#"$result.terminal"#));
-        assert!(script.contains(r#"-ne 'clean' -and $result.terminal -ne 'dirty'"#));
-        assert!(script.contains(r#"if ($result.terminal -eq 'dirty')"#));
-        assert!(script.contains("InvokePrompt()"));
+    fn generated_scripts_match_goldens() {
+        let mut mismatches = Vec::new();
+        for (name, script) in golden_cases() {
+            check_golden(name, &script, &mut mismatches);
+        }
+
+        assert!(
+            mismatches.is_empty(),
+            "generated scripts differ from src/hooks/goldens: {}\n\
+             regenerate with `DX_UPDATE_GOLDENS=1 cargo test` and review with `git diff`",
+            mismatches.join(", "),
+        );
     }
 }

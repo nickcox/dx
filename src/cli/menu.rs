@@ -66,10 +66,6 @@ pub struct MenuCommand {
     #[arg(long)]
     pub prompt_row: Option<u16>,
 
-    /// Internal compatibility mode for PowerShell PSReadLine menu integration
-    #[arg(long, hide = true)]
-    pub psreadline_mode: bool,
-
     /// Explicit mapped-command menu mode for init-generated external command hooks
     #[arg(long, value_enum)]
     pub mode: Option<FilesystemCompletionKind>,
@@ -77,6 +73,19 @@ pub struct MenuCommand {
     /// Shell syntax used for replacement text
     #[arg(long, value_enum, default_value_t = Shell::Bash)]
     pub shell: Shell,
+}
+
+impl MenuCommand {
+    /// Whether the caller is PowerShell's PSReadLine menu.
+    ///
+    /// PSReadLine is the only PowerShell integration that invokes `dx menu` —
+    /// `--native-menu` uses PSReadLine's own completion instead — so the shell
+    /// already carries this information. It used to travel as a separate hidden
+    /// `--psreadline-mode` flag, which `clap_complete` then offered as a
+    /// completion because it ignores `Arg::hide` on arguments.
+    fn psreadline_mode(&self) -> bool {
+        self.shell == Shell::Pwsh
+    }
 }
 
 fn format_selected_path_with_trailing_separator(
@@ -391,7 +400,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
     let parsed = match parse_buffer_with_override_mode(
         &cmd.buffer,
         cmd.cursor,
-        cmd.psreadline_mode,
+        cmd.psreadline_mode(),
         cmd.mode,
     ) {
         Some(parsed) => parsed,
@@ -487,7 +496,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
         max_rows: parse_menu_max_rows(),
         item_max_len: parse_menu_item_max_len(),
         show_border: parse_menu_border(),
-        psreadline_mode: cmd.psreadline_mode,
+        use_tty_backend: cmd.psreadline_mode(),
         ls_colors: parse_menu_ls_colors(),
     };
 
