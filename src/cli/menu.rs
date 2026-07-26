@@ -343,6 +343,17 @@ fn action_for_shell(action: MenuAction, buffer: &str, shell: Shell) -> MenuActio
     MenuAction::replace(replace_start, replace_end, value, terminal, geometry)
 }
 
+/// The query to source candidates for, or `None` for "no query".
+///
+/// An empty query in `Paths` mode means "list the children of the cwd", which the
+/// filesystem expander spells `./`. Every other mode treats empty as no query.
+fn query_for_mode(mode: MenuMode, query: &str) -> Option<&str> {
+    if !query.is_empty() {
+        return Some(query);
+    }
+    matches!(mode, MenuMode::Completion(CompletionMode::Paths)).then_some("./")
+}
+
 /// `DX_MENU_DEBUG` tracing. Carrying the flag in a value keeps each trace point to
 /// one line, and the closure means nothing is formatted while tracing is off.
 #[derive(Copy, Clone)]
@@ -432,25 +443,12 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| std::path::PathBuf::from("/"));
 
-    // For Paths mode, an empty/absent query means "list children of cwd".
-    // Substitute "./" so expand_filesystem_prefix enumerates the current directory.
-    let is_paths = matches!(parsed.mode, MenuMode::Completion(CompletionMode::Paths));
-    let query_is_empty = parsed.query.is_none() || parsed.query.as_deref() == Some("");
-    let initial_query_str: &str = if is_paths && query_is_empty {
-        "./"
-    } else {
-        parsed.query.as_deref().unwrap_or("")
-    };
     let menu_limit = resolver.config.menu.max_results;
 
     let initial_candidates = menu::source_candidates_with_meta(
         resolver,
         parsed.mode,
-        if initial_query_str.is_empty() {
-            None
-        } else {
-            Some(initial_query_str)
-        },
+        query_for_mode(parsed.mode, parsed.query.as_deref().unwrap_or("")),
         session.as_deref(),
         Some(&cwd),
         Some(menu_limit),
@@ -474,18 +472,10 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
     let query_style = QueryStyle::from_query(parsed.mode, parsed.query.as_deref().unwrap_or(""));
 
     let query_fn: QueryFn<'_> = Box::new(|q: &str| {
-        let resolved_q =
-            if q.is_empty() && matches!(parsed.mode, MenuMode::Completion(CompletionMode::Paths)) {
-                Some("./")
-            } else if q.is_empty() {
-                None
-            } else {
-                Some(q)
-            };
         menu::source_candidates_with_meta(
             resolver,
             parsed.mode,
-            resolved_q,
+            query_for_mode(parsed.mode, q),
             session.as_deref(),
             Some(&cwd),
             Some(menu_limit),
@@ -1238,5 +1228,30 @@ mod tests {
         let expected = format!("'{}/'", selected.display());
 
         assert_eq!(result, expected);
+    }
+    /// The rule the initial query and the re-query closure used to spell out
+    /// separately: empty means "list the cwd" in `Paths` mode, and "no query"
+    /// everywhere else.
+    #[test]
+    fn empty_query_means_the_cwd_only_in_paths_mode() {
+        let paths = MenuMode::Completion(CompletionMode::Paths);
+        assert_eq!(query_for_mode(paths, ""), Some("./"));
+        assert_eq!(query_for_mode(paths, "src"), Some("src"));
+
+        for mode in [
+            MenuMode::Completion(CompletionMode::Ancestors),
+            MenuMode::Completion(CompletionMode::Recents),
+            MenuMode::Completion(CompletionMode::Frecents),
+            MenuMode::Path,
+            MenuMode::Directory,
+            MenuMode::File,
+        ] {
+            assert_eq!(
+                query_for_mode(mode, ""),
+                None,
+                "{mode:?} should have no query"
+            );
+            assert_eq!(query_for_mode(mode, "src"), Some("src"));
+        }
     }
 }
