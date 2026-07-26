@@ -98,3 +98,7 @@ integration, and verification steps.
 - [Interactive Menu](./docs/menu.md)
 - [Configuration Reference](./docs/configuration.md)
 - [Troubleshooting](./docs/troubleshooting.md)
+
+## License
+
+[MIT](./LICENSE)

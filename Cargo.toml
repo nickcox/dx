@@ -4,6 +4,7 @@ version = "0.11.0"
 edition = "2024"
 description = "Directory navigation CLI with abbreviated path resolution, history, bookmarks and an interactive completion menu"
 repository = "https://github.com/nickcox/dx"
+license = "MIT"
 # Highest MSRV among dependencies (darling 1.88.0); our own let-chains also need 1.88.
 rust-version = "1.88"
 
