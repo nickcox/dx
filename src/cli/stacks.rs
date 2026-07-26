@@ -5,10 +5,9 @@ use clap::{Args, Subcommand, ValueEnum, ValueHint};
 
 use crate::common;
 use crate::complete;
-use crate::stacks::{
-    SessionStack, StackError,
-    storage::{self, StorageError},
-};
+use crate::stacks::{SessionStack, StackError, storage};
+
+use super::CliError;
 
 #[derive(Debug, Subcommand)]
 pub enum StackCommand {
@@ -64,11 +63,10 @@ pub struct StackCommandArgs {
     pub command: Option<StackCommand>,
 }
 
-pub fn run_stack(args: StackCommandArgs) -> i32 {
+pub fn run_stack(args: StackCommandArgs) -> Result<(), CliError> {
     if let Some(command) = args.command {
         if args.list || args.clear {
-            eprintln!("dx stack: cannot combine --list/--clear with subcommands");
-            return 1;
+            return Err(CliError::StackFlagsWithSubcommand);
         }
 
         return match command {
@@ -83,8 +81,7 @@ pub fn run_stack(args: StackCommandArgs) -> i32 {
     }
 
     if args.list && args.clear {
-        eprintln!("dx stack: cannot combine --list and --clear");
-        return 1;
+        return Err(CliError::StackListAndClear);
     }
 
     if args.list {
@@ -95,72 +92,52 @@ pub fn run_stack(args: StackCommandArgs) -> i32 {
         return run_clear(args.direction, args.session.as_deref());
     }
 
-    eprintln!("dx stack: provide one of --list, --clear, or a subcommand");
-    1
+    Err(CliError::StackNoAction)
 }
 
-pub fn run_push(path: &str, cli_session: Option<&str>) -> i32 {
-    let session_id = match resolve_session_id(cli_session) {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
-    let target = match resolve_absolute_path(path) {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
+pub fn run_push(path: &str, cli_session: Option<&str>) -> Result<(), CliError> {
+    let session_id = resolve_session_id(cli_session)?;
+    let target = resolve_absolute_path(path)?;
 
-    let dir = match storage::ensure_session_dir() {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
-
-    let mut stack = match storage::read_session(&dir, &session_id) {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
-
-    let output = match stack.push(target) {
-        Ok(value) => value,
-        Err(err) => return stack_error(err),
-    };
-
-    if let Err(err) = storage::write_session(&dir, &session_id, &stack) {
-        return storage_error(err);
-    }
+    let dir = storage::ensure_session_dir()?;
+    let mut stack = storage::read_session(&dir, &session_id)?;
+    let output = stack.push(target)?;
+    storage::write_session(&dir, &session_id, &stack)?;
 
     println!("{}", output.display());
-    0
+    Ok(())
 }
 
-pub fn run_undo(cli_session: Option<&str>, target: Option<&str>, preview: bool) -> i32 {
+pub fn run_undo(
+    cli_session: Option<&str>,
+    target: Option<&str>,
+    preview: bool,
+) -> Result<(), CliError> {
     match target {
         Some(t) => run_targeted_stack_op(cli_session, t, |stack| stack.undo(), !preview),
         None => run_stack_operation(cli_session, |stack| stack.undo(), !preview),
     }
 }
 
-pub fn run_redo(cli_session: Option<&str>, target: Option<&str>, preview: bool) -> i32 {
+pub fn run_redo(
+    cli_session: Option<&str>,
+    target: Option<&str>,
+    preview: bool,
+) -> Result<(), CliError> {
     match target {
         Some(t) => run_targeted_stack_op(cli_session, t, |stack| stack.redo(), !preview),
         None => run_stack_operation(cli_session, |stack| stack.redo(), !preview),
     }
 }
 
-pub fn run_list(direction: StackListDirection, json: bool, cli_session: Option<&str>) -> i32 {
-    let session_id = match resolve_session_id(cli_session) {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
-
-    let dir = match storage::ensure_session_dir() {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
-
-    let stack = match storage::read_session(&dir, &session_id) {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
+pub fn run_list(
+    direction: StackListDirection,
+    json: bool,
+    cli_session: Option<&str>,
+) -> Result<(), CliError> {
+    let session_id = resolve_session_id(cli_session)?;
+    let dir = storage::ensure_session_dir()?;
+    let stack = storage::read_session(&dir, &session_id)?;
 
     let mut paths = Vec::new();
     if matches!(
@@ -177,38 +154,19 @@ pub fn run_list(direction: StackListDirection, json: bool, cli_session: Option<&
     }
 
     if json {
-        match complete::format_json(&paths) {
-            Ok(payload) => {
-                println!("{payload}");
-                0
-            }
-            Err(err) => {
-                eprintln!("dx stack: failed to serialize json: {err}");
-                1
-            }
-        }
+        let payload = complete::format_json(&paths).map_err(CliError::StackJson)?;
+        println!("{payload}");
     } else {
-        let output = complete::format_plain(&paths);
-        print!("{output}");
-        0
+        print!("{}", complete::format_plain(&paths));
     }
+
+    Ok(())
 }
 
-pub fn run_clear(direction: StackListDirection, cli_session: Option<&str>) -> i32 {
-    let session_id = match resolve_session_id(cli_session) {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
-
-    let dir = match storage::ensure_session_dir() {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
-
-    let mut stack = match storage::read_session(&dir, &session_id) {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
+pub fn run_clear(direction: StackListDirection, cli_session: Option<&str>) -> Result<(), CliError> {
+    let session_id = resolve_session_id(cli_session)?;
+    let dir = storage::ensure_session_dir()?;
+    let mut stack = storage::read_session(&dir, &session_id)?;
 
     if matches!(
         direction,
@@ -223,11 +181,8 @@ pub fn run_clear(direction: StackListDirection, cli_session: Option<&str>) -> i3
         stack.redo.clear();
     }
 
-    if let Err(err) = storage::write_session(&dir, &session_id, &stack) {
-        return storage_error(err);
-    }
-
-    0
+    storage::write_session(&dir, &session_id, &stack)?;
+    Ok(())
 }
 
 fn run_targeted_stack_op(
@@ -235,128 +190,72 @@ fn run_targeted_stack_op(
     target: &str,
     step: fn(&mut SessionStack) -> Result<PathBuf, StackError>,
     commit: bool,
-) -> i32 {
+) -> Result<(), CliError> {
     let target_path = PathBuf::from(target);
     if !target_path.is_absolute() {
-        eprintln!("dx stack: target must be an absolute path: {target}");
-        return 1;
+        return Err(CliError::StackTargetNotAbsolute(target.to_string()));
     }
 
-    let session_id = match resolve_session_id(cli_session) {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
+    let session_id = resolve_session_id(cli_session)?;
+    let dir = storage::ensure_session_dir()?;
+    let mut stack = storage::read_session(&dir, &session_id)?;
 
-    let dir = match storage::ensure_session_dir() {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
-
-    let mut stack = match storage::read_session(&dir, &session_id) {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
-
+    // Running out of history before reaching the target is as much a "not
+    // reachable" outcome as stepping off the end of the stack.
     let max_steps = stack.undo.len() + stack.redo.len() + 1;
-    let mut result = PathBuf::new();
-    let mut found = false;
+    let unreachable = || CliError::StackTargetUnreachable(target_path.clone());
+    let mut reached = None;
 
     for _ in 0..max_steps {
-        match step(&mut stack) {
-            Ok(path) => {
-                result = path.clone();
-                if path == target_path {
-                    found = true;
-                    break;
-                }
-            }
-            Err(_) => {
-                eprintln!("dx stack: target not reachable: {}", target_path.display());
-                return 1;
-            }
+        let path = step(&mut stack).map_err(|_| unreachable())?;
+        if path == target_path {
+            reached = Some(path);
+            break;
         }
     }
 
-    if !found {
-        eprintln!("dx stack: target not reachable: {}", target_path.display());
-        return 1;
+    let reached = reached.ok_or_else(unreachable)?;
+
+    if commit {
+        storage::write_session(&dir, &session_id, &stack)?;
     }
 
-    if commit && let Err(err) = storage::write_session(&dir, &session_id, &stack) {
-        return storage_error(err);
-    }
-
-    println!("{}", result.display());
-    0
+    println!("{}", reached.display());
+    Ok(())
 }
 
 fn run_stack_operation(
     cli_session: Option<&str>,
     operation: impl FnOnce(&mut SessionStack) -> Result<PathBuf, StackError>,
     commit: bool,
-) -> i32 {
-    let session_id = match resolve_session_id(cli_session) {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
+) -> Result<(), CliError> {
+    let session_id = resolve_session_id(cli_session)?;
+    let dir = storage::ensure_session_dir()?;
+    let mut stack = storage::read_session(&dir, &session_id)?;
 
-    let dir = match storage::ensure_session_dir() {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
+    let output = operation(&mut stack)?;
 
-    let mut stack = match storage::read_session(&dir, &session_id) {
-        Ok(value) => value,
-        Err(err) => return storage_error(err),
-    };
-
-    let output = match operation(&mut stack) {
-        Ok(value) => value,
-        Err(err) => return stack_error(err),
-    };
-
-    if commit && let Err(err) = storage::write_session(&dir, &session_id, &stack) {
-        return storage_error(err);
+    if commit {
+        storage::write_session(&dir, &session_id, &stack)?;
     }
 
     println!("{}", output.display());
-    0
+    Ok(())
 }
 
-fn resolve_session_id(cli_session: Option<&str>) -> Result<String, i32> {
-    if let Some(value) = common::resolve_session(cli_session) {
-        return Ok(value);
-    }
-
-    eprintln!("dx stack: missing session id (use --session or DX_SESSION)");
-    Err(1)
+fn resolve_session_id(cli_session: Option<&str>) -> Result<String, CliError> {
+    common::resolve_session(cli_session).ok_or(CliError::MissingSessionId)
 }
 
-fn resolve_absolute_path(raw: &str) -> Result<PathBuf, i32> {
+fn resolve_absolute_path(raw: &str) -> Result<PathBuf, CliError> {
     let input = PathBuf::from(raw);
     if input.as_os_str().is_empty() {
-        eprintln!("dx stack push: path was empty");
-        return Err(1);
+        return Err(CliError::StackPushEmptyPath);
     }
     if input.is_absolute() {
         return Ok(input);
     }
 
-    match env::current_dir() {
-        Ok(cwd) => Ok(cwd.join(input)),
-        Err(err) => {
-            eprintln!("dx stack push: failed to read current directory: {err}");
-            Err(1)
-        }
-    }
-}
-
-fn storage_error(err: StorageError) -> i32 {
-    eprintln!("dx stack: {err}");
-    1
-}
-
-fn stack_error(err: StackError) -> i32 {
-    eprintln!("dx stack: {err}");
-    1
+    let cwd = env::current_dir().map_err(CliError::StackPushCurrentDir)?;
+    Ok(cwd.join(input))
 }

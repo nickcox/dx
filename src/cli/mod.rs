@@ -4,10 +4,13 @@ use crate::resolve::Resolver;
 
 mod bookmarks;
 mod complete;
+mod error;
 mod init;
 mod menu;
 mod resolve;
 mod stacks;
+
+pub use error::CliError;
 
 #[derive(Debug, Parser)]
 #[command(name = "dx", version, about = "Directory navigation helper")]
@@ -115,8 +118,18 @@ pub fn completion_script(shell: crate::hooks::Shell) -> String {
 }
 
 pub fn run() -> i32 {
-    let cli = Cli::parse();
+    match dispatch(Cli::parse()) {
+        Ok(()) => 0,
+        Err(error) => {
+            if !error.is_silent() {
+                eprintln!("{error}");
+            }
+            1
+        }
+    }
+}
 
+fn dispatch(cli: Cli) -> Result<(), CliError> {
     match cli.command {
         Commands::Init {
             shell,
@@ -141,12 +154,6 @@ pub fn run() -> i32 {
     }
 }
 
-fn with_resolver(run: impl FnOnce(&Resolver) -> i32) -> i32 {
-    match Resolver::from_environment() {
-        Ok(resolver) => run(&resolver),
-        Err(error) => {
-            eprintln!("dx: {error}");
-            1
-        }
-    }
+fn with_resolver(run: impl FnOnce(&Resolver) -> Result<(), CliError>) -> Result<(), CliError> {
+    run(&Resolver::from_environment()?)
 }

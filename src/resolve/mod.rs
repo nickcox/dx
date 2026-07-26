@@ -1,6 +1,5 @@
 pub mod abbreviation;
 mod completion;
-mod output;
 pub(crate) mod path_query;
 mod pipeline;
 pub mod precedence;
@@ -16,13 +15,6 @@ use crate::{
     bookmarks,
     config::{AppConfig, ConfigError},
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResolveMode {
-    Default,
-    List,
-    Json,
-}
 
 #[derive(Debug, Clone)]
 pub struct ResolveQuery<'a> {

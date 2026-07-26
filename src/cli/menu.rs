@@ -9,6 +9,8 @@ use crate::menu::{
 };
 use crate::resolve::Resolver;
 
+use super::CliError;
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum MenuModeArg {
     Path,
@@ -474,7 +476,7 @@ fn menu_result_to_action(
     )
 }
 
-pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
+pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
     let debug = std::env::var("DX_MENU_DEBUG").is_ok_and(|v| v == "1");
     let session = super::complete::resolve_session(cmd.session.as_deref());
 
@@ -498,7 +500,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
                 eprintln!("[dx-menu-debug] parse_buffer returned None -> noop");
             }
             println!("{}", MenuAction::noop().to_json());
-            return 0;
+            return Ok(());
         }
     };
 
@@ -556,7 +558,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
             eprintln!("[dx-menu-debug] no candidates -> noop");
         }
         println!("{}", MenuAction::noop().to_json());
-        return 0;
+        return Ok(());
     }
 
     let initial_query = parsed.query.clone().unwrap_or_default();
@@ -637,23 +639,22 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> i32 {
                 }
             }
             println!("{}", action.to_json());
-            0
         }
         MenuAction::Noop => {
             if debug && menu_result.is_none() {
                 eprintln!("[dx-menu-debug] tui unavailable -> noop");
             }
             println!("{}", MenuAction::noop().to_json());
-            0
         }
         action @ MenuAction::Cancel { .. } => {
             if debug {
                 eprintln!("[dx-menu-debug] action=cancel");
             }
             println!("{}", action.to_json());
-            0
         }
     }
+
+    Ok(())
 }
 
 #[cfg(test)]

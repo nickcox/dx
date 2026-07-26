@@ -5,10 +5,10 @@ pub mod paths;
 pub mod recents;
 pub mod stack;
 
-use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
+use thiserror::Error;
 
 use crate::frecency::FrecencyProvider;
 use crate::stacks::{SessionStack, storage};
@@ -35,25 +35,14 @@ pub struct Candidate {
     pub rank: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SelectorError {
+    #[error("no candidates available")]
     EmptyCandidates,
+    #[error("selector index {index} out of range (1..={total})")]
     OutOfRange { index: usize, total: usize },
+    #[error("selector did not match any candidate: {0}")]
     NoMatch(String),
-}
-
-impl fmt::Display for SelectorError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SelectorError::EmptyCandidates => write!(f, "no candidates available"),
-            SelectorError::OutOfRange { index, total } => {
-                write!(f, "selector index {index} out of range (1..={total})")
-            }
-            SelectorError::NoMatch(selector) => {
-                write!(f, "selector did not match any candidate: {selector}")
-            }
-        }
-    }
 }
 
 #[derive(Debug, Serialize)]

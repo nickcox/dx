@@ -8,6 +8,8 @@ use crate::complete::{
 use crate::frecency::ZoxideProvider;
 use crate::resolve::Resolver;
 
+use super::CliError;
+
 #[derive(Debug, Subcommand)]
 pub enum CompleteCommand {
     Paths {
@@ -101,7 +103,7 @@ pub enum NavigateMode {
     Forward,
 }
 
-pub fn run_complete(resolver: &Resolver, command: CompleteCommand) -> i32 {
+pub fn run_complete(resolver: &Resolver, command: CompleteCommand) -> Result<(), CliError> {
     let (mut candidates, json, limit) = match command {
         CompleteCommand::Paths { query, json, limit } => {
             let value = query.unwrap_or_default();
@@ -162,23 +164,20 @@ pub fn run_complete(resolver: &Resolver, command: CompleteCommand) -> i32 {
     }
 
     if json {
-        match complete::format_json(&candidates) {
-            Ok(output) => {
-                print!("{output}");
-                0
-            }
-            Err(err) => {
-                eprintln!("dx complete: failed to serialize json: {err}");
-                1
-            }
-        }
+        let output = complete::format_json(&candidates).map_err(CliError::CompleteJson)?;
+        print!("{output}");
     } else {
         print!("{}", complete::format_plain(&candidates));
-        0
     }
+
+    Ok(())
 }
 
-pub fn run_navigate(mode: NavigateMode, selector: Option<&str>, session: Option<&str>) -> i32 {
+pub fn run_navigate(
+    mode: NavigateMode,
+    selector: Option<&str>,
+    session: Option<&str>,
+) -> Result<(), CliError> {
     let session = resolve_session(session);
     let candidates = match mode {
         NavigateMode::Up => ancestors::complete(None),
@@ -188,16 +187,9 @@ pub fn run_navigate(mode: NavigateMode, selector: Option<&str>, session: Option<
         }
     };
 
-    match complete::select_candidate(&candidates, selector) {
-        Ok(path) => {
-            println!("{}", path.display());
-            0
-        }
-        Err(err) => {
-            eprintln!("dx navigate: {err}");
-            1
-        }
-    }
+    let path = complete::select_candidate(&candidates, selector)?;
+    println!("{}", path.display());
+    Ok(())
 }
 
 pub(super) fn resolve_session(cli_session: Option<&str>) -> Option<String> {
@@ -206,11 +198,12 @@ pub(super) fn resolve_session(cli_session: Option<&str>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::complete::SelectorError;
     use crate::stacks::{SessionStack, storage};
     use crate::test_support::{ScopedProcess, temp_dir};
     use std::fs;
 
-    use super::{NavigateMode, run_navigate};
+    use super::{CliError, NavigateMode, run_navigate};
 
     #[test]
     fn navigate_back_out_of_range_fails() {
@@ -228,7 +221,12 @@ mod tests {
         };
         storage::write_session(&dir, "s1", &stack).expect("write session");
 
-        let code = run_navigate(NavigateMode::Back, Some("2"), Some("s1"));
-        assert_eq!(code, 1);
+        let error = run_navigate(NavigateMode::Back, Some("2"), Some("s1"))
+            .expect_err("selector beyond the stack must fail");
+
+        assert!(matches!(
+            error,
+            CliError::Navigate(SelectorError::OutOfRange { index: 2, total: 1 })
+        ));
     }
 }

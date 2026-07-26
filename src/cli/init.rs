@@ -2,6 +2,8 @@ use clap::ValueEnum;
 
 use crate::hooks::{self, InitMenuMode, Shell, parse_menu_command_mappings, parse_pwsh_menu_key};
 
+use super::CliError;
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum InitShell {
     Bash,
@@ -21,12 +23,16 @@ impl From<InitShell> for Shell {
     }
 }
 
-pub fn run_init(shell: InitShell, command_not_found: bool, menu: bool, native_menu: bool) -> i32 {
+pub fn run_init(
+    shell: InitShell,
+    command_not_found: bool,
+    menu: bool,
+    native_menu: bool,
+) -> Result<(), CliError> {
     let shell = shell.into();
 
     if native_menu && shell != Shell::Pwsh {
-        eprintln!("dx init: --native-menu is only supported for pwsh");
-        return 1;
+        return Err(CliError::NativeMenuRequiresPwsh);
     }
 
     let menu_mode = if menu {
@@ -37,30 +43,18 @@ pub fn run_init(shell: InitShell, command_not_found: bool, menu: bool, native_me
         InitMenuMode::Disabled
     };
 
-    let mappings = if menu_mode != InitMenuMode::Disabled {
+    let mappings = if menu_mode == InitMenuMode::Disabled {
+        Vec::new()
+    } else {
         match std::env::var("DX_MENU_COMMAND_MAPPINGS") {
-            Ok(raw) => match parse_menu_command_mappings(&raw) {
-                Ok(parsed) => parsed,
-                Err(err) => {
-                    eprintln!("dx init: invalid DX_MENU_COMMAND_MAPPINGS: {err}");
-                    return 1;
-                }
-            },
+            Ok(raw) => parse_menu_command_mappings(&raw)?,
             Err(_) => Vec::new(),
         }
-    } else {
-        Vec::new()
     };
 
     let pwsh_menu_key = if menu_mode == InitMenuMode::Tui && shell == Shell::Pwsh {
         match std::env::var("DX_PWSH_MENU_KEY") {
-            Ok(raw) => match parse_pwsh_menu_key(&raw) {
-                Ok(key) => key,
-                Err(err) => {
-                    eprintln!("dx init: invalid DX_PWSH_MENU_KEY: {err}");
-                    return 1;
-                }
-            },
+            Ok(raw) => parse_pwsh_menu_key(&raw)?,
             Err(_) => "Tab".to_string(),
         }
     } else {
@@ -75,23 +69,24 @@ pub fn run_init(shell: InitShell, command_not_found: bool, menu: bool, native_me
         &pwsh_menu_key,
     );
     print!("{script}");
-    0
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use crate::test_support::ScopedProcess;
 
-    use super::{InitShell, run_init};
+    use super::{CliError, InitShell, run_init};
 
     #[test]
     fn init_rejects_invalid_menu_mappings_when_menu_enabled() {
         let mut process = ScopedProcess::new();
         process.set("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry");
 
-        let code = run_init(InitShell::Bash, false, true, false);
+        let error = run_init(InitShell::Bash, false, true, false)
+            .expect_err("invalid mappings must fail when the menu is enabled");
 
-        assert_eq!(code, 1);
+        assert!(matches!(error, CliError::MenuCommandMappings(_)));
     }
 
     #[test]
@@ -99,8 +94,15 @@ mod tests {
         let mut process = ScopedProcess::new();
         process.set("DX_MENU_COMMAND_MAPPINGS", "ls=path,badentry");
 
-        let code = run_init(InitShell::Bash, false, false, false);
+        run_init(InitShell::Bash, false, false, false)
+            .expect("mappings are not parsed when the menu is disabled");
+    }
 
-        assert_eq!(code, 0);
+    #[test]
+    fn init_rejects_native_menu_for_non_pwsh_shells() {
+        let error =
+            run_init(InitShell::Bash, false, false, true).expect_err("--native-menu is pwsh-only");
+
+        assert!(matches!(error, CliError::NativeMenuRequiresPwsh));
     }
 }

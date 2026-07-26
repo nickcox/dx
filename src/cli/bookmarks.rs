@@ -3,7 +3,9 @@ use std::path::PathBuf;
 
 use clap::{Subcommand, ValueHint};
 
-use crate::bookmarks::{BookmarkError, BookmarkStore, storage};
+use crate::bookmarks::storage;
+
+use super::CliError;
 
 #[derive(Debug, Subcommand)]
 pub enum BookmarksCommand {
@@ -27,7 +29,7 @@ pub enum BookmarksCommand {
     },
 }
 
-pub fn run_bookmarks(command: Option<BookmarksCommand>, json: bool) -> i32 {
+pub fn run_bookmarks(command: Option<BookmarksCommand>, json: bool) -> Result<(), CliError> {
     match command {
         Some(BookmarksCommand::Add { name, path }) => run_add(&name, path.as_deref()),
         Some(BookmarksCommand::Remove { name }) => run_remove(&name),
@@ -37,113 +39,57 @@ pub fn run_bookmarks(command: Option<BookmarksCommand>, json: bool) -> i32 {
     }
 }
 
-fn run_add(name: &str, path: Option<&str>) -> i32 {
-    let mut store = match read_store_or_exit() {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
+fn run_add(name: &str, path: Option<&str>) -> Result<(), CliError> {
+    let mut store = storage::read_store()?;
+    let resolved = resolve_bookmark_path(path)?;
 
-    let resolved = match resolve_bookmark_path(path) {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
+    store.set(name, &resolved)?;
+    storage::write_store(&store)?;
 
-    match store.set(name, &resolved) {
-        Ok(_) => {}
-        Err(err) => return bookmark_error(err),
-    }
-
-    if let Err(err) = storage::write_store(&store) {
-        return storage_error(err);
-    }
-
-    0
+    Ok(())
 }
 
-fn run_remove(name: &str) -> i32 {
-    let mut store = match read_store_or_exit() {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
+fn run_remove(name: &str) -> Result<(), CliError> {
+    let mut store = storage::read_store()?;
 
-    if let Err(err) = store.remove(name) {
-        return bookmark_error(err);
-    }
+    store.remove(name)?;
+    storage::write_store(&store)?;
 
-    if let Err(err) = storage::write_store(&store) {
-        return storage_error(err);
-    }
-
-    0
+    Ok(())
 }
 
-fn run_list(json: bool) -> i32 {
-    let store = match read_store_or_exit() {
-        Ok(value) => value,
-        Err(code) => return code,
-    };
+fn run_list(json: bool) -> Result<(), CliError> {
+    let store = storage::read_store()?;
 
     if json {
-        return print_bookmarks_json(&store);
+        let output =
+            serde_json::to_string(&store.to_serializable_map()).map_err(CliError::BookmarksJson)?;
+        println!("{output}");
+    } else {
+        for (name, path) in store.list() {
+            println!("{name} = {}", path.display());
+        }
     }
 
-    print_bookmarks_plain(&store)
+    Ok(())
 }
 
-fn read_store_or_exit() -> Result<BookmarkStore, i32> {
-    storage::read_store().map_err(storage_error)
+fn current_dir() -> Result<PathBuf, CliError> {
+    env::current_dir().map_err(CliError::BookmarksCurrentDir)
 }
 
-fn current_dir_or_exit() -> Result<PathBuf, i32> {
-    env::current_dir().map_err(|err| {
-        eprintln!("dx bookmarks: failed to read current directory: {err}");
-        1
-    })
-}
-
-fn resolve_bookmark_path(path: Option<&str>) -> Result<PathBuf, i32> {
+fn resolve_bookmark_path(path: Option<&str>) -> Result<PathBuf, CliError> {
     match path {
         Some(value) => {
             let path = PathBuf::from(value);
             if path.is_absolute() {
                 Ok(path)
             } else {
-                current_dir_or_exit().map(|cwd| cwd.join(path))
+                current_dir().map(|cwd| cwd.join(path))
             }
         }
-        None => current_dir_or_exit(),
+        None => current_dir(),
     }
-}
-
-fn print_bookmarks_json(store: &BookmarkStore) -> i32 {
-    match serde_json::to_string(&store.to_serializable_map()) {
-        Ok(output) => {
-            println!("{output}");
-            0
-        }
-        Err(err) => {
-            eprintln!("dx bookmarks: failed to serialize json: {err}");
-            1
-        }
-    }
-}
-
-fn print_bookmarks_plain(store: &BookmarkStore) -> i32 {
-    for (name, path) in store.list() {
-        println!("{name} = {}", path.display());
-    }
-
-    0
-}
-
-fn storage_error(err: storage::StorageError) -> i32 {
-    eprintln!("dx bookmarks: {err}");
-    1
-}
-
-fn bookmark_error(err: BookmarkError) -> i32 {
-    eprintln!("dx bookmarks: {err}");
-    1
 }
 
 #[cfg(test)]
@@ -159,7 +105,6 @@ mod tests {
         let file = temp.path().join("bookmarks.toml");
         process.set("DX_BOOKMARKS_FILE", file.as_os_str());
 
-        let code = run_list(false);
-        assert_eq!(code, 0);
+        run_list(false).expect("listing a missing store succeeds with no bookmarks");
     }
 }
