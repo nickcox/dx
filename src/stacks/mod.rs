@@ -5,6 +5,12 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// Deepest history kept per direction. A scripted `cd` loop adds thousands of
+/// entries a minute, and past ~45k both `dx stack push` and `back <TAB>` exceed
+/// 10 ms; 5000 stays well under that while keeping far more history than anyone
+/// navigates through.
+pub const MAX_DEPTH: usize = 5000;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionStack {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -50,7 +56,21 @@ impl SessionStack {
         }
         self.cwd = Some(path.clone());
         self.redo.clear();
+        self.truncate_to_max_depth();
         Ok(path)
+    }
+
+    /// Drops the oldest entries once either direction exceeds [`MAX_DEPTH`].
+    /// Without this the file grows for the life of the shell, and every prompt
+    /// reads and rewrites all of it.
+    fn truncate_to_max_depth(&mut self) {
+        for history in [&mut self.undo, &mut self.redo] {
+            if let Some(excess) = history.len().checked_sub(MAX_DEPTH)
+                && excess > 0
+            {
+                history.drain(..excess);
+            }
+        }
     }
 
     pub fn pop(&mut self) -> Result<PathBuf, StackError> {
@@ -99,6 +119,7 @@ impl SessionStack {
         }
         self.undo.retain(|path| path.is_absolute());
         self.redo.retain(|path| path.is_absolute());
+        self.truncate_to_max_depth();
     }
 }
 
@@ -113,7 +134,7 @@ fn ensure_absolute(path: &Path) -> Result<(), StackError> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{SessionStack, StackError};
+    use super::{MAX_DEPTH, SessionStack, StackError};
 
     fn p(path: &str) -> PathBuf {
         std::env::temp_dir().join(path.trim_start_matches('/'))
@@ -279,6 +300,60 @@ mod tests {
         };
         let err = stack.redo().expect_err("redo fails");
         assert_eq!(err, StackError::NothingToRedo);
+    }
+
+    #[test]
+    fn push_caps_history_and_drops_the_oldest_entries() {
+        let mut stack = SessionStack::default();
+        for index in 0..(MAX_DEPTH + 50) {
+            stack.push(p(&format!("/dir{index}"))).expect("push");
+        }
+
+        assert_eq!(stack.undo.len(), MAX_DEPTH);
+        // The oldest entries go; the most recent history is what `back` needs.
+        // The first push has no previous cwd to record, so MAX_DEPTH + 50 pushes
+        // leave MAX_DEPTH + 49 entries and drain 49 of them.
+        assert_eq!(stack.undo.first(), Some(&p("/dir49")));
+        assert_eq!(
+            stack.undo.last(),
+            Some(&p(&format!("/dir{}", MAX_DEPTH + 48)))
+        );
+        assert_eq!(stack.cwd, Some(p(&format!("/dir{}", MAX_DEPTH + 49))));
+    }
+
+    #[test]
+    fn undo_still_walks_back_through_a_capped_stack() {
+        let mut stack = SessionStack::default();
+        for index in 0..(MAX_DEPTH + 10) {
+            stack.push(p(&format!("/dir{index}"))).expect("push");
+        }
+
+        // Most recent first, exactly as before capping.
+        assert_eq!(
+            stack.undo().expect("undo"),
+            p(&format!("/dir{}", MAX_DEPTH + 8))
+        );
+        assert_eq!(
+            stack.undo().expect("undo"),
+            p(&format!("/dir{}", MAX_DEPTH + 7))
+        );
+    }
+
+    #[test]
+    fn sanitize_trims_an_oversized_stack_from_an_earlier_version() {
+        let mut stack = SessionStack {
+            cwd: Some(p("/now")),
+            undo: (0..MAX_DEPTH * 3).map(|i| p(&format!("/old{i}"))).collect(),
+            redo: Vec::new(),
+        };
+
+        stack.sanitize();
+
+        assert_eq!(stack.undo.len(), MAX_DEPTH);
+        assert_eq!(
+            stack.undo.last(),
+            Some(&p(&format!("/old{}", MAX_DEPTH * 3 - 1)))
+        );
     }
 
     #[test]
