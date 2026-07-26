@@ -343,17 +343,63 @@ fn action_for_shell(action: MenuAction, buffer: &str, shell: Shell) -> MenuActio
     MenuAction::replace(replace_start, replace_end, value, terminal, geometry)
 }
 
+/// `DX_MENU_DEBUG` tracing. Carrying the flag in a value keeps each trace point to
+/// one line, and the closure means nothing is formatted while tracing is off.
+#[derive(Copy, Clone)]
+struct Trace(bool);
+
+impl Trace {
+    fn from_env() -> Self {
+        Self(
+            std::env::var("DX_MENU_DEBUG")
+                .is_ok_and(|value| crate::config::parse_bool(&value, false)),
+        )
+    }
+
+    fn say<D: std::fmt::Display>(self, message: impl FnOnce() -> D) {
+        if self.0 {
+            eprintln!("[dx-menu-debug] {}", message());
+        }
+    }
+}
+
+/// Which menu outcome produced the action, recorded before the result is consumed
+/// so tracing does not need a copy of it.
+#[derive(Copy, Clone)]
+enum Outcome {
+    Selected,
+    CancelledAfterEdits,
+    Cancelled,
+    Unavailable,
+}
+
+impl Outcome {
+    fn of(result: &Option<MenuResult>) -> Self {
+        match result {
+            Some(MenuResult::Selected { .. }) => Self::Selected,
+            Some(MenuResult::Cancelled {
+                changed_query: true,
+                ..
+            }) => Self::CancelledAfterEdits,
+            Some(MenuResult::Cancelled {
+                changed_query: false,
+                ..
+            }) => Self::Cancelled,
+            None => Self::Unavailable,
+        }
+    }
+}
+
 pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
-    let debug =
-        std::env::var("DX_MENU_DEBUG").is_ok_and(|value| crate::config::parse_bool(&value, false));
+    let trace = Trace::from_env();
     let session = super::complete::resolve_session(cmd.session.as_deref());
 
-    if debug {
-        eprintln!(
-            "[dx-menu-debug] buffer={:?} cursor={} cwd={:?} session={:?}",
+    trace.say(|| {
+        format!(
+            "buffer={:?} cursor={} cwd={:?} session={:?}",
             cmd.buffer, cmd.cursor, cmd.cwd, session
-        );
-    }
+        )
+    });
 
     let parsed = match parse_buffer_with_override_mode(
         &cmd.buffer,
@@ -363,24 +409,22 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
     ) {
         Some(parsed) => parsed,
         None => {
-            if debug {
-                eprintln!("[dx-menu-debug] parse_buffer returned None -> noop");
-            }
+            trace.say(|| "parse_buffer returned None -> noop");
             println!("{}", MenuAction::noop().to_json());
             return Ok(());
         }
     };
 
-    if debug {
-        eprintln!(
-            "[dx-menu-debug] mode={:?} query={:?} replace=[{},{}) needs_space_prefix={}",
+    trace.say(|| {
+        format!(
+            "mode={:?} query={:?} replace=[{},{}) needs_space_prefix={}",
             parsed.mode,
             parsed.query,
             parsed.replace_start,
             parsed.replace_end,
             parsed.needs_space_prefix
-        );
-    }
+        )
+    });
 
     let cwd = cmd
         .cwd
@@ -412,18 +456,16 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
         Some(menu_limit),
     );
 
-    if debug {
-        eprintln!(
-            "[dx-menu-debug] candidates={} has_more={}",
+    trace.say(|| {
+        format!(
+            "candidates={} has_more={}",
             initial_candidates.paths.len(),
             initial_candidates.has_more
-        );
-    }
+        )
+    });
 
     if initial_candidates.paths.is_empty() {
-        if debug {
-            eprintln!("[dx-menu-debug] no candidates -> noop");
-        }
+        trace.say(|| "no candidates -> noop");
         println!("{}", MenuAction::noop().to_json());
         return Ok(());
     }
@@ -471,8 +513,9 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
         &options,
     );
 
+    let outcome = Outcome::of(&menu_result);
     let action = menu_result_to_action_with_shell(
-        menu_result.clone(),
+        menu_result,
         &parsed,
         parsed.mode,
         &cwd,
@@ -481,44 +524,29 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
     );
     match action_for_shell(action, &cmd.buffer, cmd.shell) {
         action @ MenuAction::Replace { .. } => {
-            if debug {
-                match menu_result {
-                    Some(MenuResult::Selected { .. }) => {
-                        eprintln!(
-                            "[dx-menu-debug] action=replace value={:?}",
-                            action.to_json()
-                        );
-                    }
-                    Some(MenuResult::Cancelled {
-                        changed_query: true,
-                        ..
-                    }) => {
-                        eprintln!(
-                            "[dx-menu-debug] explicit cancel after query edits -> action=cancel value={:?}",
-                            action.to_json()
-                        );
-                    }
-                    Some(MenuResult::Cancelled {
-                        changed_query: false,
-                        ..
-                    }) => {
-                        eprintln!("[dx-menu-debug] explicit cancel -> action=cancel");
-                    }
-                    _ => {}
+            match outcome {
+                Outcome::Selected => {
+                    trace.say(|| format!("action=replace value={:?}", action.to_json()));
                 }
+                Outcome::CancelledAfterEdits => trace.say(|| {
+                    format!(
+                        "explicit cancel after query edits -> action=cancel value={:?}",
+                        action.to_json()
+                    )
+                }),
+                Outcome::Cancelled => trace.say(|| "explicit cancel -> action=cancel"),
+                Outcome::Unavailable => {}
             }
             println!("{}", action.to_json());
         }
         MenuAction::Noop => {
-            if debug && menu_result.is_none() {
-                eprintln!("[dx-menu-debug] tui unavailable -> noop");
+            if matches!(outcome, Outcome::Unavailable) {
+                trace.say(|| "tui unavailable -> noop");
             }
             println!("{}", MenuAction::noop().to_json());
         }
         action @ MenuAction::Cancel { .. } => {
-            if debug {
-                eprintln!("[dx-menu-debug] action=cancel");
-            }
+            trace.say(|| "action=cancel");
             println!("{}", action.to_json());
         }
     }
