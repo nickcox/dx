@@ -5,6 +5,7 @@ pub mod paths;
 pub mod recents;
 pub mod stack;
 
+use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
 
 use clap::ValueEnum;
@@ -90,11 +91,23 @@ pub(super) fn complete_session_paths(
 
     let mut output = select_paths(stack);
     output.reverse();
+    keep_most_recent_visit(&mut output);
 
     match query.filter(|value| !value.is_empty()) {
         Some(value) => filter::filter_candidates(&output, value),
         None => output,
     }
+}
+
+/// Collapses repeat visits, keeping each directory at its most recent position.
+///
+/// A scripted `cd` loop can leave thousands of stack entries for a handful of
+/// destinations; offering the same path repeatedly is never useful, and it makes
+/// a numeric selector like `back 3` mean "three entries back" rather than "three
+/// places back". `dx stack --list` still reports the raw stack.
+fn keep_most_recent_visit(paths: &mut Vec<PathBuf>) {
+    let mut seen = HashSet::new();
+    paths.retain(|path| seen.insert(path.clone()));
 }
 
 pub fn select_candidate(
@@ -482,6 +495,42 @@ mod tests {
 
         assert!(complete_session_paths(Some("missing"), None, |stack| stack.undo).is_empty());
         assert!(!runtime.join("dx-sessions").exists());
+    }
+
+    #[test]
+    fn session_helper_collapses_repeat_visits_keeping_the_most_recent() {
+        let temp = test_support::temp_dir("complete-session-dedup");
+        let mut process = test_support::ScopedProcess::new();
+        let runtime = temp.path().join("runtime");
+        fs::create_dir_all(&runtime).expect("create runtime");
+        process.set("XDG_RUNTIME_DIR", &runtime);
+
+        let dir = storage::ensure_session_dir().expect("session dir");
+        let alpha = temp.path().join("alpha");
+        let beta = temp.path().join("beta");
+        // a cd loop: alpha, beta, alpha, beta, alpha
+        storage::write_session(
+            &dir,
+            "loop",
+            &SessionStack {
+                cwd: Some(temp.path().join("now")),
+                undo: vec![
+                    alpha.clone(),
+                    beta.clone(),
+                    alpha.clone(),
+                    beta.clone(),
+                    alpha.clone(),
+                ],
+                redo: Vec::new(),
+            },
+        )
+        .expect("write session");
+
+        let output = complete_session_paths(Some("loop"), None, |stack| stack.undo);
+
+        // Most recent first, one entry per destination — so `back 2` means two
+        // places back rather than two stack entries back.
+        assert_eq!(output, vec![alpha, beta]);
     }
 
     #[test]
