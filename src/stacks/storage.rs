@@ -3,6 +3,7 @@ use std::fs;
 use std::fs::DirEntry;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use thiserror::Error;
@@ -11,6 +12,9 @@ use super::SessionStack;
 use crate::common;
 
 pub const DEFAULT_STALE_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+const CLEANUP_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const CLEANUP_MARKER: &str = ".last-cleanup";
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -60,9 +64,35 @@ pub fn ensure_session_dir() -> Result<PathBuf, StorageError> {
 
 pub fn read_session(dir: &Path, session_id: &str) -> Result<SessionStack, StorageError> {
     let path = session_file_path(dir, session_id)?;
-    cleanup_stale(dir, DEFAULT_STALE_TTL);
+    maybe_cleanup_stale(dir);
 
     read_session_file(&path)
+}
+
+/// Sweeps at most once per process and once per [`CLEANUP_INTERVAL`] across
+/// them; `dx stack push` runs on every prompt.
+fn maybe_cleanup_stale(dir: &Path) {
+    static SWEPT: AtomicBool = AtomicBool::new(false);
+    if SWEPT.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    if !cleanup_is_due(dir) {
+        return;
+    }
+    cleanup_stale(dir, DEFAULT_STALE_TTL);
+}
+
+/// Touches the marker before sweeping so concurrent shells do not all sweep.
+fn cleanup_is_due(dir: &Path) -> bool {
+    let marker = dir.join(CLEANUP_MARKER);
+    if let Ok(modified) = fs::metadata(&marker).and_then(|meta| meta.modified())
+        && modified.elapsed().is_ok_and(|age| age < CLEANUP_INTERVAL)
+    {
+        return false;
+    }
+
+    let _ = fs::write(&marker, b"");
+    true
 }
 
 fn read_session_file(path: &Path) -> Result<SessionStack, StorageError> {
@@ -106,7 +136,7 @@ pub fn write_session(
             path: target.display().to_string(),
             source,
         })?;
-    cleanup_stale(dir, DEFAULT_STALE_TTL);
+    maybe_cleanup_stale(dir);
     fs::create_dir_all(dir).map_err(|source| StorageError::CreateSessionDir {
         path: dir.display().to_string(),
         source,
@@ -114,7 +144,7 @@ pub fn write_session(
 
     let payload = serde_json::to_vec(stack).map_err(StorageError::SerializeSession)?;
 
-    common::write_atomic_replace(&target, &payload).map_err(|err| {
+    common::write_atomic_replace(&target, &payload, common::Durability::Rename).map_err(|err| {
         common::map_atomic_write_error(
             err,
             |source| StorageError::WriteSession {
@@ -249,6 +279,48 @@ mod tests {
         let loaded = read_session(dir.path(), "200").expect("read session");
 
         assert_eq!(loaded, stack);
+    }
+
+    #[test]
+    fn cleanup_is_rate_limited_by_the_marker_file() {
+        let dir = make_temp_dir("cleanup-rate-limit");
+
+        assert!(
+            cleanup_is_due(dir.path()),
+            "first check with no marker should sweep"
+        );
+        assert!(
+            dir.path().join(CLEANUP_MARKER).exists(),
+            "the marker is written before sweeping so concurrent shells do not pile up"
+        );
+        assert!(
+            !cleanup_is_due(dir.path()),
+            "a fresh marker should suppress the next sweep"
+        );
+    }
+
+    #[test]
+    fn cleanup_check_never_creates_the_session_directory() {
+        let temp = make_temp_dir("cleanup-no-mkdir");
+        let missing = temp.path().join("absent");
+
+        assert!(cleanup_is_due(&missing));
+        assert!(
+            !missing.exists(),
+            "reading a session must not create the session directory"
+        );
+    }
+
+    #[test]
+    fn cleanup_marker_is_not_treated_as_a_session_file() {
+        let dir = make_temp_dir("cleanup-marker-skipped");
+        let marker = dir.path().join(CLEANUP_MARKER);
+        fs::write(&marker, b"").expect("write marker");
+
+        thread::sleep(Duration::from_millis(5));
+        cleanup_stale(dir.path(), Duration::from_secs(0));
+
+        assert!(marker.exists(), "the sweep must not delete its own marker");
     }
 
     #[test]

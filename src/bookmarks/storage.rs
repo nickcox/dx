@@ -109,20 +109,22 @@ pub fn write_store(store: &BookmarkStore) -> Result<(), StorageError> {
     };
     let raw = toml::to_string(&payload).map_err(StorageError::SerializeStore)?;
 
-    common::write_atomic_replace(&target, raw.as_bytes()).map_err(|err| {
-        common::map_atomic_write_error(
-            err,
-            |source| StorageError::WriteStore {
-                path: target.display().to_string(),
-                source,
-            },
-            |source| StorageError::ReplaceStore {
-                from: target.display().to_string(),
-                to: target.display().to_string(),
-                source,
-            },
-        )
-    })
+    common::write_atomic_replace(&target, raw.as_bytes(), common::Durability::Flush).map_err(
+        |err| {
+            common::map_atomic_write_error(
+                err,
+                |source| StorageError::WriteStore {
+                    path: target.display().to_string(),
+                    source,
+                },
+                |source| StorageError::ReplaceStore {
+                    from: target.display().to_string(),
+                    to: target.display().to_string(),
+                    source,
+                },
+            )
+        },
+    )
 }
 
 fn non_empty_env_path(name: &str) -> Option<PathBuf> {

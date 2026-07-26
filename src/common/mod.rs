@@ -48,9 +48,25 @@ pub enum AtomicWriteError {
     Replace(io::Error),
 }
 
-pub fn write_atomic_replace(target: &Path, payload: &[u8]) -> Result<(), AtomicWriteError> {
+/// Whether [`write_atomic_replace`] fsyncs before renaming.
+/// The rename is atomic either way, so this only affects crash during write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Durability {
+    Flush,
+    Rename,
+}
+
+pub fn write_atomic_replace(
+    target: &Path,
+    payload: &[u8],
+    durability: Durability,
+) -> Result<(), AtomicWriteError> {
     let (temp, mut file) = create_temp_file(target).map_err(AtomicWriteError::Write)?;
-    if let Err(source) = file.write_all(payload).and_then(|()| file.sync_all()) {
+    let written = file.write_all(payload).and_then(|()| match durability {
+        Durability::Flush => file.sync_all(),
+        Durability::Rename => Ok(()),
+    });
+    if let Err(source) = written {
         let _ = fs::remove_file(&temp);
         return Err(AtomicWriteError::Write(source));
     }
@@ -157,7 +173,7 @@ mod tests {
 
     use crate::test_support;
 
-    use super::{AtomicWriteError, map_atomic_write_error, write_atomic_replace};
+    use super::{AtomicWriteError, Durability, map_atomic_write_error, write_atomic_replace};
 
     #[test]
     fn atomic_write_error_mapping_dispatches_to_correct_closure() {
@@ -177,12 +193,36 @@ mod tests {
     }
 
     #[test]
+    fn both_durabilities_replace_atomically_and_leave_no_temporary_files() {
+        for durability in [Durability::Flush, Durability::Rename] {
+            let temp = test_support::temp_dir("atomic-durability");
+            let target = temp.path().join("state.json");
+            fs::write(&target, "old").expect("seed target");
+
+            write_atomic_replace(&target, b"new", durability).expect("replace target");
+
+            assert_eq!(
+                fs::read(&target).expect("read target"),
+                b"new",
+                "{durability:?}"
+            );
+            assert_eq!(
+                fs::read_dir(temp.path())
+                    .expect("read temp directory")
+                    .count(),
+                1,
+                "{durability:?} left a temporary file behind"
+            );
+        }
+    }
+
+    #[test]
     fn atomic_write_replaces_existing_file_without_leaving_temporary_files() {
         let temp = test_support::temp_dir("atomic-replace");
         let target = temp.path().join("state.json");
         fs::write(&target, "old").expect("seed target");
 
-        write_atomic_replace(&target, b"new").expect("replace target");
+        write_atomic_replace(&target, b"new", Durability::Flush).expect("replace target");
 
         assert_eq!(fs::read(&target).expect("read target"), b"new");
         assert_eq!(
