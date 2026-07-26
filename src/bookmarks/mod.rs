@@ -26,6 +26,8 @@ pub enum BookmarkError {
     CanonicalizePath { path: String, source: io::Error },
     #[error("bookmark not found: {0}")]
     NotFound(String),
+    #[error("bookmark path is not valid UTF-8 and cannot be stored: {0}")]
+    PathNotUtf8(String),
 }
 
 impl BookmarkStore {
@@ -59,6 +61,13 @@ impl BookmarkStore {
             ));
         }
 
+        // The store is TOML, which is UTF-8 by definition, so such a path cannot
+        // be represented. Writing it lossily produced a bookmark that silently
+        // resolved to nothing.
+        if canonical.to_str().is_none() {
+            return Err(BookmarkError::PathNotUtf8(canonical.display().to_string()));
+        }
+
         self.bookmarks.insert(name.to_string(), canonical.clone());
         Ok(canonical)
     }
@@ -90,10 +99,14 @@ impl BookmarkStore {
             .collect()
     }
 
-    pub(crate) fn to_serializable_map(&self) -> BTreeMap<String, String> {
+    pub(crate) fn to_serializable_map(&self) -> Result<BTreeMap<String, String>, BookmarkError> {
         self.bookmarks
             .iter()
-            .map(|(name, path)| (name.clone(), path.display().to_string()))
+            .map(|(name, path)| {
+                path.to_str()
+                    .map(|path| (name.clone(), path.to_string()))
+                    .ok_or_else(|| BookmarkError::PathNotUtf8(path.display().to_string()))
+            })
             .collect()
     }
 }
@@ -170,6 +183,30 @@ mod tests {
 
         assert_eq!(output, fs::canonicalize(&second).expect("canonical second"));
         assert_eq!(store.get("proj"), Some(output));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_paths_are_refused_rather_than_stored_lossily() {
+        use std::collections::BTreeMap;
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        use std::path::PathBuf;
+
+        // Built from bytes rather than the filesystem: APFS refuses to create
+        // such a name, but Linux filesystems allow it.
+        let path = PathBuf::from(OsString::from_vec(b"/tmp/bad-\xff-name".to_vec()));
+        let mut map = BTreeMap::new();
+        map.insert("weird".to_string(), path);
+        let store = BookmarkStore::from_paths(map);
+
+        // The store is TOML, so this cannot round-trip. Previously
+        // `display().to_string()` replaced the byte with U+FFFD and the bookmark
+        // silently resolved to nothing.
+        let error = store
+            .to_serializable_map()
+            .expect_err("a non-UTF-8 path cannot be serialised");
+        assert!(matches!(error, BookmarkError::PathNotUtf8(_)));
     }
 
     #[test]

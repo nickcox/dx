@@ -31,6 +31,8 @@ pub enum StorageError {
         to: String,
         source: io::Error,
     },
+    #[error("{0}")]
+    Bookmark(#[from] super::BookmarkError),
     #[error("invalid bookmark {name:?} in store {path}: {reason}")]
     InvalidBookmark {
         path: String,
@@ -105,7 +107,7 @@ pub fn write_store(store: &BookmarkStore) -> Result<(), StorageError> {
     }
 
     let payload = BookmarkFile {
-        bookmarks: store.to_serializable_map(),
+        bookmarks: store.to_serializable_map()?,
     };
     let raw = toml::to_string(&payload).map_err(StorageError::SerializeStore)?;
 
@@ -258,6 +260,31 @@ mod tests {
             read_store(),
             Err(StorageError::InvalidBookmark { .. })
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_store_refuses_a_non_utf8_path_instead_of_corrupting_it() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let mut process = ScopedProcess::new();
+        let temp = make_temp_dir("non-utf8");
+        let file = temp.path().join("bookmarks.toml");
+        process.set("DX_BOOKMARKS_FILE", &file);
+        process.remove("XDG_DATA_HOME");
+
+        let mut map = BTreeMap::new();
+        map.insert(
+            "weird".to_string(),
+            PathBuf::from(OsString::from_vec(b"/tmp/bad-\xff-name".to_vec())),
+        );
+
+        let error = write_store(&BookmarkStore::from_paths(map))
+            .expect_err("writing a non-UTF-8 path must fail loudly");
+
+        assert!(matches!(error, StorageError::Bookmark(_)));
+        assert!(!file.exists(), "nothing should be written");
     }
 
     #[test]

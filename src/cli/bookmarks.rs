@@ -62,8 +62,8 @@ fn run_list(json: bool) -> Result<(), CliError> {
     let store = storage::read_store()?;
 
     if json {
-        let output =
-            serde_json::to_string(&store.to_serializable_map()).map_err(CliError::BookmarksJson)?;
+        let output = serde_json::to_string(&store.to_serializable_map()?)
+            .map_err(CliError::BookmarksJson)?;
         println!("{output}");
     } else {
         for (name, path) in store.list() {
