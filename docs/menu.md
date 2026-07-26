@@ -4,6 +4,11 @@ Menu mode replaces supported completion bindings with an inline candidate
 selector. It is opt-in and falls back to the shell's native completion when
 `dx` cannot or should not handle the current buffer.
 
+Nearly all of the environment variables below can equally be set in the `[menu]`
+table of `config.toml`, with the environment winning over the file. The
+[Configuration Reference](./configuration.md) lists the config key for each one,
+along with the two that stay environment-only.
+
 ## Enable Menu Mode
 
 Bash:
