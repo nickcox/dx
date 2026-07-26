@@ -152,6 +152,10 @@ Config key: `menu.item_max_len`.
 Maximum candidate cell width or native PowerShell list-item length. Default:
 `80`. Native truncation keeps the end of the label and prefixes it with `…`.
 
+The Rust TUI counts terminal cells, so a double-width character such as a CJK
+ideograph uses two of the budget. Native PowerShell counts text elements
+instead, which means a wide label can render up to twice this many cells.
+
 - Positive values enable multicolumn layout with that width.
 - Zero or negative values disable multicolumn layout and native label truncation.
 - Empty or invalid values use the default.

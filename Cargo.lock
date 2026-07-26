@@ -166,6 +166,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "toml",
+ "unicode-segmentation",
+ "unicode-width",
  "windows-sys 0.59.0",
 ]
 

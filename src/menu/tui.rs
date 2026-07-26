@@ -86,6 +86,8 @@ mod imp {
             ScrollbarState,
         },
     };
+    use unicode_segmentation::UnicodeSegmentation;
+    use unicode_width::UnicodeWidthStr;
 
     use crate::menu::QueryStyle;
 
@@ -1322,38 +1324,58 @@ mod imp {
         }
         let actual = labels
             .iter()
-            .map(|s| s.chars().count())
+            .map(|s| text_width(s))
             .max()
             .unwrap_or(1)
             .max(1);
         Some(std::cmp::min(configured, actual))
     }
 
+    /// Keeps the tail behind a leading `…`. A budget a wide cluster cannot fill
+    /// exactly stays one cell short; overflowing would misalign later columns.
     fn truncate_for_cell(input: &str, max: usize) -> String {
         if max == 0 {
             return String::new();
         }
-        let count = input.chars().count();
-        if count <= max {
+        if text_width(input) <= max {
             return input.to_string();
         }
         if max == 1 {
             return "…".to_string();
         }
-        let tail_len = max - 1;
-        let tail: String = input
-            .chars()
-            .rev()
-            .take(tail_len)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        format!("…{tail}")
+
+        let budget = max - 1;
+        let mut used = 0;
+        let mut start = input.len();
+        for (offset, cluster) in input.grapheme_indices(true).rev() {
+            let width = cluster_width(cluster);
+            if used + width > budget {
+                break;
+            }
+            used += width;
+            start = offset;
+        }
+        format!("…{}", &input[start..])
     }
 
+    /// Width in terminal cells, counted as ratatui advances its cursor: one
+    /// grapheme cluster at a time, by that cluster's own width.
     fn text_width(input: &str) -> usize {
-        input.chars().count()
+        if is_single_cell_ascii(input) {
+            return input.len();
+        }
+        input.graphemes(true).map(cluster_width).sum()
+    }
+
+    fn cluster_width(cluster: &str) -> usize {
+        UnicodeWidthStr::width(cluster)
+    }
+
+    /// ASCII paths are one cell per byte, making segmentation pure overhead.
+    fn is_single_cell_ascii(input: &str) -> bool {
+        input
+            .bytes()
+            .all(|byte| byte.is_ascii_graphic() || byte == b' ')
     }
 
     fn build_status_text(
@@ -1425,7 +1447,7 @@ mod imp {
 
     fn pad_to_width(input: &str, width: usize) -> String {
         let mut out = input.to_string();
-        let len = out.chars().count();
+        let len = text_width(&out);
         if width > len {
             out.push_str(&" ".repeat(width - len));
         }
@@ -2332,6 +2354,79 @@ mod imp {
             assert_eq!(pad_to_width("ab", 6), "ab    ");
         }
 
+        /// Widths must match ratatui's cursor advance: per grapheme cluster, by
+        /// the cluster's own width.
+        #[test]
+        fn text_width_counts_terminal_cells_not_chars() {
+            assert_eq!(text_width("abc"), 3);
+            // CJK ideographs occupy two cells each.
+            assert_eq!(text_width("日本語"), 6);
+            // A combining mark adds no cell of its own.
+            assert_eq!(text_width("e\u{0301}"), 1);
+            // One cluster, one advance, regardless of how many chars it holds.
+            assert_eq!(text_width("🇬🇧"), text_width_via_ratatui("🇬🇧"));
+            assert_eq!(text_width("👩‍💻"), text_width_via_ratatui("👩‍💻"));
+        }
+
+        /// Independent oracle: sum the cursor advances ratatui itself would make.
+        fn text_width_via_ratatui(input: &str) -> usize {
+            use ratatui::style::Style;
+            use ratatui::text::Span;
+            use unicode_width::UnicodeWidthStr;
+
+            Span::raw(input)
+                .styled_graphemes(Style::default())
+                .map(|g| UnicodeWidthStr::width(g.symbol))
+                .sum()
+        }
+
+        #[test]
+        fn padded_cell_occupies_exactly_the_column_width() {
+            for label in [
+                "abc",
+                "日本語",
+                "café",
+                "e\u{0301}tude",
+                "🇬🇧 flag",
+                "日本語abc",
+            ] {
+                let cell = pad_to_width(&truncate_for_cell(label, 8), 10);
+                assert_eq!(
+                    text_width(&cell),
+                    10,
+                    "label {label:?} produced a misaligned cell {cell:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn truncate_for_cell_never_exceeds_the_budget_or_splits_a_cluster() {
+            // Two cells per ideograph: three fit in the six cells left after '…'.
+            assert_eq!(truncate_for_cell("日本語日本語", 7), "…日本語");
+            // 6 cells leave 5 after `…`, so only two ideographs fit.
+            assert_eq!(truncate_for_cell("日本語日本語", 6), "…本語");
+            for label in ["日本語日本語", "e\u{0301}tude", "🇬🇧🇬🇧🇬🇧", "👩‍💻👩‍💻"]
+            {
+                for max in 0..12 {
+                    let out = truncate_for_cell(label, max);
+                    assert!(
+                        text_width(&out) <= max,
+                        "truncate_for_cell({label:?}, {max}) = {out:?} overflows"
+                    );
+                    assert!(
+                        label.contains(out.trim_start_matches('…')),
+                        "truncate_for_cell({label:?}, {max}) = {out:?} split a cluster"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn effective_item_max_len_measures_cells() {
+            let labels = vec!["日本語".to_string()];
+            assert_eq!(effective_item_max_len(&labels, Some(10)), Some(6));
+        }
+
         #[test]
         fn compute_layout_metrics_distributes_remainder() {
             let labels = vec![
@@ -2913,6 +3008,79 @@ mod imp {
 
             assert_eq!(spans[0].style.fg, Some(Color::Red));
             assert_eq!(spans[1].style, selected_style());
+        }
+
+        /// The real grid, measured by ratatui's own `Span::width`. Every row must
+        /// break its columns at the same offsets or the grid staircases.
+        #[test]
+        fn render_grid_items_aligns_columns_across_rows_with_wide_labels() {
+            let names = [
+                "main.rs",
+                "日本語のディレクトリ",
+                "README.md",
+                "café",
+                "🇬🇧-flags",
+                "e\u{0301}tude",
+                "src",
+                "ドキュメント",
+            ];
+            let completion = CompletionCandidates {
+                paths: names
+                    .iter()
+                    .map(|n| PathBuf::from("/tmp").join(n))
+                    .collect(),
+                has_more: false,
+            };
+            let labels: Vec<String> = names.iter().map(|n| (*n).to_string()).collect();
+            let layout = build_menu_layout(
+                Rect::new(0, 0, 60, 4),
+                labels.len(),
+                &labels,
+                &borderless_options(Some(20)),
+            );
+            assert!(
+                layout.metrics.columns > 1,
+                "test needs a multi-column grid to prove alignment"
+            );
+
+            let lines = render_grid_items(&completion, &labels, None, &layout, 0);
+            let mut checked = 0;
+            for (row, line) in lines.iter().enumerate() {
+                let mut x = 0;
+                for (col, span) in line.spans.iter().enumerate() {
+                    assert_eq!(
+                        span.width(),
+                        layout.metrics.column_widths[col],
+                        "row {row} column {col} ({:?}) at x={x} does not fill its column",
+                        span.content
+                    );
+                    x += span.width();
+                    checked += 1;
+                }
+            }
+            assert!(checked > 0, "no cells were rendered");
+            assert!(
+                lines
+                    .iter()
+                    .flat_map(|line| &line.spans)
+                    .any(|span| span.content.contains('日')),
+                "no wide label reached the visible area, so nothing was proven"
+            );
+        }
+
+        /// The fast path must be indistinguishable from the segmentation it skips.
+        #[test]
+        fn ascii_fast_path_agrees_with_segmentation() {
+            let ascii: String = (0x20u8..0x7f).map(char::from).collect();
+            assert!(is_single_cell_ascii(&ascii));
+            assert_eq!(text_width(&ascii), ascii.len());
+            assert_eq!(
+                ascii.graphemes(true).map(cluster_width).sum::<usize>(),
+                ascii.len(),
+                "some printable ASCII character is not one cell wide"
+            );
+            // A tab or newline is not a single cell, so it must take the slow path.
+            assert!(!is_single_cell_ascii("a\tb"));
         }
     }
 }

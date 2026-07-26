@@ -146,7 +146,9 @@ export DX_MENU_MAX_ROWS=12
 
 `DX_MENU_ITEM_MAX_LEN` controls the maximum candidate cell width and native
 PowerShell list-item length. The default is `80`. Native labels retain their
-tail with a leading `…`; insertion text and tooltips remain complete. A positive
+tail with a leading `…`; insertion text and tooltips remain complete. The Rust
+TUI measures terminal cells, so a double-width character such as a CJK ideograph
+counts as two. A positive
 integer keeps Rust TUI multicolumn rendering enabled, while zero or a negative
 value switches the TUI to one column and disables native label truncation.
 
