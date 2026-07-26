@@ -258,6 +258,7 @@ mod tests {
             AppConfig {
                 search_roots: roots,
                 resolve: crate::config::ResolveOptions { case_sensitive },
+                ..AppConfig::default()
             },
             bookmarks::lookup,
         )

@@ -264,68 +264,17 @@ fn quote_pwsh(path: &str) -> String {
     }
 }
 
-fn parse_menu_item_max_len() -> Option<usize> {
-    let default = 80usize;
-    let Ok(raw) = std::env::var("DX_MENU_ITEM_MAX_LEN") else {
-        return Some(default);
-    };
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Some(default);
-    }
-    match trimmed.parse::<i64>() {
-        Ok(value) if value <= 0 => None,
-        Ok(value) => Some(value as usize),
-        Err(_) => Some(default),
-    }
-}
-
-fn parse_menu_border() -> bool {
-    let Ok(raw) = std::env::var("DX_MENU_BORDER") else {
-        return false;
-    };
-    matches!(
-        raw.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on"
-    )
-}
-
-fn parse_menu_ls_colors() -> Option<crate::menu::ls_colors::LsColorsConfig> {
-    let ls_colors_raw = std::env::var("LS_COLORS").ok()?;
-    if ls_colors_raw.trim().is_empty() {
-        return None;
-    }
-    let enabled = match std::env::var("DX_MENU_LS_COLORS") {
-        Ok(val) => val.trim() == "1",
-        Err(_) => return None,
-    };
+/// `LS_COLORS` is the shell's variable, not a dx setting, so only the opt-in
+/// flag lives in config; an empty or absent `LS_COLORS` still yields no styling.
+fn menu_ls_colors(enabled: bool) -> Option<crate::menu::ls_colors::LsColorsConfig> {
     if !enabled {
         return None;
     }
-    Some(crate::menu::ls_colors::parse_ls_colors(&ls_colors_raw))
-}
-
-fn parse_menu_max_rows() -> u16 {
-    std::env::var("DX_MENU_MAX_ROWS")
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u16>().ok())
-        .filter(|&value| value > 0)
-        .unwrap_or(20)
-}
-
-fn parse_menu_max_results() -> usize {
-    let default = 1000usize;
-    let Ok(raw) = std::env::var("DX_MAX_MENU_RESULTS") else {
-        return default;
-    };
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return default;
+    let raw = std::env::var("LS_COLORS").ok()?;
+    if raw.trim().is_empty() {
+        return None;
     }
-    match trimmed.parse::<usize>() {
-        Ok(value) if value >= 1 => value,
-        _ => default,
-    }
+    Some(crate::menu::ls_colors::parse_ls_colors(&raw))
 }
 
 fn menu_result_to_action_with_shell(
@@ -444,7 +393,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
     } else {
         parsed.query.as_deref().unwrap_or("")
     };
-    let menu_limit = parse_menu_max_results();
+    let menu_limit = resolver.config.menu.max_results;
 
     let initial_candidates = menu::source_candidates_with_meta(
         resolver,
@@ -497,12 +446,13 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
         )
     });
 
+    let settings = &resolver.config.menu;
     let options = MenuOptions {
-        max_rows: parse_menu_max_rows(),
-        item_max_len: parse_menu_item_max_len(),
-        show_border: parse_menu_border(),
+        max_rows: settings.max_rows,
+        item_max_len: settings.item_max_len,
+        show_border: settings.border,
         use_tty_backend: cmd.psreadline_mode(),
-        ls_colors: parse_menu_ls_colors(),
+        ls_colors: menu_ls_colors(settings.ls_colors),
     };
 
     let menu_result = menu::tui::select(
@@ -656,6 +606,21 @@ mod tests {
             },
             Shell::Bash,
         )
+    }
+
+    #[test]
+    fn ls_colors_needs_both_the_flag_and_a_populated_ls_colors() {
+        let mut process = ScopedProcess::new();
+
+        process.set("LS_COLORS", "di=01;34");
+        assert!(menu_ls_colors(true).is_some(), "flag on, LS_COLORS set");
+        assert!(menu_ls_colors(false).is_none(), "flag off");
+
+        process.set("LS_COLORS", "   ");
+        assert!(menu_ls_colors(true).is_none(), "LS_COLORS blank");
+
+        process.remove("LS_COLORS");
+        assert!(menu_ls_colors(true).is_none(), "LS_COLORS unset");
     }
 
     #[test]
@@ -1241,161 +1206,5 @@ mod tests {
         let expected = format!("'{}/'", selected.display());
 
         assert_eq!(result, expected);
-    }
-
-    #[test]
-    fn parse_item_max_len_unset_uses_default_cap() {
-        let mut process = ScopedProcess::new();
-        process.remove("DX_MENU_ITEM_MAX_LEN");
-        assert_eq!(parse_menu_item_max_len(), Some(80));
-    }
-
-    #[test]
-    fn parse_item_max_len_invalid_uses_default_cap() {
-        let mut process = ScopedProcess::new();
-        process.set("DX_MENU_ITEM_MAX_LEN", "abc");
-        assert_eq!(parse_menu_item_max_len(), Some(80));
-        process.set("DX_MENU_ITEM_MAX_LEN", "0");
-        assert_eq!(parse_menu_item_max_len(), None);
-        process.set("DX_MENU_ITEM_MAX_LEN", "-3");
-        assert_eq!(parse_menu_item_max_len(), None);
-        process.set("DX_MENU_ITEM_MAX_LEN", "");
-        assert_eq!(parse_menu_item_max_len(), Some(80));
-    }
-
-    #[test]
-    fn parse_item_max_len_positive_value() {
-        let mut process = ScopedProcess::new();
-        process.set("DX_MENU_ITEM_MAX_LEN", "24");
-        assert_eq!(parse_menu_item_max_len(), Some(24));
-    }
-
-    #[test]
-    fn parse_menu_border_defaults_off() {
-        let mut process = ScopedProcess::new();
-        process.remove("DX_MENU_BORDER");
-        assert!(!parse_menu_border());
-        process.set("DX_MENU_BORDER", "");
-        assert!(!parse_menu_border());
-    }
-
-    #[test]
-    fn parse_menu_border_truthy_values_enable_border() {
-        let mut process = ScopedProcess::new();
-        for value in ["1", "true", "TRUE", "yes", "on", " On "] {
-            process.set("DX_MENU_BORDER", value);
-            assert!(parse_menu_border(), "expected truthy value: {value}");
-        }
-    }
-
-    #[test]
-    fn parse_menu_border_falsy_values_keep_border_off() {
-        let mut process = ScopedProcess::new();
-        for value in ["0", "false", "FALSE", "no", "off", "random"] {
-            process.set("DX_MENU_BORDER", value);
-            assert!(!parse_menu_border(), "expected falsy value: {value}");
-        }
-    }
-
-    #[test]
-    fn parse_menu_max_results_defaults_to_1000() {
-        let mut process = ScopedProcess::new();
-        process.remove("DX_MAX_MENU_RESULTS");
-        assert_eq!(parse_menu_max_results(), 1000);
-    }
-
-    #[test]
-    fn parse_menu_max_results_uses_valid_positive_value() {
-        let mut process = ScopedProcess::new();
-        process.set("DX_MAX_MENU_RESULTS", "250");
-        assert_eq!(parse_menu_max_results(), 250);
-    }
-
-    #[test]
-    fn parse_menu_max_results_invalid_falls_back() {
-        let mut process = ScopedProcess::new();
-        process.set("DX_MAX_MENU_RESULTS", "0");
-        assert_eq!(parse_menu_max_results(), 1000);
-        process.set("DX_MAX_MENU_RESULTS", "abc");
-        assert_eq!(parse_menu_max_results(), 1000);
-    }
-
-    #[test]
-    fn parse_menu_max_rows_defaults_to_20() {
-        let mut process = ScopedProcess::new();
-        process.remove("DX_MENU_MAX_ROWS");
-        assert_eq!(parse_menu_max_rows(), 20);
-    }
-
-    #[test]
-    fn parse_menu_max_rows_uses_valid_positive_value() {
-        let mut process = ScopedProcess::new();
-        process.set("DX_MENU_MAX_ROWS", "24");
-        assert_eq!(parse_menu_max_rows(), 24);
-    }
-
-    #[test]
-    fn parse_menu_max_rows_invalid_falls_back() {
-        let mut process = ScopedProcess::new();
-
-        process.set("DX_MENU_MAX_ROWS", "");
-        assert_eq!(parse_menu_max_rows(), 20);
-
-        process.set("DX_MENU_MAX_ROWS", "abc");
-        assert_eq!(parse_menu_max_rows(), 20);
-
-        process.set("DX_MENU_MAX_ROWS", "0");
-        assert_eq!(parse_menu_max_rows(), 20);
-
-        process.set("DX_MENU_MAX_ROWS", "-3");
-        assert_eq!(parse_menu_max_rows(), 20);
-    }
-
-    #[test]
-    fn parse_menu_ls_colors_missing_both_env_vars_returns_none() {
-        let mut process = ScopedProcess::new();
-        process.remove("DX_MENU_LS_COLORS");
-        process.remove("LS_COLORS");
-        assert_eq!(parse_menu_ls_colors(), None);
-    }
-
-    #[test]
-    fn parse_menu_ls_colors_missing_flag_returns_none() {
-        let mut process = ScopedProcess::new();
-        process.remove("DX_MENU_LS_COLORS");
-        process.set("LS_COLORS", "di=01;34");
-        assert_eq!(parse_menu_ls_colors(), None);
-    }
-
-    #[test]
-    fn parse_menu_ls_colors_non_one_flag_returns_none() {
-        let mut process = ScopedProcess::new();
-        process.set("DX_MENU_LS_COLORS", "0");
-        process.set("LS_COLORS", "di=01;34");
-        assert_eq!(parse_menu_ls_colors(), None);
-    }
-
-    #[test]
-    fn parse_menu_ls_colors_missing_ls_colors_returns_none() {
-        let mut process = ScopedProcess::new();
-        process.set("DX_MENU_LS_COLORS", "1");
-        process.remove("LS_COLORS");
-        assert_eq!(parse_menu_ls_colors(), None);
-    }
-
-    #[test]
-    fn parse_menu_ls_colors_empty_ls_colors_returns_none() {
-        let mut process = ScopedProcess::new();
-        process.set("DX_MENU_LS_COLORS", "1");
-        process.set("LS_COLORS", "");
-        assert_eq!(parse_menu_ls_colors(), None);
-    }
-
-    #[test]
-    fn parse_menu_ls_colors_both_set_returns_config() {
-        let mut process = ScopedProcess::new();
-        process.set("DX_MENU_LS_COLORS", "1");
-        process.set("LS_COLORS", "di=01;34");
-        assert!(parse_menu_ls_colors().is_some());
     }
 }
