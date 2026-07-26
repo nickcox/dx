@@ -25,11 +25,11 @@ function __dx_complete_json {
         return @()
     }
 
-    $args = @('complete', $Mode)
+    $dxArgs = @('complete', $Mode)
     if ($ExtraArgs) {
-        $args += $ExtraArgs
+        $dxArgs += $ExtraArgs
     }
-    $args += '--json'
+    $dxArgs += '--json'
 
     $limit = 1000L
     $configuredLimit = 0L
@@ -41,18 +41,18 @@ function __dx_complete_json {
         $limit = $configuredLimit
     }
     $probeLimit = if ($limit -lt [long]::MaxValue) { $limit + 1 } else { $limit }
-    $args += @('--limit', [string]$probeLimit)
+    $dxArgs += @('--limit', [string]$probeLimit)
 
     $query = __dx_unquote_completion_word $Word
     if ($Mode -eq 'paths' -and -not $query) {
         $query = './'
     }
     if ($null -ne $query) {
-        $args += @($query)
+        $dxArgs += @($query)
     }
 
     try {
-        $json = (& dx @args 2>$null | Out-String)
+        $json = (& dx @dxArgs 2>$null | Out-String)
         if ($LASTEXITCODE -ne 0 -or -not $json) {
             return @()
         }

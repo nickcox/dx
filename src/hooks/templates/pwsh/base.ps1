@@ -127,15 +127,15 @@ function __dx_complete_mode {
         return @()
     }
 
-    $args = @("complete", $Mode)
+    $dxArgs = @("complete", $Mode)
     if ($ExtraArgs) {
-        $args += $ExtraArgs
+        $dxArgs += $ExtraArgs
     }
     if ($Word) {
-        $args += @($Word)
+        $dxArgs += @($Word)
     }
 
-    $output = (& dx @args 2>$null)
+    $output = (& dx @dxArgs 2>$null)
     if ($LASTEXITCODE -ne 0) {
         return @()
     }

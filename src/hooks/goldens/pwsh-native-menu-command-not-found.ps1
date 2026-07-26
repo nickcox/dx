@@ -129,15 +129,15 @@ function __dx_complete_mode {
         return @()
     }
 
-    $args = @("complete", $Mode)
+    $dxArgs = @("complete", $Mode)
     if ($ExtraArgs) {
-        $args += $ExtraArgs
+        $dxArgs += $ExtraArgs
     }
     if ($Word) {
-        $args += @($Word)
+        $dxArgs += @($Word)
     }
 
-    $output = (& dx @args 2>$null)
+    $output = (& dx @dxArgs 2>$null)
     if ($LASTEXITCODE -ne 0) {
         return @()
     }
@@ -790,11 +790,11 @@ function __dx_complete_json {
         return @()
     }
 
-    $args = @('complete', $Mode)
+    $dxArgs = @('complete', $Mode)
     if ($ExtraArgs) {
-        $args += $ExtraArgs
+        $dxArgs += $ExtraArgs
     }
-    $args += '--json'
+    $dxArgs += '--json'
 
     $limit = 1000L
     $configuredLimit = 0L
@@ -806,18 +806,18 @@ function __dx_complete_json {
         $limit = $configuredLimit
     }
     $probeLimit = if ($limit -lt [long]::MaxValue) { $limit + 1 } else { $limit }
-    $args += @('--limit', [string]$probeLimit)
+    $dxArgs += @('--limit', [string]$probeLimit)
 
     $query = __dx_unquote_completion_word $Word
     if ($Mode -eq 'paths' -and -not $query) {
         $query = './'
     }
     if ($null -ne $query) {
-        $args += @($query)
+        $dxArgs += @($query)
     }
 
     try {
-        $json = (& dx @args 2>$null | Out-String)
+        $json = (& dx @dxArgs 2>$null | Out-String)
         if ($LASTEXITCODE -ne 0 -or -not $json) {
             return @()
         }
@@ -1010,9 +1010,9 @@ __dx_register_native_mapped_completions @()
 
 if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandNotFoundAction') {
     $script:__dx_command_not_found_handler = [System.EventHandler[System.Management.Automation.CommandLookupEventArgs]]{
-        param($sender, $eventArgs)
+        param($dxSender, $dxEventArgs)
 
-        $cmd = $eventArgs.CommandName
+        $cmd = $dxEventArgs.CommandName
         if ($env:DX_RESOLVE_GUARD) { return }
         if (-not (__dx_is_path_like $cmd)) { return }
         if (-not (Get-Command dx -ErrorAction SilentlyContinue)) { return }
@@ -1027,8 +1027,8 @@ if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandN
         __dx_set_location_native @($resolved)
         if ($?) {
             __dx_push_pwd
-            $eventArgs.StopSearch = $true
-            $eventArgs.CommandScriptBlock = { }
+            $dxEventArgs.StopSearch = $true
+            $dxEventArgs.CommandScriptBlock = { }
         }
     }
 

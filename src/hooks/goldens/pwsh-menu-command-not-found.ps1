@@ -129,15 +129,15 @@ function __dx_complete_mode {
         return @()
     }
 
-    $args = @("complete", $Mode)
+    $dxArgs = @("complete", $Mode)
     if ($ExtraArgs) {
-        $args += $ExtraArgs
+        $dxArgs += $ExtraArgs
     }
     if ($Word) {
-        $args += @($Word)
+        $dxArgs += @($Word)
     }
 
-    $output = (& dx @args 2>$null)
+    $output = (& dx @dxArgs 2>$null)
     if ($LASTEXITCODE -ne 0) {
         return @()
     }
@@ -1108,9 +1108,9 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
 
 if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandNotFoundAction') {
     $script:__dx_command_not_found_handler = [System.EventHandler[System.Management.Automation.CommandLookupEventArgs]]{
-        param($sender, $eventArgs)
+        param($dxSender, $dxEventArgs)
 
-        $cmd = $eventArgs.CommandName
+        $cmd = $dxEventArgs.CommandName
         if ($env:DX_RESOLVE_GUARD) { return }
         if (-not (__dx_is_path_like $cmd)) { return }
         if (-not (Get-Command dx -ErrorAction SilentlyContinue)) { return }
@@ -1125,8 +1125,8 @@ if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandN
         __dx_set_location_native @($resolved)
         if ($?) {
             __dx_push_pwd
-            $eventArgs.StopSearch = $true
-            $eventArgs.CommandScriptBlock = { }
+            $dxEventArgs.StopSearch = $true
+            $dxEventArgs.CommandScriptBlock = { }
         }
     }
 

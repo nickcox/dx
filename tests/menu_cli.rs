@@ -288,7 +288,7 @@ fn init_pwsh_native_menu_uses_structured_argument_completers_without_key_handler
     ));
     assert!(stdout.contains("__dx_register_native_mapped_completions @('Get-Content=file')"));
     assert!(stdout.contains("-Mode filesystem"));
-    assert!(stdout.contains("$args += @('--limit', [string]$probeLimit)"));
+    assert!(stdout.contains("$dxArgs += @('--limit', [string]$probeLimit)"));
     assert!(stdout.contains("| showing first $($showingFirst.Value)"));
     assert!(stdout.contains("function __dx_truncate_native_label"));
     assert!(!stdout.contains("Test-Path -LiteralPath $value -PathType Container"));
