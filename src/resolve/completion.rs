@@ -26,14 +26,6 @@ impl Resolver {
         self.collect_completion_candidates_impl(raw_query, limit, cwd)
     }
 
-    pub fn collect_completion_candidates_with_limit(
-        &self,
-        raw_query: &str,
-        limit: Option<usize>,
-    ) -> CompletionCandidates {
-        self.collect_completion_candidates_impl(raw_query, limit, None)
-    }
-
     pub fn collect_completion_candidates_with_meta(&self, raw_query: &str) -> CompletionCandidates {
         self.collect_completion_candidates_impl(raw_query, None, None)
     }

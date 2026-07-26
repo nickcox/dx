@@ -7,7 +7,6 @@ pub mod mode;
 pub mod tui;
 
 use std::collections::HashSet;
-use std::path::PathBuf;
 
 use crate::complete::{
     self, CompletionMode, ancestors, recents as recents_mode, stack as stack_mode,
@@ -22,29 +21,12 @@ pub use buffer::{
 pub use mode::{MenuMode, QueryStyle};
 pub use tui::{MenuOptions, MenuRequest, MenuResult};
 
-/// Source completion candidates for the given mode and query.
-/// Built-in dx modes reuse the same pipelines as `dx complete`; mapped
-/// filesystem modes use an explicit file-aware directory scan.
-/// Duplicates are removed for all modes.
-/// The cwd itself is filtered out for non-path-selection modes only.
-pub fn source_candidates(
-    resolver: &Resolver,
-    mode: CompletionMode,
-    query: Option<&str>,
-    session: Option<&str>,
-    cwd: Option<&std::path::Path>,
-) -> Vec<PathBuf> {
-    source_candidates_with_meta(
-        resolver,
-        MenuMode::Completion(mode),
-        query,
-        session,
-        cwd,
-        None,
-    )
-    .paths
-}
-
+/// Candidates for a mode and query, deduplicated.
+///
+/// Built-in modes reuse the same pipelines as `dx complete`, so the menu and
+/// shell completion cannot disagree; mapped filesystem modes take an explicit
+/// file-aware directory scan instead. The cwd itself is dropped only for the
+/// modes that navigate away from it.
 pub fn source_candidates_with_meta(
     resolver: &Resolver,
     mode: MenuMode,
@@ -118,7 +100,7 @@ mod tests {
     use crate::resolve::Resolver;
     use crate::test_support;
 
-    use super::{MenuMode, source_candidates, source_candidates_with_meta};
+    use super::{MenuMode, source_candidates_with_meta};
 
     #[test]
     fn mixed_case_path_order_menu_paths_matches_completion_order() {
@@ -137,15 +119,16 @@ mod tests {
             None,
             Some(cwd.as_path()),
         );
-        let menu = source_candidates(
+        let menu = source_candidates_with_meta(
             &resolver,
-            CompletionMode::Paths,
+            MenuMode::Completion(CompletionMode::Paths),
             Some("../c"),
             None,
             Some(cwd.as_path()),
+            None,
         );
 
-        assert_eq!(menu, completion.paths);
+        assert_eq!(menu.paths, completion.paths);
     }
 
     #[cfg(unix)]
