@@ -5,11 +5,7 @@ use super::common::{
 };
 use crate::{cli, hooks::Shell};
 
-pub fn generate_with_mappings(
-    command_not_found: bool,
-    menu: bool,
-    _mappings: &[MenuCommandMapping],
-) -> String {
+pub fn generate(command_not_found: bool, menu: bool, mappings: &[MenuCommandMapping]) -> String {
     let mut script = String::from(
         r#"if not set -q DX_SESSION
   set -gx DX_SESSION $fish_pid
@@ -416,7 +412,7 @@ end
             ),
             (
                 "__DX_FISH_MENU_MAPPING_CASES__",
-                render_fish_menu_mapping_cases(_mappings),
+                render_fish_menu_mapping_cases(mappings),
             ),
         ],
     )

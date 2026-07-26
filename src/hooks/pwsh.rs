@@ -29,10 +29,10 @@ pub fn parse_pwsh_menu_key(raw: &str) -> Result<String, PwshMenuKeyError> {
     Ok(trimmed.to_string())
 }
 
-pub fn generate_with_mappings_and_menu_key(
+pub fn generate(
     command_not_found: bool,
     menu_mode: InitMenuMode,
-    _mappings: &[MenuCommandMapping],
+    mappings: &[MenuCommandMapping],
     menu_key: &str,
 ) -> String {
     let menu = menu_mode == InitMenuMode::Tui;
@@ -1140,7 +1140,7 @@ Export-ModuleMember -Function Set-DxLocation, Step-Up, Undo-Location, Redo-Locat
             ),
             (
                 "__DX_MENU_MAPPINGS__",
-                render_pwsh_menu_mapping_list(_mappings),
+                render_pwsh_menu_mapping_list(mappings),
             ),
             ("__DX_PWSH_MENU_KEY__", menu_key.to_string()),
             ("__DX_PWSH_COMPLETION_BINDINGS__", completion_bindings),

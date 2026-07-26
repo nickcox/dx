@@ -6,8 +6,8 @@ use crate::complete::CompletionMode;
 use crate::complete::filesystem::FilesystemCompletionKind;
 use crate::hooks::Shell;
 use crate::menu::{
-    self, MenuAction, MenuMode, MenuResult, QueryStyle, parse_buffer_with_override_mode,
-    tui::QueryFn,
+    self, MenuAction, MenuMode, MenuOptions, MenuRequest, MenuResult, QueryStyle,
+    parse_buffer_with_override_mode, tui::QueryFn,
 };
 use crate::resolve::Resolver;
 
@@ -77,35 +77,6 @@ pub struct MenuCommand {
     /// Shell syntax used for replacement text
     #[arg(long, value_enum, default_value_t = Shell::Bash)]
     pub shell: Shell,
-}
-
-/// Format a resolved path for insertion into the shell buffer.
-///
-/// For `Paths` mode (directory browsing):
-/// - Appends a trailing `/` so the user can Tab-complete into the directory.
-/// - Single-quote-wraps if the path contains shell-special characters.
-///   The trailing `/` is included inside quotes when quoting is needed.
-///
-/// For all other modes (stack, ancestors, frecents, recents):
-/// - Returns the absolute path as-is — no trailing slash, no quoting needed
-///   since these paths are always well-formed absolutes navigating to a
-///   known destination.
-///
-/// Examples (Paths mode):
-///   /Users/nick/Downloads          → Downloads/
-///   /Users/nick/Dropbox (Maestral) → 'Dropbox (Maestral)/'
-#[cfg(test)]
-fn format_selected_path(path: &str, mode: MenuMode) -> String {
-    let append_trailing_slash = matches!(
-        mode,
-        MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory
-    );
-    format_selected_path_with_trailing_separator(
-        Path::new(path),
-        append_trailing_slash,
-        Shell::Bash,
-    )
-    .expect("test path has no control characters")
 }
 
 fn format_selected_path_with_trailing_separator(
@@ -217,33 +188,6 @@ fn format_home_relative_path(
         std::path::MAIN_SEPARATOR,
         quote_for_shell(shell, &suffix)?
     ))
-}
-
-#[cfg(test)]
-fn format_selected_path_for_query_style(
-    selected: &Path,
-    mode: MenuMode,
-    cwd: &Path,
-    prefer_relative_paths: bool,
-) -> String {
-    format_selected_path_for_query_style_checked(
-        selected,
-        mode,
-        cwd,
-        if prefer_relative_paths {
-            if crate::complete::relative_path_from(cwd, selected)
-                .is_some_and(|relative| relative.starts_with(".."))
-            {
-                QueryStyle::ParentRelative
-            } else {
-                QueryStyle::DotRelative
-            }
-        } else {
-            QueryStyle::Absolute
-        },
-        Shell::Bash,
-    )
-    .expect("test path has no control characters")
 }
 
 /// Returns true if the string contains characters that require shell quoting.
@@ -433,28 +377,6 @@ fn action_for_shell(action: MenuAction, buffer: &str, shell: Shell) -> MenuActio
     MenuAction::replace(replace_start, replace_end, value, terminal, geometry)
 }
 
-#[cfg(test)]
-fn menu_result_to_action(
-    result: Option<MenuResult>,
-    parsed: &menu::ParsedBuffer,
-    mode: MenuMode,
-    cwd: &Path,
-    prefer_relative_paths: bool,
-) -> MenuAction {
-    menu_result_to_action_with_shell(
-        result,
-        parsed,
-        mode,
-        cwd,
-        if prefer_relative_paths {
-            QueryStyle::DotRelative
-        } else {
-            QueryStyle::Absolute
-        },
-        Shell::Bash,
-    )
-}
-
 pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
     let debug = std::env::var("DX_MENU_DEBUG").is_ok_and(|v| v == "1");
     let session = super::complete::resolve_session(cmd.session.as_deref());
@@ -561,23 +483,24 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
         )
     });
 
-    let item_max_len = parse_menu_item_max_len();
-    let show_border = parse_menu_border();
-    let max_rows = parse_menu_max_rows();
-    let ls_colors = parse_menu_ls_colors();
+    let options = MenuOptions {
+        max_rows: parse_menu_max_rows(),
+        item_max_len: parse_menu_item_max_len(),
+        show_border: parse_menu_border(),
+        psreadline_mode: cmd.psreadline_mode,
+        ls_colors: parse_menu_ls_colors(),
+    };
 
     let menu_result = menu::tui::select(
-        initial_candidates,
-        &initial_query,
-        parsed.mode,
-        &cwd,
-        cmd.prompt_row,
-        max_rows,
-        item_max_len,
-        show_border,
-        cmd.psreadline_mode,
-        query_fn,
-        ls_colors,
+        MenuRequest {
+            candidates: initial_candidates,
+            query: &initial_query,
+            mode: parsed.mode,
+            cwd: &cwd,
+            prompt_row: cmd.prompt_row,
+            query_fn,
+        },
+        &options,
     );
 
     let action = menu_result_to_action_with_shell(
@@ -644,6 +567,83 @@ mod tests {
     use super::*;
 
     #[cfg(unix)]
+    // Thin wrappers that pin the default shell/mode so the assertions below
+    // stay focused on formatting rather than argument plumbing.
+    /// Format a resolved path for insertion into the shell buffer.
+    ///
+    /// For `Paths` mode (directory browsing):
+    /// - Appends a trailing `/` so the user can Tab-complete into the directory.
+    /// - Single-quote-wraps if the path contains shell-special characters.
+    ///   The trailing `/` is included inside quotes when quoting is needed.
+    ///
+    /// For all other modes (stack, ancestors, frecents, recents):
+    /// - Returns the absolute path as-is — no trailing slash, no quoting needed
+    ///   since these paths are always well-formed absolutes navigating to a
+    ///   known destination.
+    ///
+    /// Examples (Paths mode):
+    ///   /Users/nick/Downloads          → Downloads/
+    ///   /Users/nick/Dropbox (Maestral) → 'Dropbox (Maestral)/'
+    fn format_selected_path(path: &str, mode: MenuMode) -> String {
+        let append_trailing_slash = matches!(
+            mode,
+            MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory
+        );
+        format_selected_path_with_trailing_separator(
+            Path::new(path),
+            append_trailing_slash,
+            Shell::Bash,
+        )
+        .expect("test path has no control characters")
+    }
+
+    fn format_selected_path_for_query_style(
+        selected: &Path,
+        mode: MenuMode,
+        cwd: &Path,
+        prefer_relative_paths: bool,
+    ) -> String {
+        format_selected_path_for_query_style_checked(
+            selected,
+            mode,
+            cwd,
+            if prefer_relative_paths {
+                if crate::complete::relative_path_from(cwd, selected)
+                    .is_some_and(|relative| relative.starts_with(".."))
+                {
+                    QueryStyle::ParentRelative
+                } else {
+                    QueryStyle::DotRelative
+                }
+            } else {
+                QueryStyle::Absolute
+            },
+            Shell::Bash,
+        )
+        .expect("test path has no control characters")
+    }
+
+    fn menu_result_to_action(
+        result: Option<MenuResult>,
+        parsed: &menu::ParsedBuffer,
+        mode: MenuMode,
+        cwd: &Path,
+        prefer_relative_paths: bool,
+    ) -> MenuAction {
+        menu_result_to_action_with_shell(
+            result,
+            parsed,
+            mode,
+            cwd,
+            if prefer_relative_paths {
+                QueryStyle::DotRelative
+            } else {
+                QueryStyle::Absolute
+            },
+            Shell::Bash,
+        )
+    }
+
     #[test]
     fn menu_result_to_action_passes_terminal_state_through() {
         let parsed = menu::ParsedBuffer {

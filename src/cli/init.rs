@@ -1,4 +1,7 @@
-use crate::hooks::{self, InitMenuMode, Shell, parse_menu_command_mappings, parse_pwsh_menu_key};
+use crate::hooks::{
+    self, DEFAULT_PWSH_MENU_KEY, HookOptions, InitMenuMode, Shell, parse_menu_command_mappings,
+    parse_pwsh_menu_key,
+};
 
 use super::CliError;
 
@@ -32,20 +35,24 @@ pub fn run_init(
     let pwsh_menu_key = if menu_mode == InitMenuMode::Tui && shell == Shell::Pwsh {
         match std::env::var("DX_PWSH_MENU_KEY") {
             Ok(raw) => parse_pwsh_menu_key(&raw)?,
-            Err(_) => "Tab".to_string(),
+            Err(_) => DEFAULT_PWSH_MENU_KEY.to_string(),
         }
     } else {
-        "Tab".to_string()
+        DEFAULT_PWSH_MENU_KEY.to_string()
     };
 
-    let script = hooks::generate_with_menu_mode_and_pwsh_key(
-        shell,
-        command_not_found,
-        menu_mode,
-        &mappings,
-        &pwsh_menu_key,
+    print!(
+        "{}",
+        hooks::generate(
+            shell,
+            &HookOptions {
+                command_not_found,
+                menu_mode,
+                mappings,
+                pwsh_menu_key,
+            },
+        )
     );
-    print!("{script}");
     Ok(())
 }
 

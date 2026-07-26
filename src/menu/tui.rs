@@ -6,6 +6,12 @@
 //! `/dev/tty` directly, working even when stdin is redirected by a shell
 //! completion hook.
 
+use std::path::Path;
+
+use crate::menu::MenuMode;
+use crate::menu::ls_colors::LsColorsConfig;
+use crate::resolve::CompletionCandidates;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuResult {
     Selected {
@@ -20,6 +26,33 @@ pub enum MenuResult {
         changed_query: bool,
         geometry: Option<crate::menu::action::TerminalGeometry>,
     },
+}
+
+/// Re-query callback: given a query string, returns fresh candidates.
+pub type QueryFn<'a> = Box<dyn Fn(&str) -> CompletionCandidates + 'a>;
+
+/// What a single menu session should show. Fixed for as long as the menu is
+/// open — only the typed refinement varies, and that is held internally.
+pub struct MenuRequest<'a> {
+    pub candidates: CompletionCandidates,
+    pub query: &'a str,
+    pub mode: MenuMode,
+    pub cwd: &'a Path,
+    /// Prompt row supplied by shells that can report it. Measured from the
+    /// terminal when absent.
+    pub prompt_row: Option<u16>,
+    pub query_fn: QueryFn<'a>,
+}
+
+/// Presentation settings, all sourced from `DX_MENU_*` environment variables.
+#[derive(Debug, Clone, Default)]
+pub struct MenuOptions {
+    pub max_rows: u16,
+    pub item_max_len: Option<usize>,
+    pub show_border: bool,
+    /// Draw to `/dev/tty` rather than stderr, as PSReadLine requires.
+    pub psreadline_mode: bool,
+    pub ls_colors: Option<LsColorsConfig>,
 }
 
 // The interactive menu TUI currently targets Unix TTY semantics (`/dev/tty`
@@ -53,13 +86,13 @@ mod imp {
         },
     };
 
-    use crate::menu::{MenuMode, QueryStyle};
+    use crate::menu::QueryStyle;
 
     type CandidateLabelStyle = QueryStyle;
     use crate::menu::ls_colors::LsColorsConfig;
     use crate::resolve::CompletionCandidates;
 
-    use super::MenuResult;
+    use super::{MenuOptions, MenuRequest, MenuResult, QueryFn};
 
     #[derive(Clone, Copy)]
     struct CleanupRegion {
@@ -295,9 +328,6 @@ mod imp {
         let _ = output.flush();
     }
 
-    /// Re-query callback type: given a query string, returns fresh candidates.
-    pub type QueryFn<'a> = Box<dyn Fn(&str) -> CompletionCandidates + 'a>;
-
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct FilterState {
         // Interactive edits can only refine the initial query; they never broaden it.
@@ -505,63 +535,27 @@ mod imp {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn select(
-        initial_candidates: CompletionCandidates,
-        initial_query: &str,
-        mode: MenuMode,
-        cwd: &Path,
-        prompt_row_override: Option<u16>,
-        max_rows: u16,
-        item_max_len: Option<usize>,
-        show_border: bool,
-        psreadline_mode: bool,
-        query_fn: QueryFn<'_>,
-        ls_colors: Option<LsColorsConfig>,
-    ) -> Option<MenuResult> {
-        select_with_terminal_ops(
-            initial_candidates,
-            initial_query,
-            mode,
-            cwd,
-            prompt_row_override,
-            max_rows,
-            item_max_len,
-            show_border,
-            psreadline_mode,
-            query_fn,
-            ls_colors,
-            &CrosstermTerminalOps,
-        )
+    pub fn select(request: MenuRequest<'_>, options: &MenuOptions) -> Option<MenuResult> {
+        select_with_terminal_ops(request, options, &CrosstermTerminalOps)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn select_with_terminal_ops(
-        initial_candidates: CompletionCandidates,
-        initial_query: &str,
-        mode: MenuMode,
-        cwd: &Path,
-        prompt_row_override: Option<u16>,
-        max_rows: u16,
-        item_max_len: Option<usize>,
-        show_border: bool,
-        psreadline_mode: bool,
-        query_fn: QueryFn<'_>,
-        ls_colors: Option<LsColorsConfig>,
+        request: MenuRequest<'_>,
+        options: &MenuOptions,
         terminal_ops: &dyn TerminalOps,
     ) -> Option<MenuResult> {
-        if initial_candidates.paths.is_empty() {
+        if request.candidates.paths.is_empty() {
             return Some(MenuResult::Cancelled {
-                filter_query: initial_query.to_string(),
+                filter_query: request.query.to_string(),
                 changed_query: false,
                 geometry: None,
             });
         }
 
-        if initial_candidates.paths.len() == 1 && !initial_candidates.has_more {
+        if request.candidates.paths.len() == 1 && !request.candidates.has_more {
             return Some(MenuResult::Selected {
-                value: initial_candidates.paths.into_iter().next()?,
-                filter_query: initial_query.to_string(),
+                value: request.candidates.paths.into_iter().next()?,
+                filter_query: request.query.to_string(),
                 changed_query: false,
                 terminal: crate::menu::action::TerminalState::Clean,
                 geometry: None,
@@ -571,25 +565,23 @@ mod imp {
         let (cols, rows) = terminal_ops.size().ok()?;
 
         let home = dirs::home_dir();
-        let initial_label_style = QueryStyle::from_query(mode, initial_query);
-        let initial_labels: Vec<String> = initial_candidates
+        let initial_label_style = QueryStyle::from_query(request.mode, request.query);
+        let initial_labels: Vec<String> = request
+            .candidates
             .paths
             .iter()
-            .map(|p| display_label_for_style(p, cwd, home.as_deref(), initial_label_style))
+            .map(|p| display_label_for_style(p, request.cwd, home.as_deref(), initial_label_style))
             .collect();
         let height = compute_rendered_height(
             cols,
-            initial_candidates.paths.len(),
+            request.candidates.paths.len(),
             &initial_labels,
-            max_rows,
-            item_max_len,
-            show_border,
+            options,
         );
-        let required_rows = required_rows_below(height, show_border);
-        let use_tty_backend = psreadline_mode;
-        let mut session = TerminalSession::start(terminal_ops, use_tty_backend).ok()?;
+        let required_rows = required_rows_below(height, options.show_border);
+        let mut session = TerminalSession::start(terminal_ops, options.psreadline_mode).ok()?;
 
-        let measured_prompt_row = match prompt_row_override {
+        let measured_prompt_row = match request.prompt_row {
             Some(row) => row,
             None => terminal_ops.cursor_row().ok()?,
         };
@@ -599,26 +591,15 @@ mod imp {
             .ok()?;
         let prompt_row = reservation.prompt_row;
 
-        let menu_top = menu_top_row(prompt_row, rows, height, show_border);
+        let menu_top = menu_top_row(prompt_row, rows, height, options.show_border);
         let area = Rect::new(0, menu_top, cols, height);
-        if reservation.scroll_rows > 0 {
-            session.set_cleanup_region(prompt_row, area);
-        }
         session.hide_cursor().ok()?;
         session.set_cleanup_region(prompt_row, area);
 
         run_loop(
-            initial_candidates,
-            initial_query,
-            mode,
-            cwd,
+            request,
+            options,
             area,
-            max_rows,
-            use_tty_backend,
-            item_max_len,
-            show_border,
-            &query_fn,
-            ls_colors,
             terminal_ops,
             crate::menu::action::TerminalGeometry {
                 redraw_row: reservation.prompt_row,
@@ -698,48 +679,45 @@ mod imp {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn render_grid(
         frame: &mut ratatui::Frame<'_>,
         completion: &CompletionCandidates,
         labels: &[String],
-        ls_colors: Option<&LsColorsConfig>,
+        options: &MenuOptions,
         layout: &MenuLayoutPlan,
-        content_area: Rect,
-        scrollbar_area: Option<Rect>,
         selected: usize,
-        show_border: bool,
     ) {
-        let lines = render_grid_items(completion, labels, ls_colors, layout, selected);
+        let show_border = options.show_border;
+        let lines = render_grid_items(
+            completion,
+            labels,
+            options.ls_colors.as_ref(),
+            layout,
+            selected,
+        );
         let mut grid = Paragraph::new(lines);
         if show_border {
             grid = grid.block(Block::bordered());
         }
-        frame.render_widget(grid, content_area);
+        frame.render_widget(grid, layout.content_area);
 
         if layout.scrollbar_needed {
             let selected_row = selected / layout.metrics.columns;
             let mut scrollbar_state =
                 ScrollbarState::new(layout.metrics.rows_total).position(selected_row);
-            let scrollbar = build_scrollbar(show_border);
-            let scrollbar_render_area =
-                menu_scrollbar_render_area(content_area, scrollbar_area, show_border);
-            frame.render_stateful_widget(scrollbar, scrollbar_render_area, &mut scrollbar_state);
+            render_scrollbar(frame, layout, show_border, &mut scrollbar_state);
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn render_list(
         frame: &mut ratatui::Frame<'_>,
+        completion: &CompletionCandidates,
         labels: &[String],
-        paths: &[std::path::PathBuf],
-        ls_colors: Option<&LsColorsConfig>,
+        options: &MenuOptions,
         layout: &MenuLayoutPlan,
-        content_area: Rect,
-        scrollbar_area: Option<Rect>,
         list_state: &mut ListState,
-        show_border: bool,
     ) {
+        let show_border = options.show_border;
         let items: Vec<ListItem> = labels
             .iter()
             .enumerate()
@@ -747,9 +725,9 @@ mod imp {
                 let selected = list_state.selected() == Some(i);
                 let line = Line::from(candidate_span(
                     label.clone(),
-                    &paths[i],
+                    &completion.paths[i],
                     selected,
-                    ls_colors,
+                    options.ls_colors.as_ref(),
                 ));
                 ListItem::new(line)
             })
@@ -762,16 +740,24 @@ mod imp {
             list = list.block(Block::bordered());
         }
 
-        frame.render_stateful_widget(list, content_area, list_state);
+        frame.render_stateful_widget(list, layout.content_area, list_state);
 
         if layout.scrollbar_needed {
             let selected = list_state.selected().unwrap_or(0);
             let mut scrollbar_state = ScrollbarState::new(labels.len()).position(selected);
-            let scrollbar = build_scrollbar(show_border);
-            let scrollbar_render_area =
-                menu_scrollbar_render_area(content_area, scrollbar_area, show_border);
-            frame.render_stateful_widget(scrollbar, scrollbar_render_area, &mut scrollbar_state);
+            render_scrollbar(frame, layout, show_border, &mut scrollbar_state);
         }
+    }
+
+    fn render_scrollbar(
+        frame: &mut ratatui::Frame<'_>,
+        layout: &MenuLayoutPlan,
+        show_border: bool,
+        state: &mut ScrollbarState,
+    ) {
+        let area =
+            menu_scrollbar_render_area(layout.content_area, layout.scrollbar_area, show_border);
+        frame.render_stateful_widget(build_scrollbar(show_border), area, state);
     }
 
     fn render_status(
@@ -801,23 +787,23 @@ mod imp {
         frame.render_widget(status, chunks[1]);
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn run_loop(
-        initial_candidates: CompletionCandidates,
-        initial_query: &str,
-        mode: MenuMode,
-        cwd: &Path,
+        request: MenuRequest<'_>,
+        options: &MenuOptions,
         area: Rect,
-        max_rows: u16,
-        use_tty_backend: bool,
-        item_max_len: Option<usize>,
-        show_border: bool,
-        query_fn: &QueryFn<'_>,
-        ls_colors: Option<LsColorsConfig>,
         terminal_ops: &dyn TerminalOps,
         geometry: crate::menu::action::TerminalGeometry,
     ) -> Option<MenuResult> {
-        let writer = terminal_ops.open_output(use_tty_backend).ok()?;
+        let MenuRequest {
+            candidates: initial_candidates,
+            query: initial_query,
+            mode,
+            cwd,
+            query_fn,
+            ..
+        } = request;
+
+        let writer = terminal_ops.open_output(options.psreadline_mode).ok()?;
 
         let backend = CrosstermBackend::new(writer);
         let mut terminal = Terminal::with_options(
@@ -848,14 +834,8 @@ mod imp {
                 .iter()
                 .map(|p| display_label_for_style(p, cwd, home.as_deref(), label_style))
                 .collect();
-            let target_height = compute_rendered_height(
-                area.width,
-                completion.paths.len(),
-                &labels,
-                max_rows,
-                item_max_len,
-                show_border,
-            );
+            let target_height =
+                compute_rendered_height(area.width, completion.paths.len(), &labels, options);
             let current_height = bounded_rendered_height(area.height, target_height);
             let current_area = rendered_menu_area(area, current_height);
             let list_area = Rect {
@@ -864,13 +844,7 @@ mod imp {
                 width: current_area.width,
                 height: current_area.height.saturating_sub(1),
             };
-            let layout = build_menu_layout(
-                list_area,
-                show_border,
-                completion.paths.len(),
-                &labels,
-                item_max_len,
-            );
+            let layout = build_menu_layout(list_area, completion.paths.len(), &labels, options);
 
             let selected_path = selected_status_path(&completion.paths, list_state.selected());
 
@@ -891,41 +865,24 @@ mod imp {
                         .split(current_area);
 
                     let selected = list_state.selected().unwrap_or(0);
-                    let content_area = layout.content_area;
-                    let divider_area = layout.divider_area;
-                    let scrollbar_area = layout.scrollbar_area;
-                    let use_grid = layout.metrics.use_grid;
 
-                    if use_grid {
-                        render_grid(
-                            frame,
-                            &completion,
-                            &labels,
-                            ls_colors.as_ref(),
-                            &layout,
-                            content_area,
-                            scrollbar_area,
-                            selected,
-                            show_border,
-                        );
+                    if layout.metrics.use_grid {
+                        render_grid(frame, &completion, &labels, options, &layout, selected);
                     } else {
                         render_list(
                             frame,
+                            &completion,
                             &labels,
-                            &completion.paths,
-                            ls_colors.as_ref(),
+                            options,
                             &layout,
-                            content_area,
-                            scrollbar_area,
                             &mut list_state,
-                            show_border,
                         );
                     }
 
                     render_status(
                         frame,
                         &chunks,
-                        divider_area,
+                        layout.divider_area,
                         &selected_path,
                         &overflow,
                         filter_state.typed_refinement(),
@@ -968,7 +925,7 @@ mod imp {
                         &mut completion,
                         &mut list_state,
                         action,
-                        query_fn,
+                        &query_fn,
                     ),
                     MenuKeyAction::Ignore => {}
                 }
@@ -985,19 +942,17 @@ mod imp {
         width: u16,
         item_count: usize,
         labels: &[String],
-        max_rows: u16,
-        item_max_len: Option<usize>,
-        show_border: bool,
+        options: &MenuOptions,
     ) -> u16 {
-        let frame_inset = if show_border { 2 } else { 0 };
+        let frame_inset = if options.show_border { 2 } else { 0 };
         let metrics = compute_layout_metrics(
             width.saturating_sub(frame_inset) as usize,
             item_count,
             labels,
-            item_max_len,
+            options.item_max_len,
         );
-        let list_rows = compute_list_rows(metrics.rows_total, max_rows);
-        list_rows + menu_chrome_height(show_border)
+        let list_rows = compute_list_rows(metrics.rows_total, options.max_rows);
+        list_rows + menu_chrome_height(options.show_border)
     }
 
     fn menu_chrome_height(show_border: bool) -> u16 {
@@ -1090,11 +1045,12 @@ mod imp {
     /// layout using the true content width.
     fn build_menu_layout(
         list_area: Rect,
-        show_border: bool,
         item_count: usize,
         labels: &[String],
-        item_max_len: Option<usize>,
+        options: &MenuOptions,
     ) -> MenuLayoutPlan {
+        let show_border = options.show_border;
+        let item_max_len = options.item_max_len;
         let provisional_content_area = menu_content_area(list_area, show_border);
         let visible_rows = if show_border {
             provisional_content_area.height.saturating_sub(2) as usize
@@ -1626,23 +1582,47 @@ mod imp {
             }
         }
 
+        /// Presentation defaults used by the layout and terminal-setup tests:
+        /// 10 rows, no truncation, no border, stderr backend, no colours.
+        fn test_options() -> MenuOptions {
+            MenuOptions {
+                max_rows: 10,
+                ..MenuOptions::default()
+            }
+        }
+
+        fn borderless_options(item_max_len: Option<usize>) -> MenuOptions {
+            MenuOptions {
+                max_rows: 10,
+                item_max_len,
+                ..MenuOptions::default()
+            }
+        }
+
+        fn bordered_options(item_max_len: Option<usize>) -> MenuOptions {
+            MenuOptions {
+                max_rows: 10,
+                item_max_len,
+                show_border: true,
+                ..MenuOptions::default()
+            }
+        }
+
         fn select_with_mock(
             terminal_ops: &MockTerminalOps,
             candidate_count: usize,
             prompt_row_override: Option<u16>,
         ) -> Option<MenuResult> {
             select_with_terminal_ops(
-                candidates(candidate_count),
-                "",
-                MenuMode::Path,
-                Path::new("/tmp"),
-                prompt_row_override,
-                10,
-                None,
-                false,
-                false,
-                Box::new(|_| panic!("setup failure must not re-query")),
-                None,
+                MenuRequest {
+                    candidates: candidates(candidate_count),
+                    query: "",
+                    mode: crate::menu::MenuMode::Path,
+                    cwd: Path::new("/tmp"),
+                    prompt_row: prompt_row_override,
+                    query_fn: Box::new(|_| panic!("setup failure must not re-query")),
+                },
+                &test_options(),
                 terminal_ops,
             )
         }
@@ -2149,7 +2129,12 @@ mod imp {
         #[test]
         fn build_menu_layout_reserves_scrollbar_column_when_needed() {
             let labels = vec!["one".to_string(); 50];
-            let layout = build_menu_layout(Rect::new(0, 0, 20, 8), false, 50, &labels, Some(8));
+            let layout = build_menu_layout(
+                Rect::new(0, 0, 20, 8),
+                50,
+                &labels,
+                &borderless_options(Some(8)),
+            );
             assert!(layout.scrollbar_needed);
             assert_eq!(layout.scrollbar_area, Some(Rect::new(19, 0, 1, 7)));
             assert_eq!(layout.content_area, Rect::new(0, 0, 19, 7));
@@ -2310,8 +2295,11 @@ mod imp {
 
         #[test]
         fn compute_rendered_height_keeps_minimal_no_match_floor() {
-            assert_eq!(compute_rendered_height(80, 0, &[], 10, None, false), 3);
-            assert_eq!(compute_rendered_height(80, 0, &[], 10, None, true), 4);
+            assert_eq!(compute_rendered_height(80, 0, &[], &test_options()), 3);
+            assert_eq!(
+                compute_rendered_height(80, 0, &[], &bordered_options(None)),
+                4
+            );
         }
 
         #[test]
@@ -2319,8 +2307,8 @@ mod imp {
             let labels = vec!["alpha".to_string(); 8];
             let smaller = vec!["alpha".to_string(); 1];
 
-            let tall = compute_rendered_height(80, labels.len(), &labels, 10, None, false);
-            let short = compute_rendered_height(80, smaller.len(), &smaller, 10, None, false);
+            let tall = compute_rendered_height(80, labels.len(), &labels, &test_options());
+            let short = compute_rendered_height(80, smaller.len(), &smaller, &test_options());
 
             assert!(short < tall);
             assert_eq!(short, 3);
@@ -2331,8 +2319,9 @@ mod imp {
             let labels = vec!["alpha".to_string(); 8];
             let smaller = vec!["alpha".to_string(); 1];
 
-            let tall = compute_rendered_height(20, labels.len(), &labels, 10, None, true);
-            let short = compute_rendered_height(20, smaller.len(), &smaller, 10, None, true);
+            let tall = compute_rendered_height(20, labels.len(), &labels, &bordered_options(None));
+            let short =
+                compute_rendered_height(20, smaller.len(), &smaller, &bordered_options(None));
 
             assert!(short < tall);
             assert_eq!(short, 4);
@@ -2343,8 +2332,8 @@ mod imp {
             let many = vec!["abcdefgh".to_string(); 9];
             let few = vec!["abcdefgh".to_string(); 3];
 
-            let tall = compute_rendered_height(36, many.len(), &many, 10, Some(8), true);
-            let short = compute_rendered_height(36, few.len(), &few, 10, Some(8), true);
+            let tall = compute_rendered_height(36, many.len(), &many, &bordered_options(Some(8)));
+            let short = compute_rendered_height(36, few.len(), &few, &bordered_options(Some(8)));
 
             assert!(short < tall);
             assert_eq!(short, 4);
@@ -2355,8 +2344,8 @@ mod imp {
             let many = vec!["abcdefgh".to_string(); 9];
             let few = vec!["abcdefgh".to_string(); 3];
 
-            let tall = compute_rendered_height(36, many.len(), &many, 10, Some(8), false);
-            let short = compute_rendered_height(36, few.len(), &few, 10, Some(8), false);
+            let tall = compute_rendered_height(36, many.len(), &many, &borderless_options(Some(8)));
+            let short = compute_rendered_height(36, few.len(), &few, &borderless_options(Some(8)));
 
             assert!(short < tall);
             assert_eq!(short, 3);
@@ -2732,7 +2721,12 @@ mod imp {
                 has_more: false,
             };
             let labels = vec!["main.rs".to_string(), "README.md".to_string()];
-            let layout = build_menu_layout(Rect::new(0, 0, 40, 3), false, 2, &labels, Some(20));
+            let layout = build_menu_layout(
+                Rect::new(0, 0, 40, 3),
+                2,
+                &labels,
+                &borderless_options(Some(20)),
+            );
 
             let lines = render_grid_items(&completion, &labels, Some(&ls_colors), &layout, 1);
             let spans = &lines[0].spans;
@@ -2745,32 +2739,15 @@ mod imp {
 
 #[cfg(not(unix))]
 mod imp {
-    use super::MenuResult;
-    use std::path::Path;
+    use super::{MenuOptions, MenuRequest, MenuResult};
 
-    use crate::resolve::CompletionCandidates;
-
-    pub type QueryFn<'a> = Box<dyn Fn(&str) -> CompletionCandidates + 'a>;
-
-    pub fn select(
-        _candidates: CompletionCandidates,
-        initial_query: &str,
-        _mode: crate::menu::MenuMode,
-        _cwd: &Path,
-        _prompt_row_override: Option<u16>,
-        _max_rows: u16,
-        _item_max_len: Option<usize>,
-        _show_border: bool,
-        _psreadline_mode: bool,
-        _query_fn: QueryFn<'_>,
-        _ls_colors: Option<crate::menu::ls_colors::LsColorsConfig>,
-    ) -> Option<MenuResult> {
+    pub fn select(request: MenuRequest<'_>, _options: &MenuOptions) -> Option<MenuResult> {
         Some(MenuResult::Cancelled {
-            filter_query: initial_query.to_string(),
+            filter_query: request.query.to_string(),
             changed_query: false,
             geometry: None,
         })
     }
 }
 
-pub use imp::{QueryFn, select};
+pub use imp::select;

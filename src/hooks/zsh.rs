@@ -6,11 +6,7 @@ use super::common::{
 };
 use crate::{cli, hooks::Shell};
 
-pub fn generate_with_mappings(
-    command_not_found: bool,
-    menu: bool,
-    _mappings: &[MenuCommandMapping],
-) -> String {
+pub fn generate(command_not_found: bool, menu: bool, mappings: &[MenuCommandMapping]) -> String {
     let mut script = String::from(
         r#"if [[ -z "${DX_SESSION:-}" ]]; then
   export DX_SESSION="$$"
@@ -376,7 +372,7 @@ command_not_found_handler() {
             ),
             (
                 "__DX_ZSH_MENU_MAPPING_CASE__",
-                render_zsh_menu_mapping_case(_mappings),
+                render_zsh_menu_mapping_case(mappings),
             ),
         ],
     )
