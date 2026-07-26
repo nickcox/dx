@@ -46,3 +46,11 @@ harness = false
 [[bench]]
 name = "menu_styling"
 harness = false
+
+[[bench]]
+name = "segment_matching"
+harness = false
+
+[[bench]]
+name = "menu_labels"
+harness = false

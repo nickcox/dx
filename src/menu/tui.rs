@@ -61,6 +61,7 @@ pub struct MenuOptions {
 // fallback paths without enabling the inline TUI yet.
 #[cfg(unix)]
 mod imp {
+    use std::collections::HashMap;
     use std::fs::OpenOptions;
     use std::io::{BufWriter, Read, Write, stderr};
     use std::os::fd::AsFd;
@@ -461,77 +462,121 @@ mod imp {
             .unwrap_or_else(|| "(no matches)".to_string())
     }
 
-    fn display_label(
-        path: &Path,
-        cwd: &Path,
-        home: Option<&Path>,
-        prefer_relative_paths: bool,
-    ) -> String {
-        if prefer_relative_paths && let Some(rel) = relative_path_for_display(path, cwd) {
-            use std::path::Component;
+    /// Renders candidate labels for one menu session.
+    ///
+    /// Labels are recomputed for every candidate on every keystroke.
+    /// Canonicalising each candidate measured ~35 ms per keystroke at 2000
+    /// candidates, so the cwd is resolved once and canonical parents are cached:
+    /// candidates share parents heavily, which turns that into roughly one call
+    /// per distinct directory.
+    struct LabelContext<'a> {
+        cwd: &'a Path,
+        canonical_cwd: Option<PathBuf>,
+        home: Option<&'a Path>,
+        canonical_parents: HashMap<PathBuf, Option<PathBuf>>,
+    }
 
-            if rel.as_os_str().is_empty() {
-                "./".to_string()
-            } else {
-                let starts_with_parent = rel
+    impl<'a> LabelContext<'a> {
+        fn new(cwd: &'a Path, home: Option<&'a Path>) -> Self {
+            Self {
+                cwd,
+                canonical_cwd: std::fs::canonicalize(cwd).ok(),
+                home,
+                canonical_parents: HashMap::new(),
+            }
+        }
+
+        fn label(&mut self, path: &Path, style: QueryStyle) -> String {
+            match style {
+                QueryStyle::Compact => self.plain_label(path, true),
+                QueryStyle::BareRelative => match self.cwd_relative(path, false) {
+                    Some(label) => label,
+                    None => self.plain_label(path, false),
+                },
+                QueryStyle::DotRelative => match self.cwd_relative(path, true) {
+                    Some(label) => label,
+                    None => self.plain_label(path, false),
+                },
+                QueryStyle::ParentRelative => {
+                    match crate::complete::parent_relative_path_from(self.cwd, path) {
+                        Some(relative) => relative.display().to_string(),
+                        None => self.plain_label(path, false),
+                    }
+                }
+                QueryStyle::HomeRelative => {
+                    match crate::complete::home_relative_label(path, self.home) {
+                        Some(label) => label,
+                        None => self.plain_label(path, false),
+                    }
+                }
+                QueryStyle::Absolute => path.display().to_string(),
+            }
+        }
+
+        fn plain_label(&mut self, path: &Path, prefer_relative_paths: bool) -> String {
+            if prefer_relative_paths && let Some(relative) = self.relative_path(path) {
+                use std::path::Component;
+
+                return if relative.as_os_str().is_empty() {
+                    "./".to_string()
+                } else if relative
                     .components()
                     .next()
-                    .is_some_and(|component| matches!(component, Component::ParentDir));
-                if starts_with_parent {
-                    rel.display().to_string()
+                    .is_some_and(|component| matches!(component, Component::ParentDir))
+                {
+                    relative.display().to_string()
                 } else {
-                    format!("./{}", rel.display())
-                }
+                    format!("./{}", relative.display())
+                };
             }
-        } else if let Some(h) = home {
-            if let Ok(rel) = path.strip_prefix(h) {
-                return format!("~/{}", rel.display());
+
+            if let Some(home) = self.home
+                && let Ok(relative) = path.strip_prefix(home)
+            {
+                return format!("~/{}", relative.display());
             }
-            path.display().to_string()
-        } else {
             path.display().to_string()
         }
-    }
 
-    fn relative_path_for_display(path: &Path, cwd: &Path) -> Option<PathBuf> {
-        path.strip_prefix(cwd)
-            .ok()
-            .map(crate::complete::sanitize_relative_components)
-            .or_else(|| {
-                let path = std::fs::canonicalize(path).ok()?;
-                let cwd = std::fs::canonicalize(cwd).ok()?;
-                path.strip_prefix(cwd)
-                    .ok()
-                    .map(crate::complete::sanitize_relative_components)
-            })
-    }
+        fn relative_path(&mut self, path: &Path) -> Option<PathBuf> {
+            if let Ok(relative) = path.strip_prefix(self.cwd) {
+                return Some(crate::complete::sanitize_relative_components(relative));
+            }
 
-    fn cwd_relative_label_for_display(path: &Path, cwd: &Path, dot_prefix: bool) -> Option<String> {
-        crate::complete::cwd_relative_label(path, cwd, dot_prefix).or_else(|| {
-            let path = std::fs::canonicalize(path).ok()?;
-            let cwd = std::fs::canonicalize(cwd).ok()?;
-            crate::complete::cwd_relative_label(&path, &cwd, dot_prefix)
-        })
-    }
+            let canonical = self.canonical(path)?;
+            let canonical_cwd = self.canonical_cwd.as_deref()?;
+            canonical
+                .strip_prefix(canonical_cwd)
+                .ok()
+                .map(crate::complete::sanitize_relative_components)
+        }
 
-    fn display_label_for_style(
-        path: &Path,
-        cwd: &Path,
-        home: Option<&Path>,
-        style: QueryStyle,
-    ) -> String {
-        match style {
-            QueryStyle::Compact => display_label(path, cwd, home, true),
-            QueryStyle::BareRelative => cwd_relative_label_for_display(path, cwd, false)
-                .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            QueryStyle::DotRelative => cwd_relative_label_for_display(path, cwd, true)
-                .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            QueryStyle::ParentRelative => crate::complete::parent_relative_path_from(cwd, path)
-                .map(|relative| relative.display().to_string())
-                .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            QueryStyle::HomeRelative => crate::complete::home_relative_label(path, home)
-                .unwrap_or_else(|| display_label(path, cwd, home, false)),
-            QueryStyle::Absolute => path.display().to_string(),
+        fn cwd_relative(&mut self, path: &Path, dot_prefix: bool) -> Option<String> {
+            if let Some(label) = crate::complete::cwd_relative_label(path, self.cwd, dot_prefix) {
+                return Some(label);
+            }
+
+            let canonical = self.canonical(path)?;
+            let canonical_cwd = self.canonical_cwd.as_deref()?;
+            crate::complete::cwd_relative_label(&canonical, canonical_cwd, dot_prefix)
+        }
+
+        /// `path` with its parent resolved, reusing the result for siblings.
+        ///
+        /// A symlinked leaf is left unresolved. That can only change whether a
+        /// label renders relative or absolute, never where selecting it leads.
+        fn canonical(&mut self, path: &Path) -> Option<PathBuf> {
+            let parent = path.parent()?;
+            let name = path.file_name()?;
+
+            if let Some(cached) = self.canonical_parents.get(parent) {
+                return Some(cached.as_ref()?.join(name));
+            }
+
+            let resolved = std::fs::canonicalize(parent).ok();
+            self.canonical_parents
+                .insert(parent.to_path_buf(), resolved.clone());
+            Some(resolved?.join(name))
         }
     }
 
@@ -566,11 +611,12 @@ mod imp {
 
         let home = dirs::home_dir();
         let initial_label_style = QueryStyle::from_query(request.mode, request.query);
+        let mut label_context = LabelContext::new(request.cwd, home.as_deref());
         let initial_labels: Vec<String> = request
             .candidates
             .paths
             .iter()
-            .map(|p| display_label_for_style(p, request.cwd, home.as_deref(), initial_label_style))
+            .map(|p| label_context.label(p, initial_label_style))
             .collect();
         let height = compute_rendered_height(
             cols,
@@ -863,6 +909,7 @@ mod imp {
         }
 
         let home = dirs::home_dir();
+        let mut label_context = LabelContext::new(cwd, home.as_deref());
         let mut previous_height = area.height;
 
         loop {
@@ -871,7 +918,7 @@ mod imp {
             let labels: Vec<String> = completion
                 .paths
                 .iter()
-                .map(|p| display_label_for_style(p, cwd, home.as_deref(), label_style))
+                .map(|p| label_context.label(p, label_style))
                 .collect();
             let target_height =
                 compute_rendered_height(area.width, completion.paths.len(), &labels, options);
@@ -1487,6 +1534,26 @@ mod imp {
 
         use super::*;
 
+        /// The tests exercise labels one path at a time; production shares a
+        /// `LabelContext` across the whole session.
+        fn display_label_for_style(
+            path: &Path,
+            cwd: &Path,
+            home: Option<&Path>,
+            style: CandidateLabelStyle,
+        ) -> String {
+            LabelContext::new(cwd, home).label(path, style)
+        }
+
+        fn display_label(
+            path: &Path,
+            cwd: &Path,
+            home: Option<&Path>,
+            prefer_relative_paths: bool,
+        ) -> String {
+            LabelContext::new(cwd, home).plain_label(path, prefer_relative_paths)
+        }
+
         #[derive(Default)]
         struct WriterState {
             bytes: Vec<u8>,
@@ -1896,6 +1963,31 @@ mod imp {
             let cwd = Path::new("/Users/nick");
             let path = Path::new("/Users/nick/Desktop");
             assert_eq!(display_label(path, cwd, None, true), "./Desktop");
+        }
+
+        #[test]
+        fn cached_parent_resolution_labels_every_sibling_correctly() {
+            let temp = crate::test_support::temp_dir("menu-label-parent-cache");
+            let real_cwd = temp.path().join("real");
+            let linked_cwd = temp.path().join("linked");
+            let nested = real_cwd.join("group");
+            fs::create_dir_all(nested.join("alpha")).expect("create alpha");
+            fs::create_dir_all(nested.join("beta")).expect("create beta");
+            symlink("real", &linked_cwd).expect("create cwd symlink");
+
+            // One context, several candidates sharing a parent: the second and
+            // third must come from the cache with the same answer as the first.
+            let mut context = LabelContext::new(&linked_cwd, None);
+            let labels: Vec<String> = [
+                nested.join("alpha"),
+                nested.join("beta"),
+                nested.join("alpha"),
+            ]
+            .iter()
+            .map(|path| context.label(path, CandidateLabelStyle::BareRelative))
+            .collect();
+
+            assert_eq!(labels, ["group/alpha", "group/beta", "group/alpha"]);
         }
 
         #[test]
