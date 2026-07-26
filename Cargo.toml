@@ -42,3 +42,7 @@ nix = { version = "0.29", features = ["poll"] }
 [[bench]]
 name = "resolve_latency"
 harness = false
+
+[[bench]]
+name = "menu_styling"
+harness = false

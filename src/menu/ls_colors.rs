@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use ratatui::style::{Color, Modifier, Style};
@@ -19,7 +18,8 @@ pub struct LsColorsConfig {
     sticky: Option<Style>,
     orphan_symlink: Option<Style>,
     missing: Option<Style>,
-    extensions: HashMap<String, Style>,
+    /// Suffix rules, longest first so the first match is the most specific.
+    extensions: Vec<(String, Style)>,
 }
 
 impl LsColorsConfig {
@@ -104,11 +104,13 @@ impl LsColorsConfig {
     }
 
     fn extension_style(&self, path: &Path) -> Option<Style> {
+        if self.extensions.is_empty() {
+            return None;
+        }
         let filename = path.file_name()?.to_string_lossy().to_lowercase();
         self.extensions
             .iter()
-            .filter(|(suffix, _)| filename.ends_with(suffix.as_str()))
-            .max_by_key(|(suffix, _)| suffix.len())
+            .find(|(suffix, _)| filename.ends_with(suffix.as_str()))
             .map(|(_, style)| *style)
     }
 }
@@ -146,7 +148,7 @@ pub fn parse_ls_colors(val: &str) -> LsColorsConfig {
         sticky: None,
         orphan_symlink: None,
         missing: None,
-        extensions: HashMap::new(),
+        extensions: Vec::new(),
     };
 
     for entry in val.split(':') {
@@ -175,12 +177,18 @@ pub fn parse_ls_colors(val: &str) -> LsColorsConfig {
             "mi" => config.missing = Some(style),
             _ => {
                 if let Some(ext) = key.strip_prefix('*') {
-                    config.extensions.insert(ext.to_lowercase(), style);
+                    config.extensions.push((ext.to_lowercase(), style));
                 }
             }
         }
     }
 
+    config.extensions.sort_by(|(left, _), (right, _)| {
+        right.len().cmp(&left.len()).then_with(|| left.cmp(right))
+    });
+    config
+        .extensions
+        .dedup_by(|(left, _), (right, _)| left == right);
     config
 }
 
@@ -330,7 +338,12 @@ mod tests {
     #[test]
     fn parse_extension_entry() {
         let config = parse_ls_colors("*.rs=01;31");
-        let style = config.extensions.get(".rs").expect("rs extension");
+        let style = config
+            .extensions
+            .iter()
+            .find(|(suffix, _)| suffix == ".rs")
+            .map(|(_, style)| *style)
+            .expect("rs extension");
         assert_eq!(style.fg, Some(Color::Red));
     }
 
@@ -339,7 +352,7 @@ mod tests {
         let config = parse_ls_colors("di=01;34:ex=01;32:*.rs=01;31");
         assert!(config.dir.is_some());
         assert!(config.executable.is_some());
-        assert!(config.extensions.contains_key(".rs"));
+        assert!(config.extensions.iter().any(|(suffix, _)| suffix == ".rs"));
     }
 
     #[test]

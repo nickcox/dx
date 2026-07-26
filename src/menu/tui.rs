@@ -718,16 +718,29 @@ mod imp {
         list_state: &mut ListState,
     ) {
         let show_border = options.show_border;
+        let styled = visible_window(
+            list_state.offset(),
+            list_state.selected(),
+            layout.visible_rows,
+            labels.len(),
+        );
         let items: Vec<ListItem> = labels
             .iter()
             .enumerate()
             .map(|(i, label)| {
                 let selected = list_state.selected() == Some(i);
+                // Colouring a row costs a stat; rows outside the visible window
+                // are never drawn, so only look those up.
+                let ls_colors = if styled.contains(&i) {
+                    options.ls_colors.as_ref()
+                } else {
+                    None
+                };
                 let line = Line::from(candidate_span(
                     label.clone(),
                     &completion.paths[i],
                     selected,
-                    options.ls_colors.as_ref(),
+                    ls_colors,
                 ));
                 ListItem::new(line)
             })
@@ -747,6 +760,32 @@ mod imp {
             let mut scrollbar_state = ScrollbarState::new(labels.len()).position(selected);
             render_scrollbar(frame, layout, show_border, &mut scrollbar_state);
         }
+    }
+
+    /// The rows a `List` will actually draw, mirroring ratatui's scroll-to-
+    /// selected behaviour and padded by a row either side so an adjustment
+    /// inside ratatui cannot leave a drawn row unstyled.
+    fn visible_window(
+        offset: usize,
+        selected: Option<usize>,
+        height: usize,
+        len: usize,
+    ) -> std::ops::Range<usize> {
+        if height == 0 || len == 0 {
+            return 0..0;
+        }
+
+        let mut start = offset.min(len.saturating_sub(1));
+        if let Some(selected) = selected.filter(|selected| *selected < len) {
+            if selected < start {
+                start = selected;
+            } else if selected >= start + height {
+                start = selected + 1 - height;
+            }
+        }
+
+        let start = start.saturating_sub(1);
+        start..(start + height + 2).min(len)
     }
 
     fn render_scrollbar(
@@ -1775,6 +1814,45 @@ mod imp {
             assert_eq!(terminal_ops.disable_calls.get(), 1);
             assert!(terminal_ops.output_contains(b"\x1b[2K"));
             assert!(terminal_ops.output_contains(b"\x1b[?25h"));
+        }
+
+        #[test]
+        fn visible_window_covers_the_selection_when_scrolled() {
+            // selection above the current offset scrolls up to it
+            let window = visible_window(40, Some(10), 20, 100);
+            assert!(window.contains(&10), "{window:?}");
+
+            // selection below the window scrolls down so it is the last row
+            let window = visible_window(0, Some(50), 20, 100);
+            assert!(window.contains(&50), "{window:?}");
+
+            // selection already inside keeps the offset
+            let window = visible_window(30, Some(35), 20, 100);
+            assert!(window.contains(&35), "{window:?}");
+        }
+
+        #[test]
+        fn visible_window_is_bounded_and_padded() {
+            let window = visible_window(0, Some(0), 20, 2400);
+            assert_eq!(window.start, 0);
+            assert!(
+                window.len() <= 22,
+                "a 20-row list should style at most 22 of 2400 candidates, got {}",
+                window.len()
+            );
+
+            // never runs past the candidate list
+            let window = visible_window(0, Some(99), 20, 100);
+            assert!(window.end <= 100, "{window:?}");
+        }
+
+        #[test]
+        fn visible_window_handles_degenerate_inputs() {
+            assert!(visible_window(0, None, 0, 100).is_empty());
+            assert!(visible_window(0, Some(0), 20, 0).is_empty());
+            // an offset past the end must not panic or invert the range
+            let window = visible_window(500, Some(1), 20, 3);
+            assert!(window.start <= window.end && window.end <= 3, "{window:?}");
         }
 
         #[test]
