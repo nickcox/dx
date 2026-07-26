@@ -39,12 +39,13 @@ impl QueryStyle {
 
         match PathQuery::new(query).kind {
             QueryKind::Home => Self::HomeRelative,
-            QueryKind::Absolute | QueryKind::RootRelative => Self::Absolute,
+            QueryKind::Absolute | QueryKind::RootRelative | QueryKind::DriveRelative => {
+                Self::Absolute
+            }
             QueryKind::ExplicitRelative if query == ".." || query.starts_with("../") => {
                 Self::ParentRelative
             }
             QueryKind::ExplicitRelative => Self::DotRelative,
-            QueryKind::DriveRelative => Self::Absolute,
             QueryKind::Plain => Self::BareRelative,
         }
     }
@@ -69,6 +70,24 @@ impl MenuMode {
         )
     }
 
+    /// Whether candidates must be canonicalised to drop the cwd itself. Listed
+    /// exhaustively rather than with a wildcard so a new mode has to choose:
+    /// canonicalising costs ~12us per candidate, which the high-volume
+    /// filesystem modes cannot absorb.
+    pub fn needs_cwd_filtering(self) -> bool {
+        match self {
+            Self::Completion(CompletionMode::Paths) | Self::Path | Self::Directory | Self::File => {
+                false
+            }
+            Self::Completion(
+                CompletionMode::Ancestors
+                | CompletionMode::Frecents
+                | CompletionMode::Recents
+                | CompletionMode::Stack(_),
+            ) => true,
+        }
+    }
+
     pub fn is_mapped_filesystem_mode(self) -> bool {
         self.filesystem_kind().is_some()
     }
@@ -89,6 +108,33 @@ impl MenuMode {
 mod tests {
     use super::{MenuMode, QueryStyle};
     use crate::complete::CompletionMode;
+
+    /// Canonicalising every candidate is the expensive path; the filesystem
+    /// modes that produce the most candidates must stay off it.
+    #[test]
+    fn only_the_low_volume_modes_filter_the_cwd() {
+        use crate::complete::StackDirection;
+
+        for mode in [
+            MenuMode::Completion(CompletionMode::Paths),
+            MenuMode::Path,
+            MenuMode::Directory,
+            MenuMode::File,
+        ] {
+            assert!(
+                !mode.needs_cwd_filtering(),
+                "{mode:?} must not canonicalise"
+            );
+        }
+        for mode in [
+            MenuMode::Completion(CompletionMode::Ancestors),
+            MenuMode::Completion(CompletionMode::Frecents),
+            MenuMode::Completion(CompletionMode::Recents),
+            MenuMode::Completion(CompletionMode::Stack(StackDirection::Back)),
+        ] {
+            assert!(mode.needs_cwd_filtering(), "{mode:?} must filter the cwd");
+        }
+    }
 
     #[test]
     fn filesystem_query_styles_preserve_explicit_anchors() {

@@ -81,11 +81,12 @@ impl Resolver {
             FilesystemPrefixFallback::AlwaysForFilesystemPrefix,
         ) {
             Ok(value) => value,
-            Err(super::ResolveError::EmptyQuery | super::ResolveError::PathNotFound(_)) => {
-                return CompletionCandidates::limited(output, limit);
-            }
+            // Every failure yields what was collected so far. Listed exhaustively
+            // rather than `Err(_)` so a new variant has to be considered here.
             Err(
-                super::ResolveError::Ambiguous { .. }
+                super::ResolveError::EmptyQuery
+                | super::ResolveError::PathNotFound(_)
+                | super::ResolveError::Ambiguous { .. }
                 | super::ResolveError::NotFound
                 | super::ResolveError::DriveRelativePath(_)
                 | super::ResolveError::Filesystem { .. },

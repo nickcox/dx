@@ -77,13 +77,10 @@ pub fn source_candidates_with_meta(
         ),
     };
 
-    let canonical_cwd = match mode {
-        MenuMode::Completion(CompletionMode::Paths)
-        | MenuMode::Path
-        | MenuMode::Directory
-        | MenuMode::File => None,
-        _ => cwd.and_then(|p| std::fs::canonicalize(p).ok()),
-    };
+    let canonical_cwd = mode
+        .needs_cwd_filtering()
+        .then(|| cwd.and_then(|p| std::fs::canonicalize(p).ok()))
+        .flatten();
 
     let mut seen = HashSet::new();
     let mut filtered = Vec::new();

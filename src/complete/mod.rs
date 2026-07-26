@@ -45,6 +45,9 @@ pub enum SelectorError {
     EmptyCandidates,
     #[error("selector index {index} out of range (1..={total})")]
     OutOfRange { index: usize, total: usize },
+    /// All digits but too large for `usize`, so `OutOfRange` cannot carry it.
+    #[error("selector {selector} out of range (1..={total})")]
+    IndexTooLarge { selector: String, total: usize },
     #[error("selector did not match any candidate: {0}")]
     NoMatch(String),
 }
@@ -138,8 +141,8 @@ pub fn select_candidate(
         .iter()
         .all(|value| value.is_ascii_digit())
     {
-        return Err(SelectorError::OutOfRange {
-            index: 0,
+        return Err(SelectorError::IndexTooLarge {
+            selector: selector.to_string(),
             total: candidates.len(),
         });
     }
@@ -417,6 +420,28 @@ mod tests {
         let candidates = vec![PathBuf::from("/a")];
         let err = select_candidate(&candidates, Some("3")).expect_err("must fail");
         assert_eq!(err, SelectorError::OutOfRange { index: 3, total: 1 });
+    }
+
+    /// A selector too large for `usize` used to be reported as index 0, an index
+    /// the user never typed and which the stated range excludes.
+    #[test]
+    fn selector_too_large_for_usize_reports_what_was_typed() {
+        let candidates = vec![PathBuf::from("/a")];
+        let typed = "99999999999999999999999999";
+        let err = select_candidate(&candidates, Some(typed)).expect_err("must fail");
+
+        assert_eq!(
+            err,
+            SelectorError::IndexTooLarge {
+                selector: typed.to_string(),
+                total: 1,
+            }
+        );
+        assert_eq!(
+            err.to_string(),
+            format!("selector {typed} out of range (1..=1)")
+        );
+        assert!(!err.to_string().contains("index 0"));
     }
 
     #[test]
