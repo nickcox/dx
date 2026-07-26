@@ -1,3 +1,6 @@
+//! The JSON protocol the menu returns to the shell: replace this span of the
+//! buffer, or do nothing.
+
 use serde::Serialize;
 
 /// The action returned by `dx menu` as JSON on stdout.

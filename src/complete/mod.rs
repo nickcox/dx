@@ -1,3 +1,6 @@
+//! Candidate sources behind `dx complete` and the menu — filesystem prefixes,
+//! ancestors, frecency, recents and the session stack — plus the selector
+//! grammar and the plain/JSON output formats the shell hooks consume.
 pub mod ancestors;
 pub mod filesystem;
 pub mod filter;

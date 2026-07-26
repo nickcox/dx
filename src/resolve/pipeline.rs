@@ -1,3 +1,5 @@
+//! `Resolver::resolve`: the precedence chain from raw query to one directory.
+
 use super::{
     FilesystemPrefixFallback, ResolveError, ResolveQuery, ResolveResult, Resolver,
     prepare_candidates, prepare_search_query, resolve_search_candidates, traversal,

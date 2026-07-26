@@ -1,3 +1,5 @@
+//! Reads zoxide's database, when present, to rank directories by frequency and
+//! recency. Absent zoxide, lookups return nothing rather than failing.
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;

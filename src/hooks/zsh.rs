@@ -1,3 +1,5 @@
+//! Zsh hook generation.
+
 use super::MenuCommandMapping;
 use super::common::{
     apply_template_replacements, render_posix_menu_eligible_case_pattern,

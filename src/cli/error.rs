@@ -1,3 +1,6 @@
+//! `CliError`, the one type every handler returns. Its `Display` is the exact
+//! stderr line, so `cli::run` is the only place that formats an error.
+
 use std::io;
 use std::path::PathBuf;
 

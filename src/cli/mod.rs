@@ -1,3 +1,5 @@
+//! Argument parsing and the single place errors become exit codes. Every
+//! handler returns `Result<(), CliError>`; `run` is the only writer of stderr.
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 
 use crate::hooks::Shell;

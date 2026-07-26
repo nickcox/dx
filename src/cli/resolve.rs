@@ -1,3 +1,5 @@
+//! `dx resolve` — resolves one query and prints the path, plain or as JSON.
+
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;

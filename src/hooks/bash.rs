@@ -1,3 +1,5 @@
+//! Bash hook generation.
+
 use super::MenuCommandMapping;
 use super::common::{
     apply_template_replacements, render_bash_completion_bindings, render_bash_completion_functions,

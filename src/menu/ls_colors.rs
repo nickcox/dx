@@ -1,3 +1,6 @@
+//! Parsing `LS_COLORS` into ratatui styles, so candidates are coloured the way
+//! the user's `ls` would colour them.
+
 use std::path::Path;
 
 use ratatui::style::{Color, Modifier, Style};

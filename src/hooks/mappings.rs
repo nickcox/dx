@@ -1,3 +1,6 @@
+//! Parsing `menu.command_mappings`: which external commands get menu-backed
+//! filesystem completion, and in which mode.
+
 use std::collections::HashSet;
 use std::fmt;
 

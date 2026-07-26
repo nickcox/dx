@@ -1,3 +1,5 @@
+//! Settings from `config.toml` and the environment. Every value follows one
+//! precedence chain: flags, then environment, then file, then defaults.
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -1,3 +1,6 @@
+//! Directory candidates for a query, drawn from the same resolution pipeline
+//! `dx resolve` uses so the two never disagree.
+
 use std::collections::HashSet;
 use std::path::PathBuf;
 

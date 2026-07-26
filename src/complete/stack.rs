@@ -1,3 +1,6 @@
+//! Candidates from one half of the session stack, for `dx back` and
+//! `dx forward`.
+
 use std::path::PathBuf;
 
 use super::{StackDirection, complete_session_paths};

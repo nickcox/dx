@@ -1,3 +1,6 @@
+//! Walking directories segment by segment. The caller chooses whether an
+//! unreadable directory is skipped or reported.
+
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};

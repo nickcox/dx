@@ -1,3 +1,5 @@
+//! Named directory shortcuts, persisted as TOML. Names are validated so a
+//! bookmark can never shadow a path segment or a selector.
 pub mod storage;
 
 use std::collections::BTreeMap;
@@ -33,10 +35,6 @@ pub enum BookmarkError {
 impl BookmarkStore {
     pub fn from_paths(bookmarks: BTreeMap<String, PathBuf>) -> Self {
         Self { bookmarks }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.bookmarks.is_empty()
     }
 
     pub fn set(&mut self, name: &str, path: &Path) -> Result<PathBuf, BookmarkError> {

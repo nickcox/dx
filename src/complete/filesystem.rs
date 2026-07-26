@@ -1,3 +1,6 @@
+//! Completing a filesystem prefix by listing the parent directory, filtered to
+//! paths, directories or files.
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 

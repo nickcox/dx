@@ -1,3 +1,5 @@
+//! Recently visited directories from the session stack.
+
 use std::path::PathBuf;
 
 use super::complete_session_paths;

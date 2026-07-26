@@ -1,3 +1,6 @@
+//! Turns an abbreviated query into one directory. Bookmarks, the session stack
+//! and search roots are consulted in a fixed precedence order, and an ambiguous
+//! query is an error rather than a guess.
 pub mod abbreviation;
 mod completion;
 pub(crate) mod path_query;

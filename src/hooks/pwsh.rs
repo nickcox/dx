@@ -1,3 +1,6 @@
+//! PowerShell hook generation, including the PSReadLine key binding and the
+//! native `TabExpansion2` completer.
+
 use super::common::{
     MENU_ELIGIBLE_COMMANDS, apply_template_replacements, pwsh_quoted_words,
     render_pwsh_completion_bindings, render_pwsh_menu_mapping_list,

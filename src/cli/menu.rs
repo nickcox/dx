@@ -1,3 +1,6 @@
+//! `dx menu` — parses the shell's buffer, sources candidates, runs the TUI, and
+//! prints the JSON action telling the shell how to rewrite its line.
+
 use std::path::{Path, PathBuf};
 
 use clap::{Args, ValueHint};

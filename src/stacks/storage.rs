@@ -1,3 +1,5 @@
+//! Reading and writing per-session stack files, and pruning stale ones.
+
 use std::env;
 use std::fs;
 use std::fs::DirEntry;

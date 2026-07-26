@@ -1,3 +1,6 @@
+//! `dx complete` and `dx navigate`: candidate output for shell hooks, and
+//! selecting one of those candidates by index or filter.
+
 use clap::{Subcommand, ValueEnum};
 
 use crate::common;

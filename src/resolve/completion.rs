@@ -1,3 +1,6 @@
+//! Collecting every candidate a query could mean, rather than insisting on one.
+//! Shares the resolution pipeline with `dx resolve`, but tolerates ambiguity.
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 

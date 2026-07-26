@@ -1,3 +1,6 @@
+//! Classifying a raw query: absolute, home-relative, explicitly relative, or a
+//! plain abbreviation, and splitting it into segments.
+
 use std::path::{Component, Path, PathBuf, is_separator};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

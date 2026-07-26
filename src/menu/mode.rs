@@ -1,3 +1,5 @@
+//! What a menu invocation is completing, and the path style its query implies.
+
 use crate::complete::CompletionMode;
 use crate::complete::filesystem::FilesystemCompletionKind;
 use crate::resolve::path_query::{PathQuery, QueryKind};

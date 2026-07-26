@@ -1,3 +1,5 @@
+//! Helpers shared by more than one domain module: atomic file replacement,
+//! candidate ordering and limiting, and session-id resolution.
 use std::env;
 use std::fs;
 use std::io;

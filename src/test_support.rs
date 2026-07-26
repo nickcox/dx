@@ -1,3 +1,7 @@
+//! Serialises env-mutating tests behind one lock. Rust runs tests in threads
+//! and the environment is process-wide, so `ScopedProcess` both holds that lock
+//! and restores what it changed.
+
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};

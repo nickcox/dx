@@ -1,3 +1,6 @@
+//! Queries that name a directory directly — bookmarks and literal paths — which
+//! win before any abbreviation matching runs.
+
 use std::io;
 use std::path::{Path, PathBuf};
 

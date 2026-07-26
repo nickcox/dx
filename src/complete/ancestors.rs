@@ -1,3 +1,5 @@
+//! Ancestors of the cwd, for `dx up`.
+
 use std::env;
 use std::path::{Path, PathBuf};
 

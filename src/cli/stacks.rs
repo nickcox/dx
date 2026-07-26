@@ -1,3 +1,6 @@
+//! `dx stack`, `dx back` and `dx forward` — recording and replaying the
+//! per-session navigation history.
+
 use std::env;
 use std::path::PathBuf;
 

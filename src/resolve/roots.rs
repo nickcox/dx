@@ -1,3 +1,6 @@
+//! Searching the configured roots when a query does not resolve against the
+//! cwd.
+
 use std::path::PathBuf;
 
 use super::traversal::{OnIoError, TraversalError};

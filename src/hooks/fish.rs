@@ -1,3 +1,5 @@
+//! Fish hook generation.
+
 use super::MenuCommandMapping;
 use super::common::{
     MENU_ELIGIBLE_COMMANDS, apply_template_replacements, fish_case_words,

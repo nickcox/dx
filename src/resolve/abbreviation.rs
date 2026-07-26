@@ -1,3 +1,6 @@
+//! Matching one query segment against a directory name — the abbreviation rule
+//! that lets `p/s/m` reach `projects/sample/module`.
+
 use std::path::PathBuf;
 
 use super::traversal::{OnIoError, TraversalError};

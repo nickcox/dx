@@ -1,3 +1,5 @@
+//! Reading and writing the bookmarks TOML file.
+
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -194,7 +196,7 @@ mod tests {
         process.remove("XDG_DATA_HOME");
 
         let store = read_store().expect("read missing store");
-        assert!(store.is_empty());
+        assert!(store.list().is_empty());
     }
 
     #[test]

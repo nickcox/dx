@@ -1,3 +1,6 @@
+//! Narrowing candidates by a typed query: exact, prefix and subsequence
+//! matching, ranked so the closest match sorts first.
+
 use std::path::{Component, Path, PathBuf};
 
 use crate::resolve::path_query::{PathQuery, QueryKind};

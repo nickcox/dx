@@ -1,3 +1,5 @@
+//! Generates the shell integration `dx init` prints. Each hook is a template
+//! under `templates/`, checked against a golden file and linted in CI.
 mod bash;
 mod common;
 mod fish;

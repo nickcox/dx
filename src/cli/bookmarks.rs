@@ -1,3 +1,5 @@
+//! `dx bookmarks` — add, remove and list bookmarks.
+
 use std::env;
 use std::path::PathBuf;
 

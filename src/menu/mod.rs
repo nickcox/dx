@@ -1,3 +1,5 @@
+//! The interactive completion menu: candidate sourcing, the inline TUI, and the
+//! JSON action protocol that tells the shell how to rewrite its buffer.
 pub mod action;
 pub mod buffer;
 pub mod ls_colors;

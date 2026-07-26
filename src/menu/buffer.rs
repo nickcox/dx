@@ -1,3 +1,6 @@
+//! Parsing a shell command-line buffer to find the word under the cursor and
+//! which menu mode it implies.
+
 use crate::complete::filesystem::FilesystemCompletionKind;
 use crate::complete::{CompletionMode, StackDirection};
 use crate::menu::MenuMode;

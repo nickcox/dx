@@ -1,3 +1,6 @@
+//! `dx init` — prints the shell hook. Loads config leniently, because a broken
+//! config file must not stop a shell profile from getting a usable hook.
+
 use crate::config::AppConfig;
 use crate::hooks::{
     self, DEFAULT_PWSH_MENU_KEY, HookOptions, InitMenuMode, MenuCommandMapping, Shell,

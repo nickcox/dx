@@ -1,3 +1,5 @@
+//! Per-session navigation history backing `dx back` and `dx forward`, stored as
+//! an undo/redo pair and capped at `MAX_DEPTH` entries.
 pub mod storage;
 
 use std::path::{Path, PathBuf};
