@@ -6,9 +6,13 @@ use super::common::{
     render_bash_menu_fallback_case, render_bash_menu_mapping_case,
     render_posix_wrapper_declarations,
 };
-use crate::{cli, hooks::Shell};
 
-pub fn generate(command_not_found: bool, menu: bool, mappings: &[MenuCommandMapping]) -> String {
+pub fn generate(
+    command_not_found: bool,
+    menu: bool,
+    mappings: &[MenuCommandMapping],
+    clap_completion: &str,
+) -> String {
     let mut script = String::from(include_str!("templates/bash/base.sh"));
 
     if menu {
@@ -22,10 +26,7 @@ pub fn generate(command_not_found: bool, menu: bool, mappings: &[MenuCommandMapp
     apply_template_replacements(
         script,
         [
-            (
-                "__DX_CLAP_COMPLETION__",
-                cli::completion_script(Shell::Bash),
-            ),
+            ("__DX_CLAP_COMPLETION__", clap_completion.to_string()),
             (
                 "__DX_BASH_COMPLETION_BINDINGS__",
                 render_bash_completion_bindings(),

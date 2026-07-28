@@ -5,9 +5,13 @@ use super::common::{
     MENU_ELIGIBLE_COMMANDS, apply_template_replacements, fish_case_words,
     render_fish_completion_bindings, render_fish_menu_mapping_cases,
 };
-use crate::{cli, hooks::Shell};
 
-pub fn generate(command_not_found: bool, menu: bool, mappings: &[MenuCommandMapping]) -> String {
+pub fn generate(
+    command_not_found: bool,
+    menu: bool,
+    mappings: &[MenuCommandMapping],
+    clap_completion: &str,
+) -> String {
     let mut script = String::from(include_str!("templates/fish/base.fish"));
 
     if menu {
@@ -21,10 +25,7 @@ pub fn generate(command_not_found: bool, menu: bool, mappings: &[MenuCommandMapp
     apply_template_replacements(
         script,
         [
-            (
-                "__DX_CLAP_COMPLETION__",
-                cli::completion_script(Shell::Fish),
-            ),
+            ("__DX_CLAP_COMPLETION__", clap_completion.to_string()),
             (
                 "__DX_FISH_COMPLETION_BINDINGS__",
                 render_fish_completion_bindings(),

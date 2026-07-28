@@ -6,7 +6,6 @@ use super::common::{
     render_pwsh_completion_bindings, render_pwsh_menu_mapping_list,
     render_pwsh_native_completion_bindings,
 };
-use crate::{cli, hooks::Shell};
 use thiserror::Error;
 
 use super::{InitMenuMode, MenuCommandMapping};
@@ -37,6 +36,7 @@ pub fn generate(
     menu_mode: InitMenuMode,
     mappings: &[MenuCommandMapping],
     menu_key: &str,
+    clap_completion: &str,
 ) -> String {
     let menu = menu_mode == InitMenuMode::Tui;
     let native_menu = menu_mode == InitMenuMode::NativePwsh;
@@ -67,11 +67,7 @@ pub fn generate(
     } else {
         render_pwsh_completion_bindings()
     };
-    let completion_bindings = format!(
-        "{}\n\n{}",
-        cli::completion_script(Shell::Pwsh),
-        navigation_completion_bindings
-    );
+    let completion_bindings = format!("{}\n\n{}", clap_completion, navigation_completion_bindings);
 
     let script = apply_template_replacements(
         script,

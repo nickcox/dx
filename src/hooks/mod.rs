@@ -53,17 +53,36 @@ impl Default for HookOptions {
 
 pub const DEFAULT_PWSH_MENU_KEY: &str = "Tab";
 
-pub fn generate(shell: Shell, options: &HookOptions) -> String {
+/// `clap_completion` is the completion script for `shell`, supplied by the caller
+/// because generating it needs the clap `Command`, which lives in `cli`. Passing
+/// it in keeps hook generation free of any dependency on the CLI layer.
+pub fn generate(shell: Shell, options: &HookOptions, clap_completion: &str) -> String {
     let menu = options.menu_mode == InitMenuMode::Tui;
     match shell {
-        Shell::Bash => bash::generate(options.command_not_found, menu, &options.mappings),
-        Shell::Zsh => zsh::generate(options.command_not_found, menu, &options.mappings),
-        Shell::Fish => fish::generate(options.command_not_found, menu, &options.mappings),
+        Shell::Bash => bash::generate(
+            options.command_not_found,
+            menu,
+            &options.mappings,
+            clap_completion,
+        ),
+        Shell::Zsh => zsh::generate(
+            options.command_not_found,
+            menu,
+            &options.mappings,
+            clap_completion,
+        ),
+        Shell::Fish => fish::generate(
+            options.command_not_found,
+            menu,
+            &options.mappings,
+            clap_completion,
+        ),
         Shell::Pwsh => pwsh::generate(
             options.command_not_found,
             options.menu_mode,
             &options.mappings,
             &options.pwsh_menu_key,
+            clap_completion,
         ),
     }
 }
@@ -71,9 +90,15 @@ pub fn generate(shell: Shell, options: &HookOptions) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        HookOptions, InitMenuMode, MenuCommandMapping, Shell, generate,
-        parse_menu_command_mappings, parse_pwsh_menu_key,
+        HookOptions, InitMenuMode, MenuCommandMapping, Shell, parse_menu_command_mappings,
+        parse_pwsh_menu_key,
     };
+
+    /// Supplies the clap completion the way `dx init` does. Test-only, so the
+    /// production dependency stays one-way: `cli` -> `hooks`.
+    fn generate(shell: Shell, options: &HookOptions) -> String {
+        super::generate(shell, options, &crate::cli::completion_script(shell))
+    }
 
     /// The tests enumerate the (command_not_found x menu) matrix, so a helper
     /// keeps that shape readable without reviving the old boolean-pair API.

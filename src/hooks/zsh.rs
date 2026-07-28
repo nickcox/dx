@@ -6,9 +6,13 @@ use super::common::{
     render_posix_wrapper_declarations, render_zsh_completion_bindings,
     render_zsh_completion_functions, render_zsh_menu_mapping_case,
 };
-use crate::{cli, hooks::Shell};
 
-pub fn generate(command_not_found: bool, menu: bool, mappings: &[MenuCommandMapping]) -> String {
+pub fn generate(
+    command_not_found: bool,
+    menu: bool,
+    mappings: &[MenuCommandMapping],
+    clap_completion: &str,
+) -> String {
     let mut script = String::from(include_str!("templates/zsh/base.zsh"));
 
     if menu {
@@ -22,7 +26,7 @@ pub fn generate(command_not_found: bool, menu: bool, mappings: &[MenuCommandMapp
     apply_template_replacements(
         script,
         [
-            ("__DX_CLAP_COMPLETION__", cli::completion_script(Shell::Zsh)),
+            ("__DX_CLAP_COMPLETION__", clap_completion.to_string()),
             (
                 "__DX_ZSH_COMPLETION_BINDINGS__",
                 render_zsh_completion_bindings(),

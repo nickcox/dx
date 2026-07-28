@@ -51,6 +51,7 @@ pub fn run_init(
                 mappings,
                 pwsh_menu_key,
             },
+            &super::completion_script(shell),
         )
     );
     Ok(())
