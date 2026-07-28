@@ -2,6 +2,7 @@
 //! handler returns `Result<(), CliError>`; `run` is the only writer of stderr.
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 
+use crate::config::AppConfig;
 use crate::hooks::Shell;
 use crate::resolve::Resolver;
 
@@ -132,10 +133,10 @@ fn dispatch(cli: Cli) -> Result<(), CliError> {
             native_menu,
         } => init::run_init(shell, command_not_found, menu, native_menu),
         Commands::Resolve { query, list, json } => {
-            with_resolver(|resolver| resolve::run_resolve(resolver, &query, list, json))
+            with_config(|_, resolver| resolve::run_resolve(resolver, &query, list, json))
         }
         Commands::Complete { command } => {
-            with_resolver(|resolver| complete::run_complete(resolver, command))
+            with_config(|_, resolver| complete::run_complete(resolver, command))
         }
         Commands::Navigate {
             mode,
@@ -144,10 +145,19 @@ fn dispatch(cli: Cli) -> Result<(), CliError> {
         } => complete::run_navigate(mode, selector.as_deref(), session.as_deref()),
         Commands::Bookmarks { json, command } => bookmarks::run_bookmarks(command, json),
         Commands::Stack(args) => stacks::run_stack(args),
-        Commands::Menu(cmd) => with_resolver(|resolver| menu::run_menu(resolver, cmd)),
+        Commands::Menu(cmd) => {
+            with_config(|config, resolver| menu::run_menu(&config.menu, resolver, cmd))
+        }
     }
 }
 
-fn with_resolver(run: impl FnOnce(&Resolver) -> Result<(), CliError>) -> Result<(), CliError> {
-    run(&Resolver::from_environment()?)
+/// Loads the config once and hands the caller both it and a resolver built from
+/// it, so a command that needs settings does not have to reach through the
+/// resolver for them.
+fn with_config(
+    run: impl FnOnce(&AppConfig, &Resolver) -> Result<(), CliError>,
+) -> Result<(), CliError> {
+    let config = AppConfig::load()?;
+    let resolver = Resolver::from_config(&config);
+    run(&config, &resolver)
 }

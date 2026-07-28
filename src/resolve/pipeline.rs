@@ -10,7 +10,7 @@ impl Resolver {
     pub fn resolve(&self, query: ResolveQuery<'_>) -> Result<ResolveResult, ResolveError> {
         let prepared = prepare_search_query(
             query.cwd,
-            &self.config.search_roots,
+            &self.search_roots,
             query.raw,
             FilesystemPrefixFallback::DirectResolutionOnly,
         )?;
@@ -30,7 +30,7 @@ impl Resolver {
         let mut candidates = resolve_search_candidates(
             &prepared.fallback_policy.effective_roots,
             &prepared.effective_query,
-            self.config.resolve.case_sensitive,
+            self.case_sensitive,
             OnIoError::Propagate,
         )?;
 

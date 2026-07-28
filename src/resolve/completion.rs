@@ -71,7 +71,7 @@ impl Resolver {
 
         let prepared = match prepare_search_query(
             &effective_cwd,
-            &self.config.search_roots,
+            &self.search_roots,
             raw_query,
             FilesystemPrefixFallback::AlwaysForFilesystemPrefix,
         ) {
@@ -118,7 +118,7 @@ impl Resolver {
         let mut search_candidates = resolve_search_candidates(
             &prepared.fallback_policy.effective_roots,
             &prepared.effective_query,
-            self.config.resolve.case_sensitive,
+            self.case_sensitive,
             traversal::OnIoError::Skip,
         )
         .unwrap_or_default();

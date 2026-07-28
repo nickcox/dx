@@ -50,9 +50,12 @@ pub enum ResolveError {
     NotFound,
 }
 
+/// Holds the two settings resolution reads, rather than the whole [`AppConfig`],
+/// so nothing can reach through the resolver for unrelated configuration.
 #[derive(Debug, Clone)]
 pub struct Resolver {
-    pub(crate) config: AppConfig,
+    search_roots: Vec<PathBuf>,
+    case_sensitive: bool,
     bookmark_lookup: fn(&str) -> Option<PathBuf>,
 }
 
@@ -79,11 +82,11 @@ impl CompletionCandidates {
 
 impl Resolver {
     pub fn from_environment() -> Result<Self, ConfigError> {
-        let config = AppConfig::load()?;
-        Ok(Self {
-            config,
-            bookmark_lookup: bookmarks::lookup,
-        })
+        Ok(Self::from_config(&AppConfig::load()?))
+    }
+
+    pub fn from_config(config: &AppConfig) -> Self {
+        Self::with_bookmark_lookup(config.clone(), bookmarks::lookup)
     }
 
     pub fn with_bookmark_lookup(
@@ -91,7 +94,8 @@ impl Resolver {
         bookmark_lookup: fn(&str) -> Option<PathBuf>,
     ) -> Self {
         Self {
-            config,
+            search_roots: config.search_roots,
+            case_sensitive: config.resolve.case_sensitive,
             bookmark_lookup,
         }
     }

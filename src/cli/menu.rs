@@ -7,6 +7,7 @@ use clap::{Args, ValueHint};
 
 use crate::complete::CompletionMode;
 use crate::complete::filesystem::FilesystemCompletionKind;
+use crate::config::MenuSettings;
 use crate::hooks::Shell;
 use crate::menu::{
     self, MenuAction, MenuMode, MenuOptions, MenuRequest, MenuResult, QueryStyle,
@@ -401,7 +402,11 @@ impl Outcome {
     }
 }
 
-pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
+pub fn run_menu(
+    settings: &MenuSettings,
+    resolver: &Resolver,
+    cmd: MenuCommand,
+) -> Result<(), CliError> {
     let trace = Trace::from_env();
     let session = super::complete::resolve_session(cmd.session.as_deref());
 
@@ -443,7 +448,7 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| std::path::PathBuf::from("/"));
 
-    let menu_limit = resolver.config.menu.max_results;
+    let menu_limit = settings.max_results;
 
     let initial_candidates = menu::source_candidates_with_meta(
         resolver,
@@ -482,7 +487,6 @@ pub fn run_menu(resolver: &Resolver, cmd: MenuCommand) -> Result<(), CliError> {
         )
     });
 
-    let settings = &resolver.config.menu;
     let options = MenuOptions {
         max_rows: settings.max_rows,
         item_max_len: settings.item_max_len,
