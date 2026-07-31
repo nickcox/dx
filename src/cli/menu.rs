@@ -80,13 +80,11 @@ pub struct MenuCommand {
 }
 
 impl MenuCommand {
-    /// Whether the caller is PowerShell's PSReadLine menu.
-    ///
-    /// PSReadLine is the only PowerShell integration that invokes `dx menu` —
-    /// `--native-menu` uses PSReadLine's own completion instead — so the shell
-    /// already carries this information. It used to travel as a separate hidden
-    /// `--psreadline-mode` flag, which `clap_complete` then offered as a
-    /// completion because it ignores `Arg::hide` on arguments.
+    /// Whether the caller is PowerShell's PSReadLine menu, the only PowerShell
+    /// integration that invokes `dx menu`; `--native-menu` uses PSReadLine's own
+    /// completion. Derived from `--shell` rather than carried as a hidden flag,
+    /// because `clap_complete` ignores `Arg::hide` and would offer it as a
+    /// completion.
     fn psreadline_mode(&self) -> bool {
         self.shell == Shell::Pwsh
     }
@@ -537,23 +535,9 @@ mod tests {
     use super::*;
 
     #[cfg(unix)]
-    // Thin wrappers that pin the default shell/mode so the assertions below
-    // stay focused on formatting rather than argument plumbing.
-    /// Format a resolved path for insertion into the shell buffer.
-    ///
-    /// For `Paths` mode (directory browsing):
-    /// - Appends a trailing `/` so the user can Tab-complete into the directory.
-    /// - Single-quote-wraps if the path contains shell-special characters.
-    ///   The trailing `/` is included inside quotes when quoting is needed.
-    ///
-    /// For all other modes (stack, ancestors, frecents, recents):
-    /// - Returns the absolute path as-is — no trailing slash, no quoting needed
-    ///   since these paths are always well-formed absolutes navigating to a
-    ///   known destination.
-    ///
-    /// Examples (Paths mode):
-    ///   /Users/nick/Downloads          → Downloads/
-    ///   /Users/nick/Dropbox (Maestral) → 'Dropbox (Maestral)/'
+    /// Pins the default shell so the assertions below read as formatting cases.
+    /// `Paths` mode gets a trailing `/` and shell quoting; other modes insert the
+    /// absolute path unchanged.
     fn format_selected_path(path: &str, mode: MenuMode) -> String {
         let append_trailing_slash = matches!(
             mode,

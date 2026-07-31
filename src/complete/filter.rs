@@ -5,16 +5,11 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::resolve::path_query::{PathQuery, QueryKind};
 
-/// Normalise a query string to a canonical form for directory matching.
+/// Canonicalises a query for directory matching, returning encoded path bytes
+/// ASCII-lowercased for comparison.
 ///
-/// Applied rules (in order):
-/// 1. Preserve surrounding whitespace.
-/// 2. Strip a native trailing separator when it follows a directory name.
-/// 3. Expand a leading native `~/` (or bare `~`) to the user's home directory.
-/// 4. Strip a leading native `./` — `./src` is treated the same as the bare name `src`
-///    for substring/prefix matching purposes (we have no cwd here to make it absolute).
-///
-/// The result uses encoded native path bytes, lowercased only for ASCII matching.
+/// `./src` normalises to `src`: there is no cwd here to make it absolute, so both
+/// must match the same candidates.
 fn normalize_query(query: &str) -> Vec<u8> {
     let path_query = PathQuery::new(query);
     let query = if path_query.has_trailing_separator() && Path::new(query).file_name().is_some() {

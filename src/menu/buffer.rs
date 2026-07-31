@@ -23,16 +23,8 @@ pub struct ParsedBuffer {
     pub needs_space_prefix: bool,
 }
 
-/// Removes shell quoting from a query token, preserving any trailing `/`.
-///
-/// The trailing `/` — whether typed by the user or appended by us after a
-/// menu selection — is always preserved so that `expand_filesystem_prefix`
-/// can enumerate the directory's children on the next Tab press.
-///
-/// Handles:
-/// - Single-quoted: `'foo bar/'` → `foo bar/`, `'foo bar'/` → `foo bar/`
-/// - Double-quoted: `"foo bar/"` → `foo bar/`, `"foo bar"/` → `foo bar/`
-/// - Unquoted: `/usr/local/` → `/usr/local/` (unchanged)
+/// Removes shell quoting from a query token, keeping any trailing `/` so
+/// `expand_filesystem_prefix` still lists the directory's children.
 fn unquote_shell_quoted(s: &str) -> String {
     // Single-quoted string (possibly with `'\''` escape sequences for embedded `'`).
     // Preserve both current slash-inside-quote and legacy slash-outside-quote forms.
@@ -183,12 +175,8 @@ pub fn parse_buffer_with_mode(
     let query = if query_text.is_empty() {
         None
     } else {
-        // Unquote shell-quoted tokens (e.g. `'/Library/Application Support'/` →
-        // `/Library/Application Support`) so the resolver receives a raw path.
-        // We strip the trailing `/` only when it follows a closing quote — that is
-        // the `/` we appended for Tab-ability.  A bare trailing `/` typed by the user
-        // (e.g. `cd /` or `cd /usr/`) is meaningful and must be preserved so that
-        // `expand_filesystem_prefix` lists the directory's children.
+        // Strip the trailing `/` only when it follows a closing quote: that one is
+        // ours, appended for Tab-ability. A bare `/` the user typed is meaningful.
         let unquoted = unquote_shell_quoted(query_text);
         if unquoted.is_empty() {
             None

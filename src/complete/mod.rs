@@ -105,12 +105,9 @@ pub(super) fn complete_session_paths(
     }
 }
 
-/// Collapses repeat visits, keeping each directory at its most recent position.
-///
-/// A scripted `cd` loop can leave thousands of stack entries for a handful of
-/// destinations; offering the same path repeatedly is never useful, and it makes
-/// a numeric selector like `back 3` mean "three entries back" rather than "three
-/// places back". `dx stack --list` still reports the raw stack.
+/// Collapses repeat visits, keeping each directory at its most recent position,
+/// so `back 3` means three *places* back rather than three entries. `dx stack
+/// --list` still reports the raw stack.
 fn keep_most_recent_visit(paths: &mut Vec<PathBuf>) {
     let mut seen = HashSet::new();
     paths.retain(|path| seen.insert(path.clone()));

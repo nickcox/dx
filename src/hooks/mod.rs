@@ -520,13 +520,9 @@ mod tests {
         assert!(!native.contains("function global:__dx_pwsh_menu_fallback"));
     }
 
-    /// Full-text goldens for the maximal option set of each shell.
-    ///
-    /// The templates are themselves checked in, so a golden per combination
-    /// would repeat one template edit as an identical diff four or five times.
-    /// Pinning the maximal script keeps the bytes that ship under review, while
-    /// `options_select_the_expected_template_blocks` covers the smaller
-    /// combinations.
+    /// Full-text goldens for the maximal option set of each shell. Smaller
+    /// combinations are covered by `options_select_the_expected_template_blocks`;
+    /// a golden each would repeat one template edit as four identical diffs.
     fn golden_cases() -> Vec<(&'static str, String)> {
         let maximal = options(true, true);
         vec![

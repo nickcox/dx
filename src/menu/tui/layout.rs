@@ -84,13 +84,9 @@ pub(super) struct MenuLayoutPlan {
     pub(super) metrics: LayoutMetrics,
 }
 
-/// Builds the final menu layout with a two-pass calculation.
-///
-/// Borderless mode can reserve a dedicated scrollbar column, but whether that
-/// column is needed depends on the row/column layout, which itself depends on
-/// the available width. We therefore do a provisional width probe first,
-/// decide whether a scrollbar column is needed, and then recompute the final
-/// layout using the true content width.
+/// Two passes, because whether a borderless menu needs a scrollbar column depends
+/// on the row/column layout, which depends on the width that reserving the column
+/// would change. Probe first, then recompute with the true content width.
 pub(super) fn build_menu_layout(
     list_area: Rect,
     item_count: usize,

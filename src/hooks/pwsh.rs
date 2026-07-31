@@ -90,12 +90,8 @@ pub fn generate(
 
 /// Moves every `using` statement to the top of the assembled script.
 ///
-/// PowerShell requires `using` to precede any other statement in a file. Clap
-/// emits `using namespace` at the top of its completion script, which we splice
-/// into the middle of the hook, so the statements are relocated rather than
-/// stripped and their types rewritten to fully-qualified names. Relocating is
-/// both simpler and more robust: a namespace clap adds in future is carried
-/// along automatically, whereas a rewrite list silently misses it.
+/// PowerShell requires `using` before any other statement, and clap emits one at
+/// the top of a completion script that gets spliced into the middle of the hook.
 fn hoist_using_statements(script: &str) -> String {
     let (using, body): (Vec<&str>, Vec<&str>) = script
         .lines()
