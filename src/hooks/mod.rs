@@ -7,21 +7,10 @@ mod mappings;
 mod pwsh;
 mod zsh;
 
-use clap::ValueEnum;
+use crate::shell::Shell;
 
 pub use mappings::{MenuCommandMapping, MenuCommandMappingError, parse_menu_command_mappings};
 pub use pwsh::{PwshMenuKeyError, parse_pwsh_menu_key};
-
-/// The shells `dx` can generate hooks for. Doubles as the `dx init <SHELL>` and
-/// `dx menu --shell` argument type, so the accepted spellings and the hook
-/// dispatch table can never drift apart.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum Shell {
-    Bash,
-    Zsh,
-    Fish,
-    Pwsh,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InitMenuMode {

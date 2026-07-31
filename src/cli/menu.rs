@@ -8,44 +8,14 @@ use clap::{Args, ValueHint};
 use crate::complete::CompletionMode;
 use crate::complete::filesystem::FilesystemCompletionKind;
 use crate::config::MenuSettings;
-use crate::hooks::Shell;
 use crate::menu::{
     self, MenuAction, MenuMode, MenuOptions, MenuRequest, MenuResult, QueryStyle,
     parse_buffer_with_override_mode, tui::QueryFn,
 };
 use crate::resolve::Resolver;
+use crate::shell::{self, Shell};
 
 use super::CliError;
-
-/// Quotes `path` using `shell`'s syntax, or `None` when the path holds control
-/// characters that no quoting can make safe to inject into a buffer.
-fn quote_for_shell(shell: Shell, path: &str) -> Option<String> {
-    if path.chars().any(char::is_control) {
-        return None;
-    }
-
-    Some(match shell {
-        Shell::Bash | Shell::Zsh => quote_posix(path),
-        Shell::Fish => quote_fish(path),
-        Shell::Pwsh => quote_pwsh(path),
-    })
-}
-
-/// Converts a UTF-8 byte offset into the buffer unit the shell's line editor
-/// counts in: bytes for Bash, characters for Zsh and Fish, UTF-16 code units
-/// for PowerShell.
-fn offset_from_byte(shell: Shell, buffer: &str, byte_offset: usize) -> Option<usize> {
-    if byte_offset > buffer.len() || !buffer.is_char_boundary(byte_offset) {
-        return None;
-    }
-
-    let prefix = &buffer[..byte_offset];
-    Some(match shell {
-        Shell::Bash => byte_offset,
-        Shell::Zsh | Shell::Fish => prefix.chars().count(),
-        Shell::Pwsh => prefix.encode_utf16().count(),
-    })
-}
 
 #[derive(Debug, Args)]
 pub struct MenuCommand {
@@ -98,7 +68,7 @@ fn insertion_text(path: &Path, append_trailing_separator: bool, shell: Shell) ->
     } else {
         path.to_path_buf()
     };
-    quote_for_shell(shell, path.to_str()?)
+    shell::quote_path(shell, path.to_str()?)
 }
 
 fn insertion_text_for_style(
@@ -184,68 +154,8 @@ fn format_home_relative_path(
     Some(format!(
         "~{}{}",
         std::path::MAIN_SEPARATOR,
-        quote_for_shell(shell, &suffix)?
+        shell::quote_path(shell, &suffix)?
     ))
-}
-
-/// Returns true if the string contains characters that require shell quoting.
-fn needs_shell_quoting(s: &str) -> bool {
-    s.chars().any(|c| {
-        c.is_whitespace()
-            || matches!(
-                c,
-                '(' | ')'
-                    | '['
-                    | ']'
-                    | '{'
-                    | '}'
-                    | '!'
-                    | '#'
-                    | '$'
-                    | '&'
-                    | '*'
-                    | '?'
-                    | ';'
-                    | '<'
-                    | '>'
-                    | '|'
-                    | '\\'
-                    | '\''
-                    | '"'
-                    | '`'
-                    | '~'
-            )
-    })
-}
-
-fn quote_posix(path: &str) -> String {
-    if needs_shell_quoting(path) {
-        format!("'{}'", path.replace('\'', "'\\''"))
-    } else {
-        path.to_string()
-    }
-}
-
-fn quote_fish(path: &str) -> String {
-    if !needs_shell_quoting(path) {
-        return path.to_string();
-    }
-
-    path.chars().fold(String::new(), |mut escaped, ch| {
-        if !(ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-')) {
-            escaped.push('\\');
-        }
-        escaped.push(ch);
-        escaped
-    })
-}
-
-fn quote_pwsh(path: &str) -> String {
-    if needs_shell_quoting(path) {
-        format!("'{}'", path.replace('\'', "''"))
-    } else {
-        path.to_string()
-    }
 }
 
 /// `LS_COLORS` is the shell's variable, not a dx setting, so only the opt-in
@@ -314,8 +224,8 @@ fn action_for_shell(action: MenuAction, buffer: &str, shell: Shell) -> MenuActio
     };
 
     let (Some(replace_start), Some(replace_end)) = (
-        offset_from_byte(shell, buffer, replace_start),
-        offset_from_byte(shell, buffer, replace_end),
+        shell::offset_from_byte(shell, buffer, replace_start),
+        shell::offset_from_byte(shell, buffer, replace_end),
     ) else {
         return MenuAction::noop();
     };

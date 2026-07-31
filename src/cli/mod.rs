@@ -3,8 +3,8 @@
 use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 
 use crate::config::AppConfig;
-use crate::hooks::Shell;
 use crate::resolve::Resolver;
+use crate::shell::Shell;
 
 mod bookmarks;
 mod complete;

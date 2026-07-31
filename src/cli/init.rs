@@ -3,9 +3,10 @@
 
 use crate::config::AppConfig;
 use crate::hooks::{
-    self, DEFAULT_PWSH_MENU_KEY, HookOptions, InitMenuMode, MenuCommandMapping, Shell,
+    self, DEFAULT_PWSH_MENU_KEY, HookOptions, InitMenuMode, MenuCommandMapping,
     parse_menu_command_mappings, parse_pwsh_menu_key,
 };
+use crate::shell::Shell;
 
 use super::CliError;
 

@@ -38,6 +38,7 @@ pub(crate) mod frecency;
 pub(crate) mod hooks;
 pub mod menu;
 pub mod resolve;
+pub mod shell;
 pub mod stacks;
 #[cfg(test)]
 pub(crate) mod test_support;
