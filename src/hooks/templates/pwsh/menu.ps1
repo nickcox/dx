@@ -329,14 +329,24 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
             return
         }
 
-        [Microsoft.PowerShell.PSConsoleReadLine]::Replace($result.replaceStart, $result.replaceEnd - $result.replaceStart, $result.value)
-        [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($result.replaceStart + $result.value.Length)
+        # Re-anchor before editing the buffer. Replace renders immediately, and
+        # until the explicit-Y InvokePrompt moves the cached PSReadLine origin
+        # to the post-scroll row, that render lands scrollRows too low: a slow
+        # terminal paints the stale row, and a replacement wrapping past the
+        # last row scrolls the console out from under the redraw target that
+        # was computed before dx ran.
+        $dxRedrawn = $false
         if ($result.terminal -eq 'dirty') {
             try {
                 __dx_pwsh_invoke_prompt_at -RedrawY ([int]$redrawY)
-            } catch {
-                [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
-            }
+                $dxRedrawn = $true
+            } catch { }
+        }
+
+        [Microsoft.PowerShell.PSConsoleReadLine]::Replace($result.replaceStart, $result.replaceEnd - $result.replaceStart, $result.value)
+        [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($result.replaceStart + $result.value.Length)
+        if ($result.terminal -eq 'dirty' -and -not $dxRedrawn) {
+            [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
         }
     }
 }

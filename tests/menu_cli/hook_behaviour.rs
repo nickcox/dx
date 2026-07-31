@@ -236,6 +236,28 @@ fn hook_scripts_apply_replace_action_contract() {
     assert!(pwsh_out.contains("PSConsoleReadLine]::Replace("));
 }
 
+/// `Replace` renders straight away, so it has to run after the explicit-Y
+/// `InvokePrompt` has moved PSReadLine's cached origin to the post-scroll row.
+/// Editing first renders the replacement `scrollRows` too low.
+#[test]
+fn pwsh_hook_reanchors_the_prompt_before_editing_the_buffer() {
+    let pwsh = dx().args(["init", "pwsh", "--menu"]).output().unwrap();
+    let pwsh_out = String::from_utf8_lossy(&pwsh.stdout);
+
+    let redraw = pwsh_out
+        .find("__dx_pwsh_invoke_prompt_at -RedrawY ([int]$redrawY)\n                $dxRedrawn")
+        .expect("replace path redraws at the reconciled row");
+    let replace = pwsh_out
+        .find("PSConsoleReadLine]::Replace(")
+        .expect("replace path edits the buffer");
+
+    assert!(
+        redraw < replace,
+        "buffer edit at {replace} precedes the prompt re-anchor at {redraw}"
+    );
+    assert!(pwsh_out.contains("if ($result.terminal -eq 'dirty' -and -not $dxRedrawn)"));
+}
+
 #[test]
 fn hook_scripts_do_not_perform_intermediate_menu_edits() {
     let bash = dx().args(["init", "bash", "--menu"]).output().unwrap();
