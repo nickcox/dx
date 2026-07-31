@@ -1,16 +1,11 @@
 mod common;
 
 use std::env;
-use std::path::PathBuf;
 use std::process::Command;
-
-fn dx_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_dx"))
-}
 
 #[test]
 fn init_bash_prints_non_empty_output() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "bash"])
         .output()
         .expect("run init bash");
@@ -26,7 +21,7 @@ fn init_bash_prints_non_empty_output() {
 
 #[test]
 fn init_zsh_prints_non_empty_output() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "zsh"])
         .output()
         .expect("run init zsh");
@@ -43,7 +38,7 @@ fn init_zsh_prints_non_empty_output() {
 
 #[test]
 fn init_fish_prints_non_empty_output() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "fish"])
         .output()
         .expect("run init fish");
@@ -59,7 +54,7 @@ fn init_fish_prints_non_empty_output() {
 
 #[test]
 fn init_pwsh_prints_non_empty_output() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "pwsh"])
         .output()
         .expect("run init pwsh");
@@ -82,7 +77,7 @@ fn pwsh_completes_partial_dx_subcommands() {
         return;
     }
 
-    let binary_path = dx_bin();
+    let binary_path = common::dx_bin();
     let bin_dir = binary_path.parent().expect("dx binary parent directory");
     let mut paths = vec![bin_dir.to_path_buf()];
     paths.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
@@ -109,7 +104,7 @@ fn pwsh_completes_partial_dx_subcommands() {
 
 #[test]
 fn init_unknown_shell_fails_with_diagnostic() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "unknown"])
         .output()
         .expect("run init unknown");
@@ -122,7 +117,7 @@ fn init_unknown_shell_fails_with_diagnostic() {
 
 #[test]
 fn init_native_menu_is_power_shell_only() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "bash", "--native-menu"])
         .output()
         .expect("run init bash --native-menu");
@@ -136,7 +131,7 @@ fn init_native_menu_is_power_shell_only() {
 
 #[test]
 fn init_rejects_tui_and_native_menu_together() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "pwsh", "--menu", "--native-menu"])
         .output()
         .expect("run conflicting menu modes");
@@ -148,7 +143,7 @@ fn init_rejects_tui_and_native_menu_together() {
 
 #[test]
 fn init_bash_with_command_not_found_flag_includes_handler() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "bash", "--command-not-found"])
         .output()
         .expect("run init bash with command-not-found");
@@ -160,7 +155,7 @@ fn init_bash_with_command_not_found_flag_includes_handler() {
 
 #[test]
 fn init_bash_without_command_not_found_flag_excludes_handler() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "bash"])
         .output()
         .expect("run init bash");
@@ -172,7 +167,7 @@ fn init_bash_without_command_not_found_flag_excludes_handler() {
 
 #[test]
 fn init_zsh_with_command_not_found_flag_includes_handler() {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", "zsh", "--command-not-found"])
         .output()
         .expect("run init zsh with command-not-found");
@@ -189,7 +184,7 @@ fn init_with_config(body: &str, args: &[&str], env: &[(&str, &str)]) -> std::pro
     let file = temp.path().join("dx.toml");
     std::fs::write(&file, body).expect("write config file");
 
-    let mut command = Command::new(dx_bin());
+    let mut command = Command::new(common::dx_bin());
     command.args(["init"]).args(args).env("DX_CONFIG", &file);
     for name in ["DX_MENU_COMMAND_MAPPINGS", "DX_PWSH_MENU_KEY"] {
         command.env_remove(name);
@@ -208,7 +203,7 @@ fn config_file_settings_produce_the_same_script_as_the_environment() {
         &[],
     );
 
-    let from_env = Command::new(dx_bin())
+    let from_env = Command::new(common::dx_bin())
         .args(["init", "pwsh", "--menu"])
         .env_remove("DX_CONFIG")
         .env("DX_MENU_COMMAND_MAPPINGS", "ls=path,cat=file")

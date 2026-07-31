@@ -9,7 +9,8 @@ pub mod tui;
 use std::collections::HashSet;
 
 use crate::complete::{
-    self, CompletionMode, ancestors, recents as recents_mode, stack as stack_mode,
+    self, CompletionMode, ancestors, filesystem::FilesystemCompletionKind, recents as recents_mode,
+    stack as stack_mode,
 };
 use crate::frecency::ZoxideProvider;
 use crate::resolve::{CompletionCandidates, Resolver};
@@ -51,13 +52,26 @@ pub fn source_candidates_with_meta(
         MenuMode::Completion(CompletionMode::Stack(direction)) => {
             CompletionCandidates::limited(stack_mode::complete(session, direction, query), limit)
         }
-        MenuMode::Path | MenuMode::Directory | MenuMode::File => complete::filesystem::complete(
+        MenuMode::Path => complete::filesystem::complete(
             resolver,
             query,
             cwd,
             limit,
-            mode.filesystem_kind()
-                .expect("mapped filesystem modes always carry a kind"),
+            FilesystemCompletionKind::Path,
+        ),
+        MenuMode::Directory => complete::filesystem::complete(
+            resolver,
+            query,
+            cwd,
+            limit,
+            FilesystemCompletionKind::Directory,
+        ),
+        MenuMode::File => complete::filesystem::complete(
+            resolver,
+            query,
+            cwd,
+            limit,
+            FilesystemCompletionKind::File,
         ),
     };
 

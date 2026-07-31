@@ -6,27 +6,13 @@ use dx::stacks::SessionStack;
 
 mod common;
 
-fn dx_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_dx"))
-}
-
-fn write_session(runtime: &Path, session: &str, state: &SessionStack) {
-    let dir = runtime.join("dx-sessions");
-    fs::create_dir_all(&dir).expect("create session dir");
-    fs::write(
-        dir.join(format!("{session}.json")),
-        serde_json::to_vec(state).expect("serialize session"),
-    )
-    .expect("write session");
-}
-
 #[test]
 fn complete_ancestors_lists_nearest_first() {
     let temp = common::temp_dir("complete-ancestors");
     let cwd = temp.path().join("a/b/c");
     fs::create_dir_all(&cwd).expect("create nested");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "ancestors"])
         .current_dir(&cwd)
         .output()
@@ -50,7 +36,7 @@ fn complete_ancestors_filter_returns_matching_entry() {
     let cwd = temp.path().join("code/projects/dx");
     fs::create_dir_all(&cwd).expect("create nested");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "ancestors", "code"])
         .current_dir(&cwd)
         .output()
@@ -69,7 +55,7 @@ fn complete_ancestors_filter_returns_matching_entry() {
 #[test]
 fn complete_ancestors_at_root_returns_empty() {
     let root = PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "ancestors"])
         .current_dir(root)
         .output()
@@ -85,12 +71,12 @@ fn complete_filesystem_filters_files_and_directories() {
     fs::create_dir(temp.path().join("alpha-dir")).expect("create directory");
     fs::write(temp.path().join("alpha-file.txt"), "fixture").expect("create file");
 
-    let directories = Command::new(dx_bin())
+    let directories = Command::new(common::dx_bin())
         .args(["complete", "filesystem", "directory", "alpha", "--json"])
         .current_dir(temp.path())
         .output()
         .expect("complete filesystem directories");
-    let files = Command::new(dx_bin())
+    let files = Command::new(common::dx_bin())
         .args(["complete", "filesystem", "file", "alpha", "--json"])
         .current_dir(temp.path())
         .output()
@@ -127,7 +113,7 @@ fn complete_limit_and_list_alias_cap_results() {
     let cwd = temp.path().join("a/b/c/d");
     fs::create_dir_all(&cwd).expect("create nested");
 
-    let limited = Command::new(dx_bin())
+    let limited = Command::new(common::dx_bin())
         .args(["complete", "ancestors", "--limit", "1"])
         .current_dir(&cwd)
         .output()
@@ -137,7 +123,7 @@ fn complete_limit_and_list_alias_cap_results() {
     let limited_lines = limited_stdout.lines().collect::<Vec<_>>();
     assert_eq!(limited_lines.len(), 1);
 
-    let alias = Command::new(dx_bin())
+    let alias = Command::new(common::dx_bin())
         .args(["complete", "ancestors", "--list", "1"])
         .current_dir(&cwd)
         .output()
@@ -155,7 +141,7 @@ fn complete_paths_returns_abbreviation_matches() {
     fs::create_dir_all(root.join("projects/alpha")).expect("create projects");
     fs::create_dir_all(root.join("presentations/alpha")).expect("create presentations");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "paths", "pr/al"])
         .env("DX_SEARCH_ROOTS", root.display().to_string())
         .current_dir(temp.path())
@@ -181,7 +167,7 @@ fn complete_paths_no_match_returns_empty() {
     let root = temp.path().join("root");
     fs::create_dir_all(&root).expect("create root");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "paths", "zzz"])
         .env("DX_SEARCH_ROOTS", root.display().to_string())
         .current_dir(temp.path())
@@ -210,9 +196,9 @@ fn complete_recents_and_stack_use_session_state() {
         undo: vec![a.clone(), b.clone()],
         redo: vec![x.clone()],
     };
-    write_session(&runtime, "s1", &state);
+    common::write_session(&runtime, "s1", &state);
 
-    let recents = Command::new(dx_bin())
+    let recents = Command::new(common::dx_bin())
         .args(["complete", "recents", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", &runtime)
         .current_dir(temp.path())
@@ -228,7 +214,7 @@ fn complete_recents_and_stack_use_session_state() {
         vec![b.display().to_string(), a.display().to_string()]
     );
 
-    let stack_back = Command::new(dx_bin())
+    let stack_back = Command::new(common::dx_bin())
         .args([
             "complete",
             "stack",
@@ -251,7 +237,7 @@ fn complete_recents_and_stack_use_session_state() {
         vec![b.display().to_string(), a.display().to_string()]
     );
 
-    let stack_forward = Command::new(dx_bin())
+    let stack_forward = Command::new(common::dx_bin())
         .args([
             "complete",
             "stack",
@@ -276,7 +262,7 @@ fn complete_recents_and_stack_use_session_state() {
 fn complete_recents_missing_session_returns_empty_and_zero() {
     let temp = common::temp_dir("complete-recents-missing");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "recents"])
         .env_remove("DX_SESSION")
         .current_dir(temp.path())
@@ -292,7 +278,7 @@ fn complete_frecents_without_zoxide_returns_empty() {
     let temp = common::temp_dir("complete-frecents-empty");
     let empty_path = common::temp_dir("complete-empty-path");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "frecents", "proj"])
         .env("PATH", empty_path.path())
         .current_dir(temp.path())
@@ -309,7 +295,7 @@ fn complete_json_output_has_path_label_rank() {
     let cwd = temp.path().join("home/user/code");
     fs::create_dir_all(&cwd).expect("create cwd");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "ancestors", "--json"])
         .current_dir(&cwd)
         .output()
@@ -332,19 +318,19 @@ fn complete_json_output_has_path_label_rank() {
 
 #[test]
 fn complete_error_cases_return_non_zero() {
-    let missing_mode = Command::new(dx_bin())
+    let missing_mode = Command::new(common::dx_bin())
         .args(["complete"])
         .output()
         .expect("run complete missing mode");
     assert!(!missing_mode.status.success());
 
-    let invalid_mode = Command::new(dx_bin())
+    let invalid_mode = Command::new(common::dx_bin())
         .args(["complete", "bogus"])
         .output()
         .expect("run complete invalid mode");
     assert!(!invalid_mode.status.success());
 
-    let stack_missing_direction = Command::new(dx_bin())
+    let stack_missing_direction = Command::new(common::dx_bin())
         .args(["complete", "stack"])
         .output()
         .expect("run complete stack missing direction");
@@ -358,7 +344,7 @@ fn complete_paths_uses_cwd_as_implicit_root_when_unset() {
     let target = cwd.join("workspace/project");
     fs::create_dir_all(&target).expect("create target");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "paths", "wo/pr"])
         .env_remove("DX_SEARCH_ROOTS")
         .current_dir(&cwd)
@@ -383,7 +369,7 @@ fn complete_paths_returns_delimiter_aware_matches() {
     fs::create_dir_all(root.join("cd-extras")).expect("create cd-extras");
     fs::create_dir_all(root.join("cd-editor")).expect("create cd-editor");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "paths", "cd-e"])
         .env("DX_SEARCH_ROOTS", root.display().to_string())
         .current_dir(temp.path())
@@ -402,7 +388,7 @@ fn complete_paths_returns_doubled_period_matches() {
     let root = temp.path().join("root");
     fs::create_dir_all(root.join("PowerShell")).expect("create powershell");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["complete", "paths", "p..shell"])
         .env("DX_SEARCH_ROOTS", root.display().to_string())
         .env("DX_CASE_SENSITIVE", "false")

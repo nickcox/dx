@@ -82,17 +82,6 @@ impl MenuMode {
             ) => true,
         }
     }
-
-    /// The filesystem kind this mode scans for, or `None` for the built-in
-    /// completion modes, which source candidates from `dx complete` instead.
-    pub fn filesystem_kind(self) -> Option<FilesystemCompletionKind> {
-        match self {
-            Self::Path => Some(FilesystemCompletionKind::Path),
-            Self::Directory => Some(FilesystemCompletionKind::Directory),
-            Self::File => Some(FilesystemCompletionKind::File),
-            Self::Completion(_) => None,
-        }
-    }
 }
 
 #[cfg(test)]

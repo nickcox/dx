@@ -1,24 +1,9 @@
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use dx::stacks::SessionStack;
 
 mod common;
-
-fn dx_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_dx"))
-}
-
-fn write_session(runtime: &Path, session: &str, state: &SessionStack) {
-    let dir = runtime.join("dx-sessions");
-    fs::create_dir_all(&dir).expect("create session dir");
-    fs::write(
-        dir.join(format!("{session}.json")),
-        serde_json::to_vec(state).expect("serialize session"),
-    )
-    .expect("write session");
-}
 
 #[test]
 fn navigate_up_without_selector_returns_first_ancestor() {
@@ -26,7 +11,7 @@ fn navigate_up_without_selector_returns_first_ancestor() {
     let cwd = temp.path().join("a/b/c");
     fs::create_dir_all(&cwd).expect("create cwd");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["navigate", "up"])
         .current_dir(&cwd)
         .output()
@@ -45,7 +30,7 @@ fn navigate_up_numeric_selector_returns_nth_ancestor() {
     let cwd = temp.path().join("a/b/c");
     fs::create_dir_all(&cwd).expect("create cwd");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["navigate", "up", "2"])
         .current_dir(&cwd)
         .output()
@@ -66,7 +51,7 @@ fn navigate_up_path_selector_uses_best_match() {
     let cwd = temp.path().join("code/projects/dx");
     fs::create_dir_all(&cwd).expect("create cwd");
 
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["navigate", "up", "code"])
         .current_dir(&cwd)
         .output()
@@ -98,9 +83,9 @@ fn navigate_back_and_forward_use_stack_entries() {
         undo: vec![a, b.clone()],
         redo: vec![x, y.clone()],
     };
-    write_session(&runtime, "s1", &state);
+    common::write_session(&runtime, "s1", &state);
 
-    let back = Command::new(dx_bin())
+    let back = Command::new(common::dx_bin())
         .args(["navigate", "back", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", &runtime)
         .current_dir(temp.path())
@@ -109,7 +94,7 @@ fn navigate_back_and_forward_use_stack_entries() {
     assert!(back.status.success());
     common::assert_same_path(String::from_utf8_lossy(&back.stdout).trim(), &b);
 
-    let forward = Command::new(dx_bin())
+    let forward = Command::new(common::dx_bin())
         .args(["navigate", "forward", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", &runtime)
         .current_dir(temp.path())
@@ -134,9 +119,9 @@ fn navigate_fails_for_out_of_range_and_no_match() {
         undo: vec![a],
         redo: vec![],
     };
-    write_session(&runtime, "s1", &state);
+    common::write_session(&runtime, "s1", &state);
 
-    let out_of_range = Command::new(dx_bin())
+    let out_of_range = Command::new(common::dx_bin())
         .args(["navigate", "back", "2", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", &runtime)
         .current_dir(temp.path())
@@ -145,7 +130,7 @@ fn navigate_fails_for_out_of_range_and_no_match() {
     assert!(!out_of_range.status.success());
     assert!(String::from_utf8_lossy(&out_of_range.stderr).contains("out of range"));
 
-    let no_match = Command::new(dx_bin())
+    let no_match = Command::new(common::dx_bin())
         .args(["navigate", "back", "zzz", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", &runtime)
         .current_dir(temp.path())

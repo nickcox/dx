@@ -6,8 +6,6 @@ use std::path::{Path, PathBuf};
 
 use crate::menu::QueryStyle;
 
-pub(super) type CandidateLabelStyle = QueryStyle;
-
 /// Renders candidate labels for one menu session.
 ///
 /// Labels are recomputed for every candidate on every keystroke.
@@ -141,7 +139,7 @@ mod tests {
         path: &Path,
         cwd: &Path,
         home: Option<&Path>,
-        style: CandidateLabelStyle,
+        style: QueryStyle,
     ) -> String {
         LabelContext::new(cwd, home).label(path, style)
     }
@@ -181,7 +179,7 @@ mod tests {
             nested.join("alpha"),
         ]
         .iter()
-        .map(|path| context.label(path, CandidateLabelStyle::BareRelative))
+        .map(|path| context.label(path, QueryStyle::BareRelative))
         .collect();
 
         assert_eq!(labels, ["group/alpha", "group/beta", "group/alpha"]);
@@ -201,7 +199,7 @@ mod tests {
             "./documentation"
         );
         assert_eq!(
-            display_label_for_style(&path, &linked_cwd, None, CandidateLabelStyle::BareRelative,),
+            display_label_for_style(&path, &linked_cwd, None, QueryStyle::BareRelative,),
             "documentation"
         );
     }
@@ -209,18 +207,18 @@ mod tests {
     #[test]
     fn candidate_label_style_from_query_only_applies_to_filesystem_modes() {
         assert_eq!(
-            CandidateLabelStyle::from_query(
+            QueryStyle::from_query(
                 crate::menu::MenuMode::Completion(crate::complete::CompletionMode::Paths),
                 "",
             ),
-            CandidateLabelStyle::BareRelative
+            QueryStyle::BareRelative
         );
         assert_eq!(
-            CandidateLabelStyle::from_query(
+            QueryStyle::from_query(
                 crate::menu::MenuMode::Completion(crate::complete::CompletionMode::Frecents),
                 "",
             ),
-            CandidateLabelStyle::Compact
+            QueryStyle::Compact
         );
     }
 
@@ -229,24 +227,24 @@ mod tests {
         let mode = crate::menu::MenuMode::Completion(crate::complete::CompletionMode::Paths);
 
         assert_eq!(
-            CandidateLabelStyle::from_query(mode, "src"),
-            CandidateLabelStyle::BareRelative
+            QueryStyle::from_query(mode, "src"),
+            QueryStyle::BareRelative
         );
         assert_eq!(
-            CandidateLabelStyle::from_query(mode, "./src"),
-            CandidateLabelStyle::DotRelative
+            QueryStyle::from_query(mode, "./src"),
+            QueryStyle::DotRelative
         );
         assert_eq!(
-            CandidateLabelStyle::from_query(mode, "../src"),
-            CandidateLabelStyle::ParentRelative
+            QueryStyle::from_query(mode, "../src"),
+            QueryStyle::ParentRelative
         );
         assert_eq!(
-            CandidateLabelStyle::from_query(mode, "~/src"),
-            CandidateLabelStyle::HomeRelative
+            QueryStyle::from_query(mode, "~/src"),
+            QueryStyle::HomeRelative
         );
         assert_eq!(
-            CandidateLabelStyle::from_query(mode, "/tmp/src"),
-            CandidateLabelStyle::Absolute
+            QueryStyle::from_query(mode, "/tmp/src"),
+            QueryStyle::Absolute
         );
     }
 
@@ -256,7 +254,7 @@ mod tests {
         let path = Path::new("/Users/nick/project/src");
 
         assert_eq!(
-            display_label_for_style(path, cwd, None, CandidateLabelStyle::BareRelative),
+            display_label_for_style(path, cwd, None, QueryStyle::BareRelative),
             "src"
         );
     }
@@ -267,7 +265,7 @@ mod tests {
         let path = Path::new("/Users/nick/project/src");
 
         assert_eq!(
-            display_label_for_style(path, cwd, None, CandidateLabelStyle::BareRelative),
+            display_label_for_style(path, cwd, None, QueryStyle::BareRelative),
             "src"
         );
     }
@@ -278,7 +276,7 @@ mod tests {
         let path = Path::new("/Users/nick/project/src");
 
         assert_eq!(
-            display_label_for_style(path, cwd, None, CandidateLabelStyle::DotRelative),
+            display_label_for_style(path, cwd, None, QueryStyle::DotRelative),
             "./src"
         );
     }
@@ -289,7 +287,7 @@ mod tests {
         let path = Path::new("/Users/nick/sibling");
 
         assert_eq!(
-            display_label_for_style(path, cwd, None, CandidateLabelStyle::ParentRelative),
+            display_label_for_style(path, cwd, None, QueryStyle::ParentRelative),
             "../sibling"
         );
     }
@@ -299,7 +297,7 @@ mod tests {
         let cwd = Path::new("/Users/nick/project");
 
         assert_eq!(
-            display_label_for_style(cwd, cwd, None, CandidateLabelStyle::ParentRelative),
+            display_label_for_style(cwd, cwd, None, QueryStyle::ParentRelative),
             "../project"
         );
     }
@@ -310,7 +308,7 @@ mod tests {
         let path = Path::new("/Users/nick/code/personal/dx/../sibling");
 
         assert_eq!(
-            display_label_for_style(path, cwd, None, CandidateLabelStyle::ParentRelative),
+            display_label_for_style(path, cwd, None, QueryStyle::ParentRelative),
             "../sibling"
         );
     }
@@ -321,7 +319,7 @@ mod tests {
         let path = Path::new("/Users/nick/outer");
 
         assert_eq!(
-            display_label_for_style(path, cwd, None, CandidateLabelStyle::ParentRelative),
+            display_label_for_style(path, cwd, None, QueryStyle::ParentRelative),
             "../../outer"
         );
     }
@@ -333,7 +331,7 @@ mod tests {
         let path = Path::new("/Users/nick/code");
 
         assert_eq!(
-            display_label_for_style(path, cwd, Some(home), CandidateLabelStyle::HomeRelative),
+            display_label_for_style(path, cwd, Some(home), QueryStyle::HomeRelative),
             "~/code"
         );
     }
@@ -344,7 +342,7 @@ mod tests {
         let path = Path::new("/Users/nick/code");
 
         assert_eq!(
-            display_label_for_style(path, cwd, None, CandidateLabelStyle::Absolute),
+            display_label_for_style(path, cwd, None, QueryStyle::Absolute),
             "/Users/nick/code"
         );
     }
@@ -355,7 +353,7 @@ mod tests {
         let path = Path::new("/Users/nick/project/src");
 
         assert_eq!(
-            display_label_for_style(path, cwd, None, CandidateLabelStyle::Compact),
+            display_label_for_style(path, cwd, None, QueryStyle::Compact),
             "./src"
         );
     }
@@ -420,7 +418,7 @@ mod tests {
         let path = PathBuf::from("/Users/nick/project/src");
 
         assert_eq!(
-            display_label_for_style(&path, cwd, None, CandidateLabelStyle::BareRelative),
+            display_label_for_style(&path, cwd, None, QueryStyle::BareRelative),
             "src"
         );
         assert_eq!(

@@ -92,11 +92,7 @@ impl MenuCommand {
     }
 }
 
-fn format_selected_path_with_trailing_separator(
-    path: &Path,
-    append_trailing_separator: bool,
-    shell: Shell,
-) -> Option<String> {
+fn insertion_text(path: &Path, append_trailing_separator: bool, shell: Shell) -> Option<String> {
     let path = if append_trailing_separator {
         let mut path = path.to_path_buf();
         path.as_mut_os_string().push(std::path::MAIN_SEPARATOR_STR);
@@ -107,7 +103,7 @@ fn format_selected_path_with_trailing_separator(
     quote_for_shell(shell, path.to_str()?)
 }
 
-fn format_selected_path_for_query_style_checked(
+fn insertion_text_for_style(
     selected: &Path,
     mode: MenuMode,
     cwd: &Path,
@@ -120,24 +116,18 @@ fn format_selected_path_for_query_style_checked(
     ) || (mode == MenuMode::Path && selected.is_dir());
 
     if !mode.prefers_query_relative_rendering() {
-        return format_selected_path_with_trailing_separator(
-            selected,
-            append_trailing_slash,
-            shell,
-        );
+        return insertion_text(selected, append_trailing_slash, shell);
     }
 
     match style {
         QueryStyle::Compact | QueryStyle::Absolute => {
-            format_selected_path_with_trailing_separator(selected, append_trailing_slash, shell)
+            insertion_text(selected, append_trailing_slash, shell)
         }
         QueryStyle::HomeRelative => dirs::home_dir()
             .and_then(|home| {
                 format_home_relative_path(selected, &home, append_trailing_slash, shell)
             })
-            .or_else(|| {
-                format_selected_path_with_trailing_separator(selected, append_trailing_slash, shell)
-            }),
+            .or_else(|| insertion_text(selected, append_trailing_slash, shell)),
         QueryStyle::BareRelative | QueryStyle::DotRelative | QueryStyle::ParentRelative => {
             let relative_path = if style == QueryStyle::ParentRelative {
                 crate::complete::parent_relative_path_from(cwd, selected)
@@ -145,11 +135,7 @@ fn format_selected_path_for_query_style_checked(
                 crate::complete::relative_path_from(cwd, selected)
             };
             let Some(relative) = relative_path else {
-                return format_selected_path_with_trailing_separator(
-                    selected,
-                    append_trailing_slash,
-                    shell,
-                );
+                return insertion_text(selected, append_trailing_slash, shell);
             };
 
             let relative = match style {
@@ -169,14 +155,10 @@ fn format_selected_path_for_query_style_checked(
                 | QueryStyle::Compact
                 | QueryStyle::HomeRelative
                 | QueryStyle::Absolute => {
-                    return format_selected_path_with_trailing_separator(
-                        selected,
-                        append_trailing_slash,
-                        shell,
-                    );
+                    return insertion_text(selected, append_trailing_slash, shell);
                 }
             };
-            format_selected_path_with_trailing_separator(&relative, append_trailing_slash, shell)
+            insertion_text(&relative, append_trailing_slash, shell)
         }
     }
 }
@@ -296,9 +278,7 @@ fn menu_result_to_action_with_shell(
             geometry,
             ..
         }) => {
-            let Some(formatted) =
-                format_selected_path_for_query_style_checked(&value, mode, cwd, style, shell)
-            else {
+            let Some(formatted) = insertion_text_for_style(&value, mode, cwd, style, shell) else {
                 return MenuAction::noop();
             };
             let replacement = if parsed.needs_space_prefix {
@@ -579,12 +559,8 @@ mod tests {
             mode,
             MenuMode::Completion(CompletionMode::Paths) | MenuMode::Directory
         );
-        format_selected_path_with_trailing_separator(
-            Path::new(path),
-            append_trailing_slash,
-            Shell::Bash,
-        )
-        .expect("test path has no control characters")
+        insertion_text(Path::new(path), append_trailing_slash, Shell::Bash)
+            .expect("test path has no control characters")
     }
 
     fn format_selected_path_for_query_style(
@@ -593,7 +569,7 @@ mod tests {
         cwd: &Path,
         prefer_relative_paths: bool,
     ) -> String {
-        format_selected_path_for_query_style_checked(
+        insertion_text_for_style(
             selected,
             mode,
             cwd,
@@ -809,19 +785,19 @@ mod tests {
         let path = "/tmp/it's here";
 
         assert_eq!(
-            format_selected_path_with_trailing_separator(Path::new(path), false, Shell::Bash),
+            insertion_text(Path::new(path), false, Shell::Bash),
             Some("'/tmp/it'\\''s here'".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_separator(Path::new(path), false, Shell::Zsh),
+            insertion_text(Path::new(path), false, Shell::Zsh),
             Some("'/tmp/it'\\''s here'".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_separator(Path::new(path), false, Shell::Fish),
+            insertion_text(Path::new(path), false, Shell::Fish),
             Some("/tmp/it\\'s\\ here".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_separator(Path::new(path), false, Shell::Pwsh),
+            insertion_text(Path::new(path), false, Shell::Pwsh),
             Some("'/tmp/it''s here'".to_string())
         );
     }
@@ -830,19 +806,11 @@ mod tests {
     #[test]
     fn powershell_directory_replacements_preserve_drive_and_unc_prefixes() {
         assert_eq!(
-            format_selected_path_with_trailing_separator(
-                Path::new(r"C:\Project Files"),
-                true,
-                Shell::Pwsh,
-            ),
+            insertion_text(Path::new(r"C:\Project Files"), true, Shell::Pwsh,),
             Some(r"'C:\Project Files\'".to_string())
         );
         assert_eq!(
-            format_selected_path_with_trailing_separator(
-                Path::new(r"\\server\share\folder"),
-                true,
-                Shell::Pwsh,
-            ),
+            insertion_text(Path::new(r"\\server\share\folder"), true, Shell::Pwsh,),
             Some(r"'\\server\share\folder\'".to_string())
         );
     }
@@ -1125,7 +1093,7 @@ mod tests {
     #[test]
     fn parent_relative_replacement_keeps_anchor_for_cwd_candidate() {
         let cwd = Path::new("/tmp/work");
-        let result = format_selected_path_for_query_style_checked(
+        let result = insertion_text_for_style(
             cwd,
             MenuMode::Completion(CompletionMode::Paths),
             cwd,
@@ -1156,7 +1124,7 @@ mod tests {
 
     #[test]
     fn bare_relative_replacement_has_no_implicit_dot_prefix() {
-        let result = format_selected_path_for_query_style_checked(
+        let result = insertion_text_for_style(
             Path::new("/tmp/work/benches"),
             MenuMode::Completion(CompletionMode::Paths),
             Path::new("/tmp/work"),

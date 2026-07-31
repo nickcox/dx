@@ -14,7 +14,7 @@ fn dx() -> Command {
 }
 
 fn pwsh_available() -> bool {
-    optional_tool_available("pwsh")
+    common::optional_tool_available("pwsh")
 }
 
 fn path_with_dx_binary() -> OsString {
@@ -29,21 +29,6 @@ fn path_with_dx_binary() -> OsString {
     std::env::join_paths(paths).expect("join PATH entries")
 }
 
-fn optional_tool_available(command: &str) -> bool {
-    if common::tool_available(command) {
-        return true;
-    }
-
-    let diagnostic =
-        format!("{command} is required for this external-shell test but is unavailable");
-    if std::env::var_os("CI").is_some() || std::env::var_os("DX_REQUIRE_EXTERNAL_TOOLS").is_some() {
-        panic!("{diagnostic}");
-    }
-
-    eprintln!("skipping external-shell test: {diagnostic}");
-    false
-}
-
 #[cfg(unix)]
 fn assert_hook_parses_with(shell: &str, command: &str, args: &[&str]) {
     if command == "bash" {
@@ -51,7 +36,7 @@ fn assert_hook_parses_with(shell: &str, command: &str, args: &[&str]) {
             common::tool_available(command),
             "bash is required for syntax checks"
         );
-    } else if !optional_tool_available(command) {
+    } else if !common::optional_tool_available(command) {
         return;
     }
 
@@ -892,7 +877,7 @@ fn pwsh_set_dx_location_ignores_stack_push_spawn_errors() {
 #[cfg(unix)]
 #[test]
 fn zsh_stack_navigation_works_when_current_directory_blocks_process_spawn() {
-    if !optional_tool_available("zsh") {
+    if !common::optional_tool_available("zsh") {
         return;
     }
 
@@ -1312,8 +1297,9 @@ fn init_pwsh_without_menu_excludes_tab_handler() {
 }
 
 // --- 5.3 Completion-context interactivity contracts ---
-// Full PTY-based "stays open" tests require a pseudo-terminal and are deferred.
-// These verify the structural contracts that enable correct interactive behavior.
+// These verify the structural contracts behind interactive behaviour. Driving the
+// menu through a real pty is possible — answer the cursor-position query
+// (`ESC [ 6 n`) and set a window size, or it refuses to draw — but is not done here.
 
 #[test]
 fn menu_with_valid_dx_command_without_tty_returns_noop() {
@@ -1832,7 +1818,7 @@ fn pwsh_shell_keeps_posix_flagged_cd_as_fallback() {
 }
 
 // --- 5.4 Terminal recovery contracts ---
-// Full terminal-state recovery tests require PTY instrumentation (deferred).
+// Full terminal-state recovery needs pty instrumentation, which is not set up here.
 // These verify the structural guarantee: hooks fall back cleanly on error/noop.
 
 #[test]

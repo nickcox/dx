@@ -6,27 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-fn dx_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_dx"))
-}
-
-fn optional_tool_available(command: &str) -> bool {
-    if common::tool_available(command) {
-        return true;
-    }
-
-    let diagnostic =
-        format!("{command} is required for this external-shell test but is unavailable");
-    if std::env::var_os("CI").is_some() || std::env::var_os("DX_REQUIRE_EXTERNAL_TOOLS").is_some() {
-        panic!("{diagnostic}");
-    }
-
-    eprintln!("skipping external-shell test: {diagnostic}");
-    false
-}
-
 fn generated_hook_script(shell: &str) -> String {
-    let output = Command::new(dx_bin())
+    let output = Command::new(common::dx_bin())
         .args(["init", shell, "--command-not-found"])
         .output()
         .expect("run dx init with command-not-found");
@@ -166,7 +147,7 @@ fn bash_generated_hook_cd_wrapper_invokes_dx_once_and_changes_directory() {
 
 #[test]
 fn zsh_generated_hook_command_not_found_guard_prevents_recursive_resolve_calls() {
-    if !optional_tool_available("zsh") {
+    if !common::optional_tool_available("zsh") {
         return;
     }
     let temp_dir = common::temp_dir("zsh-hook-guard");
@@ -190,7 +171,7 @@ fn zsh_generated_hook_command_not_found_guard_prevents_recursive_resolve_calls()
 
 #[test]
 fn zsh_generated_hook_command_not_found_resolves_path_like_command_once() {
-    if !optional_tool_available("zsh") {
+    if !common::optional_tool_available("zsh") {
         return;
     }
     let temp_dir = common::temp_dir("zsh-hook-resolve");
@@ -286,7 +267,7 @@ fn bash_generated_hook_command_not_found_plain_word_still_falls_through() {
 
 #[test]
 fn zsh_generated_hook_command_not_found_resolves_doubled_period_command_once() {
-    if !optional_tool_available("zsh") {
+    if !common::optional_tool_available("zsh") {
         return;
     }
     let temp_dir = common::temp_dir("zsh-hook-resolve-gap");
@@ -325,7 +306,7 @@ fn zsh_generated_hook_command_not_found_resolves_doubled_period_command_once() {
 
 #[test]
 fn fish_generated_hook_command_not_found_respects_literal_directory_auto_cd_behavior() {
-    if !optional_tool_available("fish") {
+    if !common::optional_tool_available("fish") {
         return;
     }
     let temp_dir = common::temp_dir("fish-hook-literal-dir");
@@ -361,7 +342,7 @@ fn fish_generated_hook_command_not_found_respects_literal_directory_auto_cd_beha
 
 #[test]
 fn fish_generated_hook_command_not_found_resolves_delimiter_shortened_command_once() {
-    if !optional_tool_available("fish") {
+    if !common::optional_tool_available("fish") {
         return;
     }
     let temp_dir = common::temp_dir("fish-hook-resolve-delimiter");
@@ -412,7 +393,7 @@ fn fish_generated_hook_command_not_found_resolves_delimiter_shortened_command_on
 
 #[test]
 fn fish_navigation_wrapper_preserves_native_cd_failure_status() {
-    if !optional_tool_available("fish") {
+    if !common::optional_tool_available("fish") {
         return;
     }
     let temp_dir = common::temp_dir("fish-nav-status");
@@ -441,7 +422,7 @@ fn fish_navigation_wrapper_preserves_native_cd_failure_status() {
 
 #[test]
 fn zsh_generated_hook_cd_permission_denied_error_does_not_leak_helper_name() {
-    if !optional_tool_available("zsh") {
+    if !common::optional_tool_available("zsh") {
         return;
     }
     let temp_dir = common::temp_dir("zsh-hook-cd-perm-denied");

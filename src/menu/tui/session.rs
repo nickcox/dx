@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 use super::input::{FilterState, MenuKeyAction, apply_filter_edit, map_key_event, map_mouse_event};
-use super::labels::{CandidateLabelStyle, LabelContext};
+use super::labels::LabelContext;
 use super::layout::{
     bounded_rendered_height, build_menu_layout, cleared_trailing_area, compute_rendered_height,
     rendered_menu_area,
@@ -179,7 +179,7 @@ fn run_loop(
 
     loop {
         let effective_query = filter_state.effective_query();
-        let label_style = CandidateLabelStyle::from_query(mode, &effective_query);
+        let label_style = QueryStyle::from_query(mode, &effective_query);
         let labels: Vec<String> = completion
             .paths
             .iter()
