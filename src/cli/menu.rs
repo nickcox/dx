@@ -519,6 +519,7 @@ mod tests {
         assert!(menu_ls_colors(true).is_none(), "LS_COLORS unset");
     }
 
+    #[cfg(unix)]
     #[test]
     fn menu_result_to_action_passes_terminal_state_through() {
         let parsed = menu::ParsedBuffer {
@@ -998,6 +999,7 @@ mod tests {
         assert_eq!(result, Some("../work/".to_string()));
     }
 
+    #[cfg(unix)]
     #[test]
     fn home_relative_replacement_keeps_tilde_unquoted() {
         let home = Path::new("/tmp/home");
@@ -1016,6 +1018,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn bare_relative_replacement_has_no_implicit_dot_prefix() {
         let result = insertion_text_for_style(
