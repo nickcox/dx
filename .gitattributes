@@ -1,0 +1,4 @@
+# Hook templates are spliced with clap completion generated at runtime, which is
+# always LF. A CRLF checkout mixes the two: broken goldens, and CRLF bash, zsh
+# and fish hooks from a Windows build.
+* text=auto eol=lf
