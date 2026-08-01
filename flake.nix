@@ -23,7 +23,7 @@
         rec {
           cdex = pkgs.rustPlatform.buildRustPackage {
             pname = "cdex";
-            version = "0.11.0";
+            version = "0.12.0";
             src = ./.;
             cargoLock = {
               lockFile = ./Cargo.lock;
