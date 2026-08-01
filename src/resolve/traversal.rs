@@ -90,8 +90,13 @@ where
     for segment in segments {
         let mut next = Vec::new();
         for base in &current {
-            let Some(entries) = apply_io_policy(fs::read_dir(base), base, on_error)? else {
-                continue;
+            let entries = match fs::read_dir(base) {
+                Ok(entries) => entries,
+                Err(source) if is_unenterable(base, &source) => continue,
+                Err(source) => match on_error {
+                    OnIoError::Skip => continue,
+                    OnIoError::Propagate => return Err((base.to_path_buf(), source)),
+                },
             };
 
             for entry in entries {
@@ -126,16 +131,48 @@ where
 
 /// Whether `path` is a directory, following symlinks.
 ///
-/// A path that does not exist — a dangling symlink, say — is not a directory
-/// rather than an error, in either policy.
+/// An entry that cannot be stat-ed is not a directory rather than an error, in
+/// either policy: `cd` could reach neither a dangling symlink nor an entry the
+/// process may not inspect, so declining them hides nothing.
 pub fn is_directory(path: &Path, on_error: OnIoError) -> Result<bool, TraversalError> {
     match fs::metadata(path) {
         Ok(metadata) => Ok(metadata.is_dir()),
-        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(source) if is_unreachable(&source) => Ok(false),
         Err(source) => match on_error {
             OnIoError::Skip => Ok(false),
             OnIoError::Propagate => Err((path.to_path_buf(), source)),
         },
+    }
+}
+
+fn is_unreachable(source: &io::Error) -> bool {
+    matches!(
+        source.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+    )
+}
+
+/// Whether a directory that would not list is also one the caller could never
+/// have entered, making it safe to skip under either policy.
+///
+/// Entry without listing is what `Propagate` exists for: `cd` still works, so
+/// failing to list can hide a real candidate. Denying both leaves nothing
+/// reachable. Windows has no entry-without-listing state, which is how the
+/// deny-ACL junctions in `%LOCALAPPDATA%` report — they sit beside `Temp` and
+/// share its prefix, so every traversal there meets one.
+fn is_unenterable(path: &Path, source: &io::Error) -> bool {
+    if source.kind() != io::ErrorKind::PermissionDenied {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        nix::unistd::access(path, nix::unistd::AccessFlags::X_OK).is_err()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        true
     }
 }
 
@@ -324,16 +361,18 @@ mod tests {
         }
     }
 
+    /// A directory that permits entry but not listing can still hold a `cd`-able
+    /// candidate, so `Propagate` must say so rather than narrow the search.
     #[cfg(unix)]
     #[test]
-    fn policies_diverge_only_on_unreadable_directories() {
+    fn policies_diverge_on_enterable_but_unlistable_directories() {
         use std::os::unix::fs::PermissionsExt;
 
-        let temp: TempDir = temp_dir("traversal-unreadable");
+        let temp: TempDir = temp_dir("traversal-unlistable");
         let base = temp.path().join("root");
         fs::create_dir_all(base.join("project/src")).expect("create dirs");
-        fs::set_permissions(base.join("project"), fs::Permissions::from_mode(0o000))
-            .expect("make directory unreadable");
+        fs::set_permissions(base.join("project"), fs::Permissions::from_mode(0o111))
+            .expect("make directory enterable but unlistable");
 
         let skipped = traverse_segment_paths(
             vec![base.clone()],
@@ -341,7 +380,7 @@ mod tests {
             prefix_matcher,
             OnIoError::Skip,
         )
-        .expect("skip policy tolerates unreadable directories");
+        .expect("skip policy tolerates unlistable directories");
         assert!(skipped.is_empty());
 
         let propagated = traverse_segment_paths(
@@ -354,6 +393,66 @@ mod tests {
         assert_eq!(path, base.join("project"));
 
         fs::set_permissions(base.join("project"), fs::Permissions::from_mode(0o755))
+            .expect("restore permissions for cleanup");
+    }
+
+    /// Denying entry too leaves nothing the caller could have reached.
+    #[cfg(unix)]
+    #[test]
+    fn unenterable_directories_abort_neither_policy() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp: TempDir = temp_dir("traversal-unenterable");
+        let base = temp.path().join("root");
+        fs::create_dir_all(base.join("project/src")).expect("create dirs");
+        fs::create_dir_all(base.join("probe/src")).expect("create dirs");
+        fs::set_permissions(base.join("project"), fs::Permissions::from_mode(0o000))
+            .expect("make directory unenterable");
+
+        for policy in [OnIoError::Skip, OnIoError::Propagate] {
+            let matches =
+                traverse_segment_paths(vec![base.clone()], &["pro", "sr"], prefix_matcher, policy)
+                    .expect("an unenterable directory is not an error");
+
+            assert_eq!(
+                matches,
+                vec![base.join("probe/src")],
+                "policy {policy:?} should skip past the unenterable sibling"
+            );
+        }
+
+        fs::set_permissions(base.join("project"), fs::Permissions::from_mode(0o755))
+            .expect("restore permissions for cleanup");
+    }
+
+    /// A sibling that cannot be stat-ed must not sink the whole walk.
+    #[cfg(unix)]
+    #[test]
+    fn unstattable_siblings_do_not_abort_either_policy() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp: TempDir = temp_dir("traversal-unstattable-sibling");
+        let base = temp.path().join("root");
+        let cloak = base.join("cloak");
+        fs::create_dir_all(cloak.join("temporary-hidden")).expect("create dirs");
+        fs::create_dir_all(cloak.join("temp/inner")).expect("create dirs");
+        // Clearing search permission on the parent makes stat of either child
+        // fail, which is the closest POSIX analogue of the Windows deny ACL.
+        fs::set_permissions(&cloak, fs::Permissions::from_mode(0o444))
+            .expect("drop search permission");
+
+        for policy in [OnIoError::Skip, OnIoError::Propagate] {
+            let matches =
+                traverse_segment_paths(vec![cloak.clone()], &["temp"], prefix_matcher, policy)
+                    .expect("an unstattable entry is not an error");
+
+            assert!(
+                matches.is_empty(),
+                "policy {policy:?} kept an entry it could not stat: {matches:?}"
+            );
+        }
+
+        fs::set_permissions(&cloak, fs::Permissions::from_mode(0o755))
             .expect("restore permissions for cleanup");
     }
 }
