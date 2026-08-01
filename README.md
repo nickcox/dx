@@ -24,7 +24,6 @@ jumping directly to a selected directory.
 ### Homebrew
 
 ```bash
-brew tap nickcox/dx
 brew install nickcox/dx/dx
 ```
 

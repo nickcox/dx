@@ -8,7 +8,6 @@ navigation workflow.
 Homebrew:
 
 ```bash
-brew tap nickcox/dx
 brew install nickcox/dx/dx
 ```
 
