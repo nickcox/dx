@@ -9,6 +9,8 @@ are always listed under **Breaking**.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-02
+
 ### Added
 
 - `dx bookmarks prune` removes bookmarks whose target directory no longer
