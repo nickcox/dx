@@ -6,7 +6,7 @@ use std::io::{BufWriter, Read, Write, stderr};
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 
-use crossterm::{cursor, event::DisableMouseCapture, execute, terminal};
+use crossterm::{cursor, event::DisableMouseCapture, execute, queue, terminal};
 use nix::sys::select::{FdSet, select as select_fds};
 use nix::sys::time::{TimeVal, TimeValLike};
 use ratatui::layout::Rect;
@@ -267,6 +267,21 @@ impl AcquiredState {
     }
 }
 
+/// Hands the terminal back, most important undo first.
+///
+/// Mouse capture is released before anything else because it is the only one
+/// whose failure keeps costing the user something: left on, the terminal reports
+/// every movement to whatever runs next, indefinitely. A missed cursor-show or
+/// an uncleared row is cosmetic and the next prompt paints over it.
+///
+/// Everything is queued and flushed once rather than issued with `execute!`,
+/// which flushes per command. Restoring a tall menu was two dozen write-plus-
+/// flush pairs, each an opportunity to get part of the way through the sequence
+/// and stop; now the common case is a single write.
+///
+/// Errors are deliberately dropped. This runs from `Drop` on the way out, so
+/// there is nothing to retry and nowhere to report: stderr is the channel that
+/// just failed, and stdout belongs to the JSON action the shell hook parses.
 pub(super) fn restore_terminal_output<W: Write>(output: &mut W, state: AcquiredState) {
     let AcquiredState {
         cleanup_region,
@@ -274,28 +289,31 @@ pub(super) fn restore_terminal_output<W: Write>(output: &mut W, state: AcquiredS
         cursor_hidden,
         mouse_captured,
     } = state;
+
+    let mut out = BufWriter::new(output);
+
+    if mouse_captured {
+        let _ = queue!(out, DisableMouseCapture);
+    }
+
     if let Some(region) = cleanup_region {
-        let _ = execute!(output, cursor::MoveTo(0, region.prompt_row));
         for row in region.prompt_row.saturating_add(1)..region.area.bottom() {
-            let _ = execute!(
-                output,
+            let _ = queue!(
+                out,
                 cursor::MoveTo(0, row),
                 terminal::Clear(terminal::ClearType::CurrentLine)
             );
         }
-        let _ = execute!(output, cursor::MoveTo(0, region.prompt_row));
+        let _ = queue!(out, cursor::MoveTo(0, region.prompt_row));
     } else if let Some(reservation) = reservation {
-        let _ = execute!(output, cursor::MoveTo(0, reservation.prompt_row));
+        let _ = queue!(out, cursor::MoveTo(0, reservation.prompt_row));
     }
 
     if cursor_hidden {
-        let _ = execute!(output, cursor::Show);
+        let _ = queue!(out, cursor::Show);
     }
-    // Left enabled, the terminal would keep reporting clicks as input once dx exits.
-    if mouse_captured {
-        let _ = execute!(output, DisableMouseCapture);
-    }
-    let _ = output.flush();
+
+    let _ = out.flush();
 }
 
 pub(super) fn prompt_gap_rows(show_border: bool) -> u16 {
@@ -367,6 +385,42 @@ mod tests {
                 "enabling sets {mode} but teardown never clears it"
             );
         }
+    }
+
+    /// Releasing capture is the one undo whose failure keeps costing the user
+    /// something afterwards, so it must not sit behind a screenful of row
+    /// clearing that could fail first.
+    #[test]
+    fn restore_releases_mouse_capture_before_anything_else() {
+        let mut output = Vec::new();
+        restore_terminal_output(
+            &mut output,
+            AcquiredState {
+                mouse_captured: true,
+                cursor_hidden: true,
+                cleanup_region: Some(CleanupRegion {
+                    prompt_row: 1,
+                    area: Rect::new(0, 1, 20, 20),
+                }),
+                reservation: None,
+            },
+        );
+
+        let mut release = Vec::new();
+        execute!(&mut release, DisableMouseCapture).expect("write escape");
+        let written = String::from_utf8_lossy(&output).into_owned();
+        let release = String::from_utf8_lossy(&release).into_owned();
+
+        let at = written
+            .find(&release)
+            .expect("restore did not release mouse capture");
+        let first_clear = written
+            .find("\x1b[2K")
+            .expect("a cleanup region should clear rows");
+        assert!(
+            at < first_clear,
+            "capture was released after {first_clear} bytes of clearing, at {at}"
+        );
     }
 
     /// Capture left on would make the terminal report clicks as input after exit.

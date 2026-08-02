@@ -39,6 +39,11 @@ are always listed under **Breaking**.
   when the query changes, and folds a queued run of scrolls into one move. For a
   flick of ~93 events over 4000 candidates this cuts render output from 52 KB to
   under 1 KB.
+- Menu teardown releases the mouse before restoring the cursor and clearing the
+  menu rows, and emits the whole sequence in one write. Releasing it last meant
+  a cleanup that failed part way through could leave the terminal reporting
+  mouse movement to the shell indefinitely, where the other steps only leave
+  cosmetic marks the next prompt paints over.
 
 ### Breaking
 
