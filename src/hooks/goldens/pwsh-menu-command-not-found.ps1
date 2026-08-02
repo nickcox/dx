@@ -537,6 +537,7 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
             [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Save a bookmark for a directory')
             [CompletionResult]::new('remove', 'remove', [CompletionResultType]::ParameterValue, 'Remove a saved bookmark')
             [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'List saved bookmarks (default when no subcommand given)')
+            [CompletionResult]::new('prune', 'prune', [CompletionResultType]::ParameterValue, 'Remove bookmarks whose target directory no longer exists')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -558,10 +559,17 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
+        'dx;bookmarks;prune' {
+            [CompletionResult]::new('--json', '--json', [CompletionResultType]::ParameterName, 'json')
+            [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
         'dx;bookmarks;help' {
             [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Save a bookmark for a directory')
             [CompletionResult]::new('remove', 'remove', [CompletionResultType]::ParameterValue, 'Remove a saved bookmark')
             [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'List saved bookmarks (default when no subcommand given)')
+            [CompletionResult]::new('prune', 'prune', [CompletionResultType]::ParameterValue, 'Remove bookmarks whose target directory no longer exists')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -572,6 +580,9 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
             break
         }
         'dx;bookmarks;help;list' {
+            break
+        }
+        'dx;bookmarks;help;prune' {
             break
         }
         'dx;bookmarks;help;help' {
@@ -695,6 +706,7 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
             [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Save a bookmark for a directory')
             [CompletionResult]::new('remove', 'remove', [CompletionResultType]::ParameterValue, 'Remove a saved bookmark')
             [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'List saved bookmarks (default when no subcommand given)')
+            [CompletionResult]::new('prune', 'prune', [CompletionResultType]::ParameterValue, 'Remove bookmarks whose target directory no longer exists')
             break
         }
         'dx;help;bookmarks;add' {
@@ -704,6 +716,9 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
             break
         }
         'dx;help;bookmarks;list' {
+            break
+        }
+        'dx;help;bookmarks;prune' {
             break
         }
         'dx;help;stack' {

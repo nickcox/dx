@@ -8,6 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::common;
@@ -15,6 +16,46 @@ use crate::common;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BookmarkStore {
     bookmarks: BTreeMap<String, PathBuf>,
+}
+
+/// One bookmark plus whether its target is still a directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BookmarkEntry {
+    pub name: String,
+    pub path: PathBuf,
+    pub exists: bool,
+}
+
+/// The JSON form of a bookmark. Reached through a fallible conversion for the
+/// same reason [`BookmarkStore::to_serializable_map`] is: JSON is UTF-8, and a
+/// lossy encode would name a directory that does not exist.
+#[derive(Debug, Serialize)]
+pub struct SerializableEntry {
+    name: String,
+    path: String,
+    exists: bool,
+}
+
+impl BookmarkEntry {
+    pub(crate) fn to_serializable(&self) -> Result<SerializableEntry, BookmarkError> {
+        let path = self
+            .path
+            .to_str()
+            .ok_or_else(|| BookmarkError::PathNotUtf8(self.path.display().to_string()))?;
+
+        Ok(SerializableEntry {
+            name: self.name.clone(),
+            path: path.to_string(),
+            exists: self.exists,
+        })
+    }
+}
+
+/// Converts a whole listing, failing on the first entry that cannot round-trip.
+pub(crate) fn to_serializable_entries(
+    entries: &[BookmarkEntry],
+) -> Result<Vec<SerializableEntry>, BookmarkError> {
+    entries.iter().map(BookmarkEntry::to_serializable).collect()
 }
 
 #[derive(Debug, Error)]
@@ -91,11 +132,33 @@ impl BookmarkStore {
         }
     }
 
-    pub fn list(&self) -> Vec<(String, PathBuf)> {
+    /// Every bookmark, name-sorted, each target stat'ed once so a caller can
+    /// report staleness without repeating the check.
+    pub fn entries(&self) -> Vec<BookmarkEntry> {
         self.bookmarks
             .iter()
-            .map(|(name, path)| (name.clone(), path.clone()))
+            .map(|(name, path)| BookmarkEntry {
+                name: name.clone(),
+                path: path.clone(),
+                exists: path.is_dir(),
+            })
             .collect()
+    }
+
+    /// Drops every bookmark whose target is no longer a directory, returning
+    /// what was removed so the caller can say so rather than deleting silently.
+    pub fn prune_stale(&mut self) -> Vec<BookmarkEntry> {
+        let stale: Vec<BookmarkEntry> = self
+            .entries()
+            .into_iter()
+            .filter(|entry| !entry.exists)
+            .collect();
+
+        for entry in &stale {
+            self.bookmarks.remove(&entry.name);
+        }
+
+        stale
     }
 
     /// Live targets whose name starts with `prefix`, in name order — the map is
@@ -311,6 +374,66 @@ mod tests {
     }
 
     #[test]
+    fn entries_report_missing_targets() {
+        let temp = make_temp_dir("entries-missing");
+        let live = temp.path().join("live");
+        let gone = temp.path().join("gone");
+        for dir in [&live, &gone] {
+            fs::create_dir_all(dir).expect("create dir");
+        }
+
+        let mut store = BookmarkStore::default();
+        let _ = store.set("live", &live).expect("set live");
+        let _ = store.set("gone", &gone).expect("set gone");
+        fs::remove_dir_all(&gone).expect("remove gone target");
+
+        let entries = store.entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "gone");
+        assert!(!entries[0].exists);
+        assert_eq!(entries[1].name, "live");
+        assert!(entries[1].exists);
+    }
+
+    #[test]
+    fn prune_stale_removes_only_missing_entries_and_returns_them() {
+        let temp = make_temp_dir("prune-stale");
+        let live = temp.path().join("live");
+        let gone = temp.path().join("gone");
+        for dir in [&live, &gone] {
+            fs::create_dir_all(dir).expect("create dir");
+        }
+
+        let mut store = BookmarkStore::default();
+        let live_path = store.set("live", &live).expect("set live");
+        let _ = store.set("gone", &gone).expect("set gone");
+        fs::remove_dir_all(&gone).expect("remove gone target");
+
+        let removed = store.prune_stale();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].name, "gone");
+        assert!(!removed[0].exists);
+
+        let remaining = store.entries();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].name, "live");
+        assert_eq!(remaining[0].path, live_path);
+    }
+
+    #[test]
+    fn prune_stale_on_a_healthy_store_removes_nothing() {
+        let temp = make_temp_dir("prune-healthy");
+        let live = temp.path().join("live");
+        fs::create_dir_all(&live).expect("create dir");
+
+        let mut store = BookmarkStore::default();
+        let _ = store.set("live", &live).expect("set live");
+
+        assert!(store.prune_stale().is_empty());
+        assert_eq!(store.entries().len(), 1);
+    }
+
+    #[test]
     fn prefix_matches_are_name_sorted_and_exclude_stale() {
         let temp = make_temp_dir("prefix-sorted");
         let work = temp.path().join("work");
@@ -414,8 +537,8 @@ mod tests {
         let _ = store.set("zeta", &b).expect("set zeta");
         let _ = store.set("alpha", &a).expect("set alpha");
 
-        let entries = store.list();
-        assert_eq!(entries[0].0, "alpha");
-        assert_eq!(entries[1].0, "zeta");
+        let entries = store.entries();
+        assert_eq!(entries[0].name, "alpha");
+        assert_eq!(entries[1].name, "zeta");
     }
 }

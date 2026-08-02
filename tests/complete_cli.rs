@@ -400,3 +400,37 @@ fn complete_paths_returns_doubled_period_matches() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("PowerShell"));
 }
+
+#[test]
+fn complete_paths_offers_bookmark_by_prefix() {
+    let temp = common::temp_dir("complete-paths-bookmark-prefix");
+    let cwd = temp.path().join("cwd");
+    let target = temp.path().join("acme");
+    fs::create_dir_all(&cwd).expect("create cwd");
+    fs::create_dir_all(&target).expect("create target");
+    let target = common::canonical(&target);
+
+    let store = temp.path().join("bookmarks.toml");
+    fs::write(
+        &store,
+        format!(
+            "[bookmarks]\nwork = \"{}\"\n",
+            target.display().to_string().replace('\\', "\\\\")
+        ),
+    )
+    .expect("write bookmarks file");
+
+    let output = Command::new(common::dx_bin())
+        .args(["complete", "paths", "wo"])
+        .env("DX_BOOKMARKS_FILE", store.display().to_string())
+        .current_dir(&cwd)
+        .output()
+        .expect("run complete paths with bookmark prefix");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let found = stdout
+        .lines()
+        .any(|line| common::canonical(Path::new(line.trim())) == target);
+    assert!(found, "expected bookmark target in: {stdout}");
+}

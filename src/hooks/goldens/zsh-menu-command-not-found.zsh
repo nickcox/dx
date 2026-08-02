@@ -471,6 +471,13 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(prune)
+_arguments "${_arguments_options[@]}" : \
+'--json[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : \
 ":: :_dx__subcmd__bookmarks__subcmd__help_commands" \
@@ -492,6 +499,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (list)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(prune)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -689,6 +700,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(prune)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
         esac
     ;;
 esac
@@ -758,6 +773,7 @@ _dx__subcmd__bookmarks_commands() {
 'add:Save a bookmark for a directory' \
 'remove:Remove a saved bookmark' \
 'list:List saved bookmarks (default when no subcommand given)' \
+'prune:Remove bookmarks whose target directory no longer exists' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'dx bookmarks commands' commands "$@"
@@ -773,6 +789,7 @@ _dx__subcmd__bookmarks__subcmd__help_commands() {
 'add:Save a bookmark for a directory' \
 'remove:Remove a saved bookmark' \
 'list:List saved bookmarks (default when no subcommand given)' \
+'prune:Remove bookmarks whose target directory no longer exists' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'dx bookmarks help commands' commands "$@"
@@ -792,6 +809,11 @@ _dx__subcmd__bookmarks__subcmd__help__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'dx bookmarks help list commands' commands "$@"
 }
+(( $+functions[_dx__subcmd__bookmarks__subcmd__help__subcmd__prune_commands] )) ||
+_dx__subcmd__bookmarks__subcmd__help__subcmd__prune_commands() {
+    local commands; commands=()
+    _describe -t commands 'dx bookmarks help prune commands' commands "$@"
+}
 (( $+functions[_dx__subcmd__bookmarks__subcmd__help__subcmd__remove_commands] )) ||
 _dx__subcmd__bookmarks__subcmd__help__subcmd__remove_commands() {
     local commands; commands=()
@@ -801,6 +823,11 @@ _dx__subcmd__bookmarks__subcmd__help__subcmd__remove_commands() {
 _dx__subcmd__bookmarks__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'dx bookmarks list commands' commands "$@"
+}
+(( $+functions[_dx__subcmd__bookmarks__subcmd__prune_commands] )) ||
+_dx__subcmd__bookmarks__subcmd__prune_commands() {
+    local commands; commands=()
+    _describe -t commands 'dx bookmarks prune commands' commands "$@"
 }
 (( $+functions[_dx__subcmd__bookmarks__subcmd__remove_commands] )) ||
 _dx__subcmd__bookmarks__subcmd__remove_commands() {
@@ -918,6 +945,7 @@ _dx__subcmd__help__subcmd__bookmarks_commands() {
 'add:Save a bookmark for a directory' \
 'remove:Remove a saved bookmark' \
 'list:List saved bookmarks (default when no subcommand given)' \
+'prune:Remove bookmarks whose target directory no longer exists' \
     )
     _describe -t commands 'dx help bookmarks commands' commands "$@"
 }
@@ -930,6 +958,11 @@ _dx__subcmd__help__subcmd__bookmarks__subcmd__add_commands() {
 _dx__subcmd__help__subcmd__bookmarks__subcmd__list_commands() {
     local commands; commands=()
     _describe -t commands 'dx help bookmarks list commands' commands "$@"
+}
+(( $+functions[_dx__subcmd__help__subcmd__bookmarks__subcmd__prune_commands] )) ||
+_dx__subcmd__help__subcmd__bookmarks__subcmd__prune_commands() {
+    local commands; commands=()
+    _describe -t commands 'dx help bookmarks prune commands' commands "$@"
 }
 (( $+functions[_dx__subcmd__help__subcmd__bookmarks__subcmd__remove_commands] )) ||
 _dx__subcmd__help__subcmd__bookmarks__subcmd__remove_commands() {

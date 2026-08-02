@@ -314,21 +314,25 @@ complete -c dx -n "__fish_dx_using_subcommand complete; and __fish_seen_subcomma
 complete -c dx -n "__fish_dx_using_subcommand complete; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c dx -n "__fish_dx_using_subcommand navigate" -l session -r
 complete -c dx -n "__fish_dx_using_subcommand navigate" -s h -l help -d 'Print help'
-complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list help" -l json -d 'Output as JSON'
-complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list help" -s h -l help -d 'Print help'
-complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list help" -f -a "add" -d 'Save a bookmark for a directory'
-complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list help" -f -a "remove" -d 'Remove a saved bookmark'
-complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list help" -f -a "list" -d 'List saved bookmarks (default when no subcommand given)'
-complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list prune help" -l json -d 'Output as JSON'
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list prune help" -s h -l help -d 'Print help'
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list prune help" -f -a "add" -d 'Save a bookmark for a directory'
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list prune help" -f -a "remove" -d 'Remove a saved bookmark'
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list prune help" -f -a "list" -d 'List saved bookmarks (default when no subcommand given)'
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list prune help" -f -a "prune" -d 'Remove bookmarks whose target directory no longer exists'
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and not __fish_seen_subcommand_from add remove list prune help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from add" -l json -d 'Output as JSON'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from add" -s h -l help -d 'Print help'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from remove" -l json -d 'Output as JSON'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from remove" -s h -l help -d 'Print help'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from list" -l json
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from prune" -l json
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from prune" -s h -l help -d 'Print help'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "add" -d 'Save a bookmark for a directory'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "remove" -d 'Remove a saved bookmark'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "list" -d 'List saved bookmarks (default when no subcommand given)'
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "prune" -d 'Remove bookmarks whose target directory no longer exists'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -l direction -r -f -a "undo\t''
 redo\t''
@@ -386,6 +390,7 @@ complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_f
 complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from bookmarks" -f -a "add" -d 'Save a bookmark for a directory'
 complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from bookmarks" -f -a "remove" -d 'Remove a saved bookmark'
 complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from bookmarks" -f -a "list" -d 'List saved bookmarks (default when no subcommand given)'
+complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from bookmarks" -f -a "prune" -d 'Remove bookmarks whose target directory no longer exists'
 complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from stack" -f -a "push"
 complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from stack" -f -a "undo"
 complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from stack" -f -a "redo"

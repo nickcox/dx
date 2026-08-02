@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use clap::{Subcommand, ValueHint};
 
-use crate::bookmarks::storage;
+use crate::bookmarks::{self, storage};
 
 use super::CliError;
 
@@ -29,6 +29,11 @@ pub enum BookmarksCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Remove bookmarks whose target directory no longer exists
+    Prune {
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn run_bookmarks(command: Option<BookmarksCommand>, json: bool) -> Result<(), CliError> {
@@ -36,6 +41,7 @@ pub fn run_bookmarks(command: Option<BookmarksCommand>, json: bool) -> Result<()
         Some(BookmarksCommand::Add { name, path }) => run_add(&name, path.as_deref()),
         Some(BookmarksCommand::Remove { name }) => run_remove(&name),
         Some(BookmarksCommand::List { json: list_json }) => run_list(list_json),
+        Some(BookmarksCommand::Prune { json: prune_json }) => run_prune(prune_json),
         // bare `dx bookmarks` or `dx bookmarks --json`
         None => run_list(json),
     }
@@ -45,8 +51,11 @@ fn run_add(name: &str, path: Option<&str>) -> Result<(), CliError> {
     let mut store = storage::read_store()?;
     let resolved = resolve_bookmark_path(path)?;
 
-    store.set(name, &resolved)?;
+    // Echoing the canonical path is the only way the user sees that a symlink
+    // was resolved, or which directory a bare `add` actually captured.
+    let canonical = store.set(name, &resolved)?;
     storage::write_store(&store)?;
+    println!("{}", canonical.display());
 
     Ok(())
 }
@@ -54,22 +63,40 @@ fn run_add(name: &str, path: Option<&str>) -> Result<(), CliError> {
 fn run_remove(name: &str) -> Result<(), CliError> {
     let mut store = storage::read_store()?;
 
-    store.remove(name)?;
+    let removed = store.remove(name)?;
     storage::write_store(&store)?;
+    println!("{}", removed.display());
 
     Ok(())
 }
 
 fn run_list(json: bool) -> Result<(), CliError> {
     let store = storage::read_store()?;
+    print_entries(&store.entries(), json)
+}
 
+fn run_prune(json: bool) -> Result<(), CliError> {
+    let mut store = storage::read_store()?;
+    let removed = store.prune_stale();
+
+    // Only rewrite when something actually changed, so the common no-op does
+    // not churn the store file.
+    if !removed.is_empty() {
+        storage::write_store(&store)?;
+    }
+
+    print_entries(&removed, json)
+}
+
+fn print_entries(entries: &[bookmarks::BookmarkEntry], json: bool) -> Result<(), CliError> {
     if json {
-        let output = serde_json::to_string(&store.to_serializable_map()?)
+        let output = serde_json::to_string(&bookmarks::to_serializable_entries(entries)?)
             .map_err(CliError::BookmarksJson)?;
         println!("{output}");
     } else {
-        for (name, path) in store.list() {
-            println!("{name} = {}", path.display());
+        for entry in entries {
+            let marker = if entry.exists { "" } else { " (missing)" };
+            println!("{} = {}{marker}", entry.name, entry.path.display());
         }
     }
 

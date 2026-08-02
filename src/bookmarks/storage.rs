@@ -196,7 +196,7 @@ mod tests {
         process.remove("XDG_DATA_HOME");
 
         let store = read_store().expect("read missing store");
-        assert!(store.list().is_empty());
+        assert!(store.entries().is_empty());
     }
 
     #[test]

@@ -321,6 +321,9 @@ _dx() {
             dx__subcmd__bookmarks,list)
                 cmd="dx__subcmd__bookmarks__subcmd__list"
                 ;;
+            dx__subcmd__bookmarks,prune)
+                cmd="dx__subcmd__bookmarks__subcmd__prune"
+                ;;
             dx__subcmd__bookmarks,remove)
                 cmd="dx__subcmd__bookmarks__subcmd__remove"
                 ;;
@@ -332,6 +335,9 @@ _dx() {
                 ;;
             dx__subcmd__bookmarks__subcmd__help,list)
                 cmd="dx__subcmd__bookmarks__subcmd__help__subcmd__list"
+                ;;
+            dx__subcmd__bookmarks__subcmd__help,prune)
+                cmd="dx__subcmd__bookmarks__subcmd__help__subcmd__prune"
                 ;;
             dx__subcmd__bookmarks__subcmd__help,remove)
                 cmd="dx__subcmd__bookmarks__subcmd__help__subcmd__remove"
@@ -408,6 +414,9 @@ _dx() {
             dx__subcmd__help__subcmd__bookmarks,list)
                 cmd="dx__subcmd__help__subcmd__bookmarks__subcmd__list"
                 ;;
+            dx__subcmd__help__subcmd__bookmarks,prune)
+                cmd="dx__subcmd__help__subcmd__bookmarks__subcmd__prune"
+                ;;
             dx__subcmd__help__subcmd__bookmarks,remove)
                 cmd="dx__subcmd__help__subcmd__bookmarks__subcmd__remove"
                 ;;
@@ -483,7 +492,7 @@ _dx() {
             return 0
             ;;
         dx__subcmd__bookmarks)
-            opts="-h --json --help add remove list help"
+            opts="-h --json --help add remove list prune help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -511,7 +520,7 @@ _dx() {
             return 0
             ;;
         dx__subcmd__bookmarks__subcmd__help)
-            opts="add remove list help"
+            opts="add remove list prune help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -566,6 +575,20 @@ _dx() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        dx__subcmd__bookmarks__subcmd__help__subcmd__prune)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         dx__subcmd__bookmarks__subcmd__help__subcmd__remove)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
@@ -581,6 +604,20 @@ _dx() {
             return 0
             ;;
         dx__subcmd__bookmarks__subcmd__list)
+            opts="-h --json --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        dx__subcmd__bookmarks__subcmd__prune)
             opts="-h --json --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -869,7 +906,7 @@ _dx() {
             return 0
             ;;
         dx__subcmd__help__subcmd__bookmarks)
-            opts="add remove list"
+            opts="add remove list prune"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -897,6 +934,20 @@ _dx() {
             return 0
             ;;
         dx__subcmd__help__subcmd__bookmarks__subcmd__list)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        dx__subcmd__help__subcmd__bookmarks__subcmd__prune)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
