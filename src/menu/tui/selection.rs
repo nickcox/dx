@@ -251,6 +251,31 @@ mod tests {
         assert_eq!(state.selected(), Some(0));
     }
 
+    /// The menu folds a queued run of wheel events into one move by multiplying
+    /// the row step. That is only sound if it lands where the events would have
+    /// one at a time, including when the run clamps at an end.
+    #[test]
+    fn one_folded_scroll_lands_where_the_separate_scrolls_would() {
+        for (len, step, count) in [(30, 1, 5), (30, 7, 3), (30, 7, 20), (5, 3, 4)] {
+            for direction in [1_isize, -1] {
+                let mut folded = ListState::default();
+                folded.select(Some(if direction > 0 { 0 } else { len - 1 }));
+                let mut separate = folded;
+
+                move_selection_page(&mut folded, len, step * count, direction);
+                for _ in 0..count {
+                    move_selection_page(&mut separate, len, step, direction);
+                }
+
+                assert_eq!(
+                    folded.selected(),
+                    separate.selected(),
+                    "len={len} step={step} count={count} direction={direction}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn move_selection_page_uses_minimum_step_and_handles_empty_lists() {
         let mut state = ListState::default();

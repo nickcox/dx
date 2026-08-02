@@ -2,6 +2,7 @@
 //! returns what the user chose.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use crossterm::event::{self, Event};
 use ratatui::{
@@ -27,7 +28,20 @@ use super::terminal::{
     required_rows_below,
 };
 use super::{MenuOptions, MenuRequest, MenuResult};
-use crate::menu::QueryStyle;
+use crate::menu::{MenuMode, QueryStyle};
+use crate::resolve::CompletionCandidates;
+
+/// How long to wait for the next event when folding a run of scrolls together.
+///
+/// Not [`Duration::ZERO`]: with crossterm's `use-dev-tty` backend a zero-length
+/// poll reports nothing available even when the terminal has queued a hundred
+/// events, which silently disables the folding. Measured over ~93 queued scroll
+/// events on a 4000-entry list, a zero poll redrew for every one of them
+/// (~52 KB of output) where this window redraws once (~1 KB).
+///
+/// The cost is up to one millisecond of added latency on an isolated scroll,
+/// which is well under a frame.
+const SCROLL_COALESCE_WINDOW: Duration = Duration::from_millis(1);
 
 pub(super) fn selected_result(
     filter_state: &FilterState,
@@ -177,119 +191,211 @@ fn run_loop(
     let mut label_context = LabelContext::new(cwd, home.as_deref());
     let mut previous_height = area.height;
 
+    let mut plan = build_render_plan(
+        &completion,
+        &filter_state,
+        &mut label_context,
+        mode,
+        area,
+        options,
+    );
+    let mut needs_redraw = true;
+    // Holds a non-scroll event read while draining a scroll run, so it is acted
+    // on in the order the user produced it.
+    let mut pending_action: Option<MenuKeyAction> = None;
+
     loop {
-        let effective_query = filter_state.effective_query();
-        let label_style = QueryStyle::from_query(mode, &effective_query);
-        let labels: Vec<String> = completion
-            .paths
-            .iter()
-            .map(|p| label_context.label(p, label_style))
-            .collect();
-        let target_height =
-            compute_rendered_height(area.width, completion.paths.len(), &labels, options);
-        let current_height = bounded_rendered_height(area.height, target_height);
-        let current_area = rendered_menu_area(area, current_height);
-        let list_area = Rect {
-            x: current_area.x,
-            y: current_area.y,
-            width: current_area.width,
-            height: current_area.height.saturating_sub(1),
-        };
-        let layout = build_menu_layout(list_area, completion.paths.len(), &labels, options);
+        if needs_redraw {
+            let selected_path = selected_status_path(&completion.paths, list_state.selected());
+            let overflow = overflow_note(completion.paths.len(), completion.has_more);
+            let RenderPlan {
+                labels,
+                current_height,
+                current_area,
+                layout,
+            } = &plan;
+            let (current_height, current_area) = (*current_height, *current_area);
 
-        let selected_path = selected_status_path(&completion.paths, list_state.selected());
+            terminal
+                .draw(|frame| {
+                    frame.render_widget(Clear, current_area);
+                    if let Some(vacated_area) =
+                        cleared_trailing_area(frame.area(), previous_height, current_height)
+                    {
+                        frame.render_widget(Clear, vacated_area);
+                    }
 
-        let overflow = overflow_note(completion.paths.len(), completion.has_more);
+                    let chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([Constraint::Min(1), Constraint::Length(1)])
+                        .split(current_area);
 
-        terminal
-            .draw(|frame| {
-                frame.render_widget(Clear, current_area);
-                if let Some(vacated_area) =
-                    cleared_trailing_area(frame.area(), previous_height, current_height)
-                {
-                    frame.render_widget(Clear, vacated_area);
-                }
+                    let selected = list_state.selected().unwrap_or(0);
 
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Min(1), Constraint::Length(1)])
-                    .split(current_area);
+                    if layout.metrics.use_grid {
+                        render_grid(frame, &completion, labels, options, layout, selected);
+                    } else {
+                        render_list(frame, &completion, labels, options, layout, &mut list_state);
+                    }
 
-                let selected = list_state.selected().unwrap_or(0);
-
-                if layout.metrics.use_grid {
-                    render_grid(frame, &completion, &labels, options, &layout, selected);
-                } else {
-                    render_list(
+                    render_status(
                         frame,
-                        &completion,
-                        &labels,
-                        options,
-                        &layout,
-                        &mut list_state,
+                        &chunks,
+                        layout.divider_area,
+                        &selected_path,
+                        &overflow,
+                        filter_state.typed_refinement(),
                     );
-                }
+                })
+                .ok()?;
 
-                render_status(
-                    frame,
-                    &chunks,
-                    layout.divider_area,
-                    &selected_path,
-                    &overflow,
-                    filter_state.typed_refinement(),
-                );
-            })
-            .ok()?;
+            previous_height = current_height;
+        }
 
-        previous_height = current_height;
+        let len = completion.paths.len();
+        let columns = plan.layout.metrics.columns;
+        let use_grid = plan.layout.metrics.use_grid;
 
-        {
-            let len = completion.paths.len();
-            let columns = layout.metrics.columns;
-            let use_grid = layout.metrics.use_grid;
-
-            let action = match event::read().ok()? {
+        let action = match pending_action.take() {
+            Some(action) => action,
+            None => match event::read().ok()? {
                 Event::Key(key) => map_key_event(key, use_grid),
                 Event::Mouse(mouse) => map_mouse_event(mouse),
                 _ => MenuKeyAction::Ignore,
-            };
+            },
+        };
 
-            match action {
-                MenuKeyAction::Submit => {
-                    if let Some(idx) = list_state.selected()
-                        && let Some(value) = completion.paths.get(idx).cloned()
-                    {
-                        return Some(selected_result(&filter_state, value, geometry));
+        // A flick delivers far more scroll events than there are useful frames,
+        // and only the final position is ever seen. Fold the ones already queued
+        // into this move so a long list redraws once instead of once per event.
+        let action = match action {
+            MenuKeyAction::ScrollRow(first) => {
+                let mut rows = first;
+                while pending_action.is_none()
+                    && event::poll(SCROLL_COALESCE_WINDOW).unwrap_or(false)
+                {
+                    match event::read().ok()? {
+                        Event::Mouse(mouse) => match map_mouse_event(mouse) {
+                            MenuKeyAction::ScrollRow(next) => rows = rows.saturating_add(next),
+                            MenuKeyAction::Ignore => {}
+                            other => pending_action = Some(other),
+                        },
+                        // A key press ends the run: it must be handled in order,
+                        // so hold it for the next iteration rather than dropping
+                        // it or acting on it out of sequence.
+                        Event::Key(key) => pending_action = Some(map_key_event(key, use_grid)),
+                        _ => {}
                     }
                 }
-                MenuKeyAction::Cancel => {
-                    return Some(cancelled_result(&filter_state, geometry));
+                MenuKeyAction::ScrollRow(rows)
+            }
+            other => other,
+        };
+
+        // Nothing on screen depends on an event the menu discards, and a
+        // trackpad can deliver them faster than a long list redraws.
+        needs_redraw = !matches!(action, MenuKeyAction::Ignore | MenuKeyAction::ScrollRow(0));
+
+        match action {
+            MenuKeyAction::Submit => {
+                if let Some(idx) = list_state.selected()
+                    && let Some(value) = completion.paths.get(idx).cloned()
+                {
+                    return Some(selected_result(&filter_state, value, geometry));
                 }
-                MenuKeyAction::MoveLinear(delta) => {
-                    move_selection(&mut list_state, len, delta);
-                }
-                MenuKeyAction::MoveGridVertical(direction) => {
-                    move_selection_grid_vertical(&mut list_state, len, columns, direction);
-                }
-                MenuKeyAction::MovePage(direction) => {
-                    let page_size = page_selection_step(layout.visible_rows, columns, use_grid);
-                    move_selection_page(&mut list_state, len, page_size, direction);
-                }
-                MenuKeyAction::ScrollRow(direction) => {
-                    // One row is a whole grid line; `move_selection_page` clamps for us.
-                    let step = if use_grid { columns.max(1) } else { 1 };
-                    move_selection_page(&mut list_state, len, step, direction);
-                }
-                MenuKeyAction::Backspace | MenuKeyAction::InputChar(_) => apply_filter_edit(
+            }
+            MenuKeyAction::Cancel => {
+                return Some(cancelled_result(&filter_state, geometry));
+            }
+            MenuKeyAction::MoveLinear(delta) => {
+                move_selection(&mut list_state, len, delta);
+            }
+            MenuKeyAction::MoveGridVertical(direction) => {
+                move_selection_grid_vertical(&mut list_state, len, columns, direction);
+            }
+            MenuKeyAction::MovePage(direction) => {
+                let page_size = page_selection_step(plan.layout.visible_rows, columns, use_grid);
+                move_selection_page(&mut list_state, len, page_size, direction);
+            }
+            // Zero means a run of scrolls cancelled out, so the selection stays put.
+            MenuKeyAction::ScrollRow(0) => {}
+            MenuKeyAction::ScrollRow(rows) => {
+                // One row is a whole grid line; `move_selection_page` clamps for us.
+                let step = if use_grid { columns.max(1) } else { 1 };
+                let distance = step.saturating_mul(rows.unsigned_abs());
+                move_selection_page(&mut list_state, len, distance, rows);
+            }
+            // Only a filter edit can change the candidates or the label style,
+            // so this is the one branch that has to rebuild the plan.
+            MenuKeyAction::Backspace | MenuKeyAction::InputChar(_) => {
+                apply_filter_edit(
                     &mut filter_state,
                     &mut completion,
                     &mut list_state,
                     action,
                     &query_fn,
-                ),
-                MenuKeyAction::Ignore => {}
+                );
+                plan = build_render_plan(
+                    &completion,
+                    &filter_state,
+                    &mut label_context,
+                    mode,
+                    area,
+                    options,
+                );
             }
+            MenuKeyAction::Ignore => {}
         }
+    }
+}
+
+/// Everything a frame needs that is derived from the candidates and the active
+/// query.
+///
+/// Building it is O(candidates) — a label per path, then two passes of layout —
+/// so it is held across iterations. Moving the selection cannot invalidate it;
+/// only a filter edit can, because only that changes the candidate list or the
+/// label style.
+struct RenderPlan {
+    labels: Vec<String>,
+    current_height: u16,
+    current_area: Rect,
+    layout: super::layout::MenuLayoutPlan,
+}
+
+fn build_render_plan(
+    completion: &CompletionCandidates,
+    filter_state: &FilterState,
+    label_context: &mut LabelContext,
+    mode: MenuMode,
+    area: Rect,
+    options: &MenuOptions,
+) -> RenderPlan {
+    let effective_query = filter_state.effective_query();
+    let label_style = QueryStyle::from_query(mode, &effective_query);
+    let labels: Vec<String> = completion
+        .paths
+        .iter()
+        .map(|p| label_context.label(p, label_style))
+        .collect();
+
+    let target_height =
+        compute_rendered_height(area.width, completion.paths.len(), &labels, options);
+    let current_height = bounded_rendered_height(area.height, target_height);
+    let current_area = rendered_menu_area(area, current_height);
+    let list_area = Rect {
+        x: current_area.x,
+        y: current_area.y,
+        width: current_area.width,
+        height: current_area.height.saturating_sub(1),
+    };
+    let layout = build_menu_layout(list_area, completion.paths.len(), &labels, options);
+
+    RenderPlan {
+        labels,
+        current_height,
+        current_area,
+        layout,
     }
 }
 

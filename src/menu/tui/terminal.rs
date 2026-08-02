@@ -6,11 +6,7 @@ use std::io::{BufWriter, Read, Write, stderr};
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 
-use crossterm::{
-    cursor,
-    event::{DisableMouseCapture, EnableMouseCapture},
-    execute, terminal,
-};
+use crossterm::{cursor, event::DisableMouseCapture, execute, terminal};
 use nix::sys::select::{FdSet, select as select_fds};
 use nix::sys::time::{TimeVal, TimeValLike};
 use ratatui::layout::Rect;
@@ -121,6 +117,24 @@ pub(super) fn parse_cursor_row_response(response: &[u8]) -> Option<u16> {
     row.parse::<u16>().ok()?.checked_sub(1)
 }
 
+/// Button tracking plus SGR coordinates, and deliberately nothing else.
+///
+/// The menu acts on wheel up and wheel down; every other mouse event is
+/// discarded. `crossterm::EnableMouseCapture` would also turn on `?1002h`
+/// (button-motion) and `?1003h` (report *all* motion), so resting a hand on a
+/// trackpad delivered a continuous stream of events the menu only threw away —
+/// each one still costing a full redraw. Wheel events arrive under `?1000h`
+/// alone.
+///
+/// `?1015h` and `?1006h` are coordinate encodings rather than event classes, so
+/// they cost nothing and preserve crossterm's parsing across terminals that
+/// support only one of them. `?1006h` comes last because it is preferred.
+///
+/// Teardown still uses `DisableMouseCapture`, which turns off all five modes.
+/// Disabling one that was never enabled is a no-op, and the superset also
+/// clears anything another program left on.
+const WHEEL_TRACKING_ON: &str = "\x1b[?1000h\x1b[?1015h\x1b[?1006h";
+
 pub(super) struct TerminalSession<'a> {
     pub(super) terminal_ops: &'a dyn TerminalOps,
     pub(super) use_tty_backend: bool,
@@ -183,7 +197,7 @@ impl<'a> TerminalSession<'a> {
     /// Without this the terminal keeps the wheel to itself and scrolls its own
     /// scrollback, so the menu never sees the gesture.
     pub(super) fn capture_mouse(&mut self) -> std::io::Result<()> {
-        execute!(self.output()?, EnableMouseCapture)?;
+        self.output()?.write_all(WHEEL_TRACKING_ON.as_bytes())?;
         self.mouse_captured = true;
         self.output()?.flush()?;
         Ok(())
@@ -317,6 +331,43 @@ pub(super) fn scroll_rows_needed(prompt_row: u16, terminal_rows: u16, needed_hei
 mod tests {
     use super::super::fixtures::*;
     use super::*;
+
+    /// The menu discards every mouse event except wheel up and wheel down, so
+    /// asking for motion reporting only buys a flood of events that each cost a
+    /// redraw. This is the fix for the menu wedging under a fast trackpad
+    /// scroll, so it is worth pinning.
+    #[test]
+    fn mouse_capture_does_not_request_motion_reporting() {
+        assert!(
+            WHEEL_TRACKING_ON.contains("?1000h"),
+            "button tracking carries the wheel events the menu needs"
+        );
+        for motion_mode in ["?1002h", "?1003h"] {
+            assert!(
+                !WHEEL_TRACKING_ON.contains(motion_mode),
+                "{motion_mode} reports pointer motion the menu throws away"
+            );
+        }
+    }
+
+    /// Teardown clears more than startup set, which is deliberate.
+    #[test]
+    fn disabling_capture_covers_every_mode_enabling_it_sets() {
+        let mut disabled = Vec::new();
+        execute!(&mut disabled, DisableMouseCapture).expect("write escape");
+        let disabled = String::from_utf8_lossy(&disabled).into_owned();
+
+        for mode in WHEEL_TRACKING_ON
+            .split("\x1b[")
+            .filter(|part| !part.is_empty())
+        {
+            let off = mode.replace('h', "l");
+            assert!(
+                disabled.contains(&off),
+                "enabling sets {mode} but teardown never clears it"
+            );
+        }
+    }
 
     /// Capture left on would make the terminal report clicks as input after exit.
     #[test]

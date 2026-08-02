@@ -30,6 +30,16 @@ are always listed under **Breaking**.
 - `dx complete <mode> --json` now ends with a newline, making it byte-identical
   to `dx stack --list --json` for the same candidates.
 
+### Fixed
+
+- The interactive menu no longer becomes unresponsive when scrolling quickly
+  through a long list. It was asking the terminal to report every pointer
+  movement — events it then discarded, each still costing a full redraw of every
+  candidate. It now requests only wheel events, rebuilds candidate labels only
+  when the query changes, and folds a queued run of scrolls into one move. For a
+  flick of ~93 events over 4000 candidates this cuts render output from 52 KB to
+  under 1 KB.
+
 ### Breaking
 
 - `dx resolve` now exits `0` if and only if the query resolved to exactly one
