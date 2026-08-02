@@ -69,6 +69,10 @@ are always listed under **Breaking**.
 
 ### Fixed
 
+- The Bash and Zsh shell-smoke checks in CI separated their assertions with
+  `;`, so only the last one decided the result — three of the five commands they
+  claimed to check were never really checked. They are `&&`-chained now, which
+  is what surfaced `cdf` going missing on a runner without zoxide.
 - Path completion offers symlinked directories. It listed them with a call that
   does not traverse symlinks on Unix, so a directory reached through a symlink
   resolved fine but was never suggested — the two halves disagreed about what

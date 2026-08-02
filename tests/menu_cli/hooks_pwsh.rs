@@ -454,6 +454,10 @@ fn init_pwsh_uses_idiomatic_functions_and_restores_dot_dot_alias() {
         ])
         .env("PATH", path_with_dx_binary())
         .env("CARGO_BIN_EXE_dx", env!("CARGO_BIN_EXE_dx"))
+        // `z` and `cdf` are only installed when zoxide is on PATH, which makes
+        // the generated hook depend on the machine. Force them on so this test
+        // asserts the full command set wherever it runs.
+        .env("DX_FRECENCY", "1")
         .output()
         .expect("pwsh should run");
 

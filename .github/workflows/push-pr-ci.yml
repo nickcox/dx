@@ -197,19 +197,25 @@ jobs:
         run: cargo build --locked
 
       - name: Run shell smoke
+        env:
+          # `z` and `cdf` are only installed when zoxide is on PATH. Runners do
+          # not have it, so force them on to keep asserting the full command
+          # set; `omitting_frecency_removes_the_commands_and_every_binding`
+          # covers the other half.
+          DX_FRECENCY: '1'
         run: |
           case "${{ matrix.shell }}" in
             bash)
-              bash -lc 'eval "$(./target/debug/dx init bash --menu --command-not-found)"; cd . >/dev/null 2>&1; command -v up >/dev/null; command -v back >/dev/null; command -v forward >/dev/null; command -v cdf >/dev/null; command -v cdr >/dev/null; declare -F command_not_found_handle >/dev/null'
+              bash -lc 'eval "$(./target/debug/dx init bash --menu --command-not-found)" && cd . >/dev/null 2>&1 && command -v up >/dev/null && command -v back >/dev/null && command -v forward >/dev/null && command -v cdf >/dev/null && command -v z >/dev/null && command -v cdr >/dev/null && declare -F command_not_found_handle >/dev/null'
               ;;
             zsh)
-              zsh -fc 'function compdef() { :; }; eval "$(./target/debug/dx init zsh --menu --command-not-found)"; cd . >/dev/null 2>&1; whence -w up >/dev/null; whence -w back >/dev/null; whence -w forward >/dev/null; whence -w cdf >/dev/null; whence -w cdr >/dev/null; whence -w command_not_found_handler >/dev/null'
+              zsh -fc 'function compdef() { :; }; eval "$(./target/debug/dx init zsh --menu --command-not-found)" && cd . >/dev/null 2>&1 && whence -w up >/dev/null && whence -w back >/dev/null && whence -w forward >/dev/null && whence -w cdf >/dev/null && whence -w z >/dev/null && whence -w cdr >/dev/null && whence -w command_not_found_handler >/dev/null'
               ;;
             fish)
-              fish -c './target/debug/dx init fish --menu --command-not-found | source; cd . >/dev/null 2>/dev/null; functions -q up; and functions -q back; and functions -q forward; and functions -q cdf; and functions -q cdr; and functions -q fish_command_not_found'
+              fish -c './target/debug/dx init fish --menu --command-not-found | source; cd . >/dev/null 2>/dev/null; functions -q up; and functions -q back; and functions -q forward; and functions -q cdf; and functions -q z; and functions -q cdr; and functions -q fish_command_not_found'
               ;;
             pwsh)
-              pwsh -NoProfile -Command 'Invoke-Expression ((& ./target/debug/dx init pwsh --menu --command-not-found | Out-String)); Set-Location .; Get-Command up -CommandType Alias | Out-Null; Get-Command back -CommandType Alias | Out-Null; Get-Command forward -CommandType Alias | Out-Null; Get-Command cdf -CommandType Alias | Out-Null; Get-Command cdr -CommandType Alias | Out-Null'
+              pwsh -NoProfile -Command 'Invoke-Expression ((& ./target/debug/dx init pwsh --menu --command-not-found | Out-String)); Set-Location .; Get-Command up -CommandType Alias | Out-Null; Get-Command back -CommandType Alias | Out-Null; Get-Command forward -CommandType Alias | Out-Null; Get-Command cdf -CommandType Alias | Out-Null; Get-Command z -CommandType Alias | Out-Null; Get-Command cdr -CommandType Alias | Out-Null'
               ;;
           esac
 
@@ -228,6 +234,9 @@ jobs:
 
       - name: Run PowerShell smoke
         shell: pwsh
+        env:
+          # See the note on the Unix smoke job: runners have no zoxide.
+          DX_FRECENCY: '1'
         run: |
           Invoke-Expression ((& .\target\debug\dx.exe init pwsh --menu --command-not-found | Out-String))
           cd .
@@ -235,4 +244,5 @@ jobs:
           Get-Command back -CommandType Alias | Out-Null
           Get-Command forward -CommandType Alias | Out-Null
           Get-Command cdf -CommandType Alias | Out-Null
+          Get-Command z -CommandType Alias | Out-Null
           Get-Command cdr -CommandType Alias | Out-Null
