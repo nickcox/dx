@@ -117,9 +117,25 @@ shell hooks set it to the shell process ID when it is not already present.
 ### `XDG_RUNTIME_DIR`
 
 Base directory for session stack files on platforms that provide it. If unset,
-`dx` uses the system temporary directory.
+`dx` uses the system temporary directory. Either way the files live in a
+`dx-sessions` subdirectory, one per session id.
 
 Most users should let generated hooks manage session identity.
+
+### Session file lifecycle
+
+You do not have to clean these up. `dx` removes session files it has not
+written to for seven days. The sweep runs at most once per process and at most
+once an hour across all of them, coordinated through a marker file in the same
+directory, so a machine with many shells open does not repeatedly rescan.
+
+The effect is that a shell's history survives well beyond the session that
+created it — reusing a `DX_SESSION` value within the week picks up where it left
+off — while abandoned sessions do not accumulate. `dx stack --clear` discards
+one session's history immediately.
+
+Each direction of a session's history is capped at 5000 entries. Beyond that the
+oldest are dropped.
 
 ## Menu Runtime Settings
 

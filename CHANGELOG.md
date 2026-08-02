@@ -19,6 +19,12 @@ are always listed under **Breaking**.
 - `dx bookmarks` marks entries whose target is missing with `(missing)`.
 - `dx bookmarks add` and `remove` print the absolute path they acted on, making
   the symlink resolution done at save time visible.
+- Search roots and `--command-not-found` now appear in the README highlights and
+  have their own quickstart steps. Abbreviated paths only reach below the
+  current directory until search roots are configured, which was easy to miss.
+- The session file lifecycle is documented: where the files live, that `dx`
+  removes ones untouched for seven days, how often it sweeps, and the 5000-entry
+  cap on each direction of a session's history.
 - Guidance on loading `dx` alongside other tools that wrap `cd`, such as
   zoxide's `--cmd cd` integration: initialise `dx` last, or its `cd` is replaced
   and abbreviated paths silently stop resolving. Includes a troubleshooting

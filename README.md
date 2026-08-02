@@ -13,10 +13,12 @@ jumping directly to a selected directory.
 
 - Jump through abbreviated directory names: `cd pr/dx`
 - Match word boundaries and gaps: `cd cd-e`, `cd P..Shell`
+- Reach the same names from anywhere by naming search roots
 - Move to an ancestor: `up`, `up 3`, or `up project`
 - Undo and redo directory changes: `back` / `cd-` and `forward` / `cd+`
 - Jump to recent or frecent directories: `cdr` and `z` / `cdf`
 - Save named directory bookmarks, completed by name prefix
+- Drop the `cd` entirely: type `pr/dx` on its own and land there
 - Opt into an inline, keyboard-driven completion menu
 
 ## Install

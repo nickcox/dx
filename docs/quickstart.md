@@ -102,7 +102,25 @@ prefer lowercase queries such as `p..shell` for mixed-case names.
 Matches must be unambiguous. Use normal literal paths whenever you want to skip
 abbreviation matching.
 
-## 4. Bookmark a directory
+## 4. Point `dx` at the directories you live in
+
+So far those abbreviations only match below the current directory, which is a
+fraction of what they are good for. Naming a few search roots lets the same
+short queries work from anywhere:
+
+```bash
+export DX_SEARCH_ROOTS="$HOME/code:$HOME/work"
+```
+
+Now `cd pr/dx` finds `~/code/projects/dx` whatever directory you start in. Roots
+are tried in order, the current directory is always included, and a query that
+matches in more than one root still has to be unambiguous.
+
+Use `;` instead of `:` on Windows, or set `search_roots` in `config.toml` to
+make it permanent. See the
+[Configuration Reference](./configuration.md#dx_search_roots).
+
+## 5. Bookmark a directory
 
 Save a name for the current directory:
 
@@ -119,7 +137,7 @@ dx bookmarks
 dx bookmarks remove work
 ```
 
-## 5. Navigate history and ancestors
+## 6. Navigate history and ancestors
 
 After changing directories a few times, try:
 
@@ -144,7 +162,7 @@ up project    # closest matching ancestor
 back 2        # second item in back history
 ```
 
-## 6. Optional frecent navigation
+## 7. Optional frecent navigation
 
 `z` and `cdf` use zoxide as their frecency provider:
 
@@ -156,7 +174,28 @@ cdf project
 Install and use zoxide normally to populate its database. If zoxide is not
 available, frecent queries simply produce no candidates.
 
-## 7. Optional interactive menu
+## 8. Optional: drop the `cd`
+
+Add `--command-not-found` to shell initialization and a path-like command that
+does not exist becomes a directory change:
+
+```zsh
+eval "$(dx init zsh --command-not-found)"
+```
+
+```text
+pr/dx        # same as cd pr/dx
+...          # up two levels
+cd-e
+```
+
+It is deliberately conservative and leaves ordinary mistyped commands alone.
+Note that it replaces any existing command-not-found handler rather than
+chaining to it, so check your profile first — the
+[Shell Setup](./shell-setup.md#command-not-found-integration) guide covers the
+details.
+
+## 9. Optional interactive menu
 
 Add `--menu` to shell initialization to replace supported completion bindings
 with the inline selector:
