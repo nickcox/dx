@@ -30,6 +30,10 @@
             };
             doCheck = false;
           };
+          # `cdex` is the crate name, `dx` the binary it installs. Both spellings
+          # build the same derivation so `nix build .#dx` agrees with
+          # `nix run .#dx`.
+          dx = cdex;
           default = cdex;
         });
 

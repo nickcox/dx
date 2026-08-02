@@ -38,9 +38,12 @@ brew upgrade nickcox/dx/dx
 From this repository:
 
 ```bash
-nix build .#cdex
+nix build .#dx
 nix run .#dx -- --help
 ```
+
+The crate is published as `cdex` because `dx` was taken on crates.io; the binary
+it installs is `dx`. `.#cdex` and `.#dx` build the same thing.
 
 ### Direct download
 

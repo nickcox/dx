@@ -14,9 +14,12 @@ brew install nickcox/dx/dx
 Nix, from the repository:
 
 ```bash
-nix build .#cdex
+nix build .#dx
 nix run .#dx -- --help
 ```
+
+The crate is published as `cdex` because `dx` was taken on crates.io; the binary
+it installs is `dx`. `.#cdex` and `.#dx` build the same thing.
 
 Tagged GitHub Releases also provide raw binaries for Linux, macOS, and Windows.
 Place the downloaded binary on your `PATH` and make it executable when needed.

@@ -65,7 +65,12 @@ jobs:
 
       - name: Nix package and app smoke
         # Phase 2 keeps Nix CI focused on Linux flake/build/run coverage.
+        # `.#dx` is an alias for `.#cdex`; assert they stay the same derivation
+        # so the spelling users are told to type cannot drift.
         run: |
+          nix build .#cdex --no-link --print-out-paths > cdex-path
+          nix build .#dx --no-link --print-out-paths > dx-path
+          diff cdex-path dx-path
           nix build .#cdex
           nix run .#dx -- --help
 
