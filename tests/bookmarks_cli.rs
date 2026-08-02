@@ -178,7 +178,12 @@ fn bookmarks_json_and_env_override_work() {
 /// Adds a bookmark through the CLI, returning what `add` printed.
 fn add_bookmark(store: &Path, cwd: &Path, name: &str, target: &Path) -> String {
     let add = common::dx()
-        .args(["bookmarks", "add", name, target.to_str().expect("utf8 path")])
+        .args([
+            "bookmarks",
+            "add",
+            name,
+            target.to_str().expect("utf8 path"),
+        ])
         .env("DX_BOOKMARKS_FILE", store.display().to_string())
         .current_dir(cwd)
         .output()
