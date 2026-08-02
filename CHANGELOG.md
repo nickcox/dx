@@ -19,6 +19,8 @@ are always listed under **Breaking**.
 - `dx bookmarks` marks entries whose target is missing with `(missing)`.
 - `dx bookmarks add` and `remove` print the absolute path they acted on, making
   the symlink resolution done at save time visible.
+- How `dx` treats hidden directories and symlinks, including why a symlink loop
+  cannot send it into one.
 - The path matching rules are documented properly: the one-segment-per-level
   model, a worked directory tree with a table of eleven queries and what each
   resolves to, the grammar of a single segment, and why case sensitivity
@@ -67,6 +69,10 @@ are always listed under **Breaking**.
 
 ### Fixed
 
+- Path completion offers symlinked directories. It listed them with a call that
+  does not traverse symlinks on Unix, so a directory reached through a symlink
+  resolved fine but was never suggested — the two halves disagreed about what
+  counts as a directory.
 - The interactive menu no longer becomes unresponsive when scrolling quickly
   through a long list. It was asking the terminal to report every pointer
   movement — events it then discarded, each still costing a full redraw of every

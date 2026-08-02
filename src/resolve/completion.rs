@@ -187,12 +187,21 @@ fn child_directory_candidates(path: &Path) -> Vec<PathBuf> {
     let mut results = Vec::new();
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.flatten() {
-            if entry.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+            if is_listable_directory(&entry.path()) {
                 results.push(entry.path());
             }
         }
     }
     results
+}
+
+/// Whether a listing should offer `path`, using the same rule resolution uses.
+///
+/// `DirEntry::metadata` is the obvious call here and the wrong one: on Unix it
+/// is `symlink_metadata`, so a symlink to a directory reads as not-a-directory
+/// and completion silently omits somewhere `cd` would happily go.
+fn is_listable_directory(path: &Path) -> bool {
+    traversal::is_directory(path, traversal::OnIoError::Skip).unwrap_or(false)
 }
 
 fn prefix_directory_candidates(path: &Path) -> Vec<PathBuf> {
@@ -211,11 +220,7 @@ fn prefix_directory_candidates(path: &Path) -> Vec<PathBuf> {
         Err(_) => return Vec::new(),
     };
     for entry in entries.flatten() {
-        let meta = match entry.metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        if !meta.is_dir() {
+        if !is_listable_directory(&entry.path()) {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_lowercase();
@@ -272,6 +277,41 @@ mod tests {
         fs::write(&store_file, body).expect("write bookmarks file");
         process.set("DX_BOOKMARKS_FILE", &store_file);
         targets
+    }
+
+    /// Completion must offer anywhere `cd` would go, and `cd` follows symlinks.
+    ///
+    /// These listings once used `DirEntry::metadata`, which does not traverse on
+    /// Unix, so a symlinked directory resolved fine but was never suggested.
+    #[cfg(unix)]
+    #[test]
+    fn listings_offer_symlinked_directories_but_not_dangling_ones() {
+        use std::os::unix::fs::symlink;
+
+        let temp = test_support::temp_dir("complete-symlinked-dirs");
+        let cwd = temp.path().join("cwd");
+        let real = temp.path().join("real");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        fs::create_dir_all(&real).expect("create real");
+        symlink(&real, cwd.join("linked")).expect("create directory symlink");
+        symlink(temp.path().join("missing"), cwd.join("broken")).expect("create dangling symlink");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+
+        // Listing the children of `.`, and completing a prefix of the name.
+        for query in ["./", "./link"] {
+            let out =
+                resolver.collect_completion_candidates_with_limit_and_cwd(query, None, Some(&cwd));
+            assert!(
+                out.paths.iter().any(|path| path.ends_with("linked")),
+                "{query:?} should offer the symlinked directory, got {:?}",
+                out.paths
+            );
+            assert!(
+                !out.paths.iter().any(|path| path.ends_with("broken")),
+                "{query:?} offered a dangling symlink"
+            );
+        }
     }
 
     #[test]

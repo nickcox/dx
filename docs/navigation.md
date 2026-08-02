@@ -89,6 +89,28 @@ Set `DX_CASE_SENSITIVE=false` if you would rather type everything lowercase:
 export DX_CASE_SENSITIVE=false
 ```
 
+### Hidden directories and symlinks
+
+Neither is filtered. A leading dot is simply part of a name, so hidden
+directories are matched like any other — you just have to type the dot, because
+a segment matches from the start of the name:
+
+| Query | Matches `.config`? |
+|---|---|
+| `.con` | yes |
+| `.c` | yes |
+| `con` | no |
+
+Symlinks are followed, so a symlink pointing at a directory is somewhere `dx`
+will take you — the same view your shell takes when it runs `cd`. A symlink whose
+target no longer exists is skipped rather than reported as an error, and
+completion offers exactly what resolution would accept.
+
+A symlink loop cannot send `dx` into one. Resolution walks down one level per
+query segment, so how far it descends is set by what you typed, not by what the
+tree contains: `l/l/l/l/l/l/normal` through a self-referential link resolves in
+milliseconds.
+
 ### Ambiguous results
 
 Normal resolution fails instead of guessing when multiple paths match. To
