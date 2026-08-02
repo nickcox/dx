@@ -46,6 +46,12 @@ windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["poll", "fs"] }
 
+# `term` is only needed by tests/menu_pty.rs, which opens a pseudo-terminal to
+# drive the interactive menu. Cargo unifies features, so it is declared here
+# rather than pretending the lib does not see it.
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "0.29", features = ["term", "poll", "fs"] }
+
 [[bench]]
 name = "resolve_latency"
 harness = false
