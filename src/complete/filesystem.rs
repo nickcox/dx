@@ -184,7 +184,7 @@ mod tests {
         std::fs::create_dir_all(&real).expect("create target directory");
         std::os::unix::fs::symlink(&real, temp.path().join("linked")).expect("create symlink");
 
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let resolver = Resolver::without_bookmarks(AppConfig::default());
         let query = format!("{}/", temp.path().display());
         let candidates = complete(
             &resolver,

@@ -126,7 +126,7 @@ mod tests {
         fs::create_dir_all(temp.path().join("cAlpha")).expect("create cAlpha");
         fs::create_dir_all(temp.path().join("cbravo")).expect("create cbravo");
 
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let resolver = Resolver::without_bookmarks(AppConfig::default());
 
         let completion = resolver.collect_completion_candidates_with_limit_and_cwd(
             "../c",
@@ -154,7 +154,7 @@ mod tests {
         let cwd_only = cwd.join("cwd-only-marker");
         fs::write(&cwd_only, "marker").expect("create cwd marker");
 
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let resolver = Resolver::without_bookmarks(AppConfig::default());
         let candidates = source_candidates_with_meta(
             &resolver,
             MenuMode::Path,
@@ -183,7 +183,7 @@ mod tests {
         let cwd_only = cwd.join("Users-local-marker");
         fs::write(&cwd_only, "marker").expect("create cwd marker");
 
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let resolver = Resolver::without_bookmarks(AppConfig::default());
         let candidates = source_candidates_with_meta(
             &resolver,
             MenuMode::Path,
@@ -215,7 +215,7 @@ mod tests {
         let cwd_only = cwd.join("cwd-only-marker");
         fs::write(&cwd_only, "marker").expect("create cwd marker");
 
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let resolver = Resolver::without_bookmarks(AppConfig::default());
         let candidates = source_candidates_with_meta(
             &resolver,
             MenuMode::Path,
@@ -238,7 +238,7 @@ mod tests {
         fs::write(&matching, "marker").expect("create matching marker");
         fs::write(&nonmatching, "marker").expect("create nonmatching marker");
 
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let resolver = Resolver::without_bookmarks(AppConfig::default());
         let candidates = source_candidates_with_meta(
             &resolver,
             MenuMode::Path,
@@ -260,7 +260,7 @@ mod tests {
         let child = cwd.join(" project ").join("source");
         fs::create_dir_all(&child).expect("create whitespace path");
 
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let resolver = Resolver::without_bookmarks(AppConfig::default());
         let candidates = source_candidates_with_meta(
             &resolver,
             MenuMode::Path,
@@ -281,7 +281,7 @@ mod tests {
         let child = cwd.join("project").join("source");
         fs::create_dir_all(&child).expect("create nested path");
 
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let resolver = Resolver::without_bookmarks(AppConfig::default());
         let candidates = source_candidates_with_meta(
             &resolver,
             MenuMode::Path,

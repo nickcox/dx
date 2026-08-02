@@ -2,6 +2,7 @@
 //! and search roots are consulted in a fixed precedence order, and an ambiguous
 //! query is an error rather than a guess.
 pub mod abbreviation;
+mod bookmarks;
 mod completion;
 pub(crate) mod path_query;
 mod pipeline;
@@ -14,10 +15,9 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::{
-    bookmarks,
-    config::{AppConfig, ConfigError},
-};
+pub use bookmarks::{BookmarkSource, NoBookmarks};
+
+use crate::config::{AppConfig, ConfigError};
 
 #[derive(Debug, Clone)]
 pub struct ResolveQuery<'a> {
@@ -52,11 +52,11 @@ pub enum ResolveError {
 
 /// Holds the two settings resolution reads, rather than the whole [`AppConfig`],
 /// so nothing can reach through the resolver for unrelated configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Resolver {
     search_roots: Vec<PathBuf>,
     case_sensitive: bool,
-    bookmark_lookup: fn(&str) -> Option<PathBuf>,
+    bookmarks: Box<dyn BookmarkSource>,
 }
 
 #[derive(Debug, Clone)]
@@ -86,17 +86,19 @@ impl Resolver {
     }
 
     pub fn from_config(config: &AppConfig) -> Self {
-        Self::with_bookmark_lookup(config.clone(), bookmarks::lookup)
+        Self::with_bookmarks(config.clone(), crate::bookmarks::StoredBookmarks::new())
     }
 
-    pub fn with_bookmark_lookup(
-        config: AppConfig,
-        bookmark_lookup: fn(&str) -> Option<PathBuf>,
-    ) -> Self {
+    /// A resolver that never consults bookmarks.
+    pub fn without_bookmarks(config: AppConfig) -> Self {
+        Self::with_bookmarks(config, NoBookmarks)
+    }
+
+    pub fn with_bookmarks(config: AppConfig, bookmarks: impl BookmarkSource + 'static) -> Self {
         Self {
             search_roots: config.search_roots,
             case_sensitive: config.resolve.case_sensitive,
-            bookmark_lookup,
+            bookmarks: Box::new(bookmarks),
         }
     }
 }

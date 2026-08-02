@@ -36,7 +36,7 @@ impl Resolver {
 
         if candidates.is_empty() {
             if prepared.fallback_policy.allow_bookmark_lookup
-                && let Some(path) = (self.bookmark_lookup)(&prepared.effective_query)
+                && let Some(path) = self.bookmarks.get(&prepared.effective_query)
             {
                 return Ok(ResolveResult { path });
             }
@@ -62,9 +62,24 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use crate::{bookmarks, config::AppConfig, test_support};
+    use crate::{config::AppConfig, resolve::BookmarkSource, test_support};
 
     use super::*;
+
+    /// Answers every name, so a test can prove a query never reached the
+    /// bookmark stage rather than merely failing to match one.
+    #[derive(Debug)]
+    struct AlwaysBookmarked(PathBuf);
+
+    impl BookmarkSource for AlwaysBookmarked {
+        fn get(&self, _name: &str) -> Option<PathBuf> {
+            Some(self.0.clone())
+        }
+
+        fn prefix_matches(&self, _prefix: &str, _case_sensitive: bool) -> Vec<PathBuf> {
+            vec![self.0.clone()]
+        }
+    }
 
     fn create_resolver_with_roots(roots: Vec<PathBuf>) -> Resolver {
         create_resolver_with_roots_and_case_sensitivity(roots, true)
@@ -74,24 +89,18 @@ mod tests {
         roots: Vec<PathBuf>,
         case_sensitive: bool,
     ) -> Resolver {
-        Resolver::with_bookmark_lookup(
-            AppConfig {
-                search_roots: roots,
-                resolve: crate::config::ResolveOptions { case_sensitive },
-                ..AppConfig::default()
-            },
-            |_| None,
-        )
+        Resolver::without_bookmarks(AppConfig {
+            search_roots: roots,
+            resolve: crate::config::ResolveOptions { case_sensitive },
+            ..AppConfig::default()
+        })
     }
 
     fn create_resolver_with_roots_and_bookmarks(roots: Vec<PathBuf>) -> Resolver {
-        Resolver::with_bookmark_lookup(
-            AppConfig {
-                search_roots: roots,
-                ..AppConfig::default()
-            },
-            bookmarks::lookup,
-        )
+        Resolver::from_config(&AppConfig {
+            search_roots: roots,
+            ..AppConfig::default()
+        })
     }
 
     #[test]
@@ -227,8 +236,10 @@ mod tests {
     fn resolve_leading_slash_direct_miss_does_not_use_bookmark_lookup() {
         let temp = test_support::temp_dir("resolve-leading-slash-no-bookmark");
         let missing_prefix = format!("dx-bookmark-only-{}", std::process::id());
-        let resolver =
-            Resolver::with_bookmark_lookup(AppConfig::default(), |_| Some(PathBuf::from("/tmp")));
+        let resolver = Resolver::with_bookmarks(
+            AppConfig::default(),
+            AlwaysBookmarked(PathBuf::from("/tmp")),
+        );
 
         let query_string = format!("/{missing_prefix}/pro");
         let query = ResolveQuery {
@@ -521,6 +532,43 @@ mod tests {
             .resolve(query)
             .expect_err("stale bookmark should fail");
         assert!(matches!(err, ResolveError::NotFound));
+    }
+
+    #[test]
+    fn resolve_still_requires_an_exact_bookmark_name() {
+        let temp = test_support::temp_dir("resolve-bookmark-exact-only");
+        let mut process = test_support::ScopedProcess::new();
+        let target = temp.path().join("acme");
+        fs::create_dir_all(&target).expect("create target");
+        let canonical = fs::canonicalize(&target).expect("canonical target");
+
+        let bookmarks_file = temp.path().join("bookmarks.toml");
+        let toml = format!(
+            "[bookmarks]\nwork = \"{}\"\n",
+            canonical.display().to_string().replace('\\', "\\\\")
+        );
+        fs::write(&bookmarks_file, toml).expect("write bookmarks file");
+        process.set("DX_BOOKMARKS_FILE", &bookmarks_file);
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+
+        // Completion prefix-matches bookmark names; resolution deliberately does
+        // not, so `cd wo` cannot silently land somewhere the user did not name.
+        let err = resolver
+            .resolve(ResolveQuery {
+                raw: "wo",
+                cwd: temp.path(),
+            })
+            .expect_err("a bookmark prefix must not resolve");
+        assert!(matches!(err, ResolveError::NotFound));
+
+        let result = resolver
+            .resolve(ResolveQuery {
+                raw: "work",
+                cwd: temp.path(),
+            })
+            .expect("an exact bookmark name resolves");
+        assert_eq!(result.path, canonical);
     }
 
     #[test]

@@ -23,7 +23,6 @@ pub fn complete(resolver: &Resolver, query: &str) -> Vec<PathBuf> {
 mod tests {
     use std::fs;
 
-    use crate::bookmarks;
     use crate::config::AppConfig;
     use crate::test_support;
 
@@ -37,13 +36,10 @@ mod tests {
         fs::create_dir_all(root.join("projects/alpha")).expect("create projects");
         fs::create_dir_all(root.join("presentations/alpha")).expect("create presentations");
 
-        let resolver = Resolver::with_bookmark_lookup(
-            AppConfig {
-                search_roots: vec![root],
-                ..AppConfig::default()
-            },
-            |_| None,
-        );
+        let resolver = Resolver::without_bookmarks(AppConfig {
+            search_roots: vec![root],
+            ..AppConfig::default()
+        });
 
         process.set_current_dir(temp.path());
         let output = complete(&resolver, "pr/al");
@@ -73,7 +69,7 @@ mod tests {
         fs::write(&bookmarks_file, toml).expect("write bookmarks file");
         process.set("DX_BOOKMARKS_FILE", &bookmarks_file);
 
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), bookmarks::lookup);
+        let resolver = Resolver::from_config(&AppConfig::default());
 
         process.set_current_dir(temp.path());
         let output = complete(&resolver, "work");
@@ -85,7 +81,7 @@ mod tests {
     fn no_match_returns_empty() {
         let temp = test_support::temp_dir("complete-paths-none");
         let mut process = test_support::ScopedProcess::new();
-        let resolver = Resolver::with_bookmark_lookup(AppConfig::default(), |_| None);
+        let resolver = Resolver::without_bookmarks(AppConfig::default());
 
         process.set_current_dir(temp.path());
         let output = complete(&resolver, "zzz");

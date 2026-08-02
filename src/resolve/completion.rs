@@ -127,10 +127,24 @@ impl Resolver {
             common::push_unique(&mut output, &mut seen, candidate);
         }
 
-        if prepared.fallback_policy.allow_bookmark_lookup
-            && let Some(path) = (self.bookmark_lookup)(&prepared.effective_query)
-        {
-            common::push_unique(&mut output, &mut seen, path);
+        // Bookmarks come last: a directory the user can see beats a name only
+        // they remember. Prefix matching is confined to plain queries, so an
+        // explicit filesystem prefix (`./x`, `~/x`) keeps the exact-match
+        // behaviour it has always had; a root-anchored query never gets here at
+        // all, because its policy forbids bookmark lookup.
+        if prepared.fallback_policy.allow_bookmark_lookup {
+            if explicit_filesystem_prefix {
+                if let Some(path) = self.bookmarks.get(&prepared.effective_query) {
+                    common::push_unique(&mut output, &mut seen, path);
+                }
+            } else {
+                for path in self
+                    .bookmarks
+                    .prefix_matches(&prepared.effective_query, self.case_sensitive)
+                {
+                    common::push_unique(&mut output, &mut seen, path);
+                }
+            }
         }
 
         CompletionCandidates::limited(output, limit)
@@ -217,7 +231,7 @@ fn prefix_directory_candidates(path: &Path) -> Vec<PathBuf> {
 mod tests {
     use std::fs;
 
-    use crate::{bookmarks, config::AppConfig, test_support};
+    use crate::{config::AppConfig, test_support};
 
     use super::*;
 
@@ -229,14 +243,129 @@ mod tests {
         roots: Vec<PathBuf>,
         case_sensitive: bool,
     ) -> Resolver {
-        Resolver::with_bookmark_lookup(
-            AppConfig {
-                search_roots: roots,
-                resolve: crate::config::ResolveOptions { case_sensitive },
-                ..AppConfig::default()
-            },
-            bookmarks::lookup,
-        )
+        Resolver::from_config(&AppConfig {
+            search_roots: roots,
+            resolve: crate::config::ResolveOptions { case_sensitive },
+            ..AppConfig::default()
+        })
+    }
+
+    /// Writes a bookmark store and points `DX_BOOKMARKS_FILE` at it, returning
+    /// each canonical target in the order given.
+    fn write_bookmarks(
+        process: &mut test_support::ScopedProcess,
+        dir: &Path,
+        entries: &[(&str, &Path)],
+    ) -> Vec<PathBuf> {
+        let mut body = String::from("[bookmarks]\n");
+        let mut targets = Vec::new();
+        for (name, path) in entries {
+            let canonical = fs::canonicalize(path).expect("canonical bookmark target");
+            body.push_str(&format!(
+                "{name} = \"{}\"\n",
+                canonical.display().to_string().replace('\\', "\\\\")
+            ));
+            targets.push(canonical);
+        }
+
+        let store_file = dir.join("bookmarks.toml");
+        fs::write(&store_file, body).expect("write bookmarks file");
+        process.set("DX_BOOKMARKS_FILE", &store_file);
+        targets
+    }
+
+    #[test]
+    fn completion_offers_bookmark_names_by_prefix() {
+        let temp = test_support::temp_dir("complete-bookmark-prefix");
+        let mut process = test_support::ScopedProcess::new();
+        let cwd = temp.path().join("cwd");
+        let target = temp.path().join("acme");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        fs::create_dir_all(&target).expect("create target");
+        let targets = write_bookmarks(&mut process, temp.path(), &[("work", &target)]);
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let out = resolver.collect_completion_candidates_with_limit_and_cwd("wo", None, Some(&cwd));
+
+        assert_eq!(out.paths, targets);
+    }
+
+    #[test]
+    fn completion_excludes_stale_bookmarks_from_prefix_matches() {
+        let temp = test_support::temp_dir("complete-bookmark-stale");
+        let mut process = test_support::ScopedProcess::new();
+        let cwd = temp.path().join("cwd");
+        let target = temp.path().join("acme");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        fs::create_dir_all(&target).expect("create target");
+        let _ = write_bookmarks(&mut process, temp.path(), &[("work", &target)]);
+        fs::remove_dir_all(&target).expect("remove bookmark target");
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let out = resolver.collect_completion_candidates_with_limit_and_cwd("wo", None, Some(&cwd));
+
+        assert!(out.paths.is_empty());
+    }
+
+    #[test]
+    fn completion_ranks_bookmarks_after_filesystem_candidates() {
+        let temp = test_support::temp_dir("complete-bookmark-rank");
+        let mut process = test_support::ScopedProcess::new();
+        let cwd = temp.path().join("cwd");
+        let on_disk = cwd.join("workspace");
+        let bookmarked = temp.path().join("acme");
+        fs::create_dir_all(&on_disk).expect("create on-disk match");
+        fs::create_dir_all(&bookmarked).expect("create bookmark target");
+        let targets = write_bookmarks(&mut process, temp.path(), &[("work", &bookmarked)]);
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let out = resolver.collect_completion_candidates_with_limit_and_cwd("wo", None, Some(&cwd));
+
+        // A directory the user can see beats a name only they remember.
+        assert_eq!(out.paths.len(), 2);
+        assert!(out.paths[0].ends_with("workspace"));
+        assert_eq!(out.paths[1], targets[0]);
+    }
+
+    #[test]
+    fn filesystem_prefix_query_does_not_prefix_match_bookmarks() {
+        let temp = test_support::temp_dir("complete-bookmark-fs-prefix");
+        let mut process = test_support::ScopedProcess::new();
+        let cwd = temp.path().join("cwd");
+        let target = temp.path().join("acme");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        fs::create_dir_all(&target).expect("create target");
+        let targets = write_bookmarks(&mut process, temp.path(), &[("work", &target)]);
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+
+        // An explicit filesystem prefix keeps the exact-match behaviour it has
+        // always had, rather than gaining prefix matching.
+        let prefix =
+            resolver.collect_completion_candidates_with_limit_and_cwd("./wo", None, Some(&cwd));
+        assert!(prefix.paths.is_empty());
+
+        let exact =
+            resolver.collect_completion_candidates_with_limit_and_cwd("./work", None, Some(&cwd));
+        assert_eq!(exact.paths, targets);
+    }
+
+    #[test]
+    fn root_anchored_query_offers_no_bookmark_candidates() {
+        let temp = test_support::temp_dir("complete-bookmark-root-anchored");
+        let mut process = test_support::ScopedProcess::new();
+        let cwd = temp.path().join("cwd");
+        let target = temp.path().join("acme");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        fs::create_dir_all(&target).expect("create target");
+        let _ = write_bookmarks(&mut process, temp.path(), &[("work", &target)]);
+
+        let resolver = create_resolver_with_roots_and_bookmarks(vec![]);
+        let query = format!("/dx-absent-{}/wo", std::process::id());
+        let out =
+            resolver.collect_completion_candidates_with_limit_and_cwd(&query, None, Some(&cwd));
+
+        assert!(out.paths.is_empty());
     }
 
     #[test]

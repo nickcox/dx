@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use thiserror::Error;
 
@@ -97,6 +98,22 @@ impl BookmarkStore {
             .collect()
     }
 
+    /// Live targets whose name starts with `prefix`, in name order — the map is
+    /// a `BTreeMap`, so iteration order is already the answer. An empty prefix
+    /// matches every bookmark.
+    ///
+    /// Stale entries are dropped for the same reason [`get`](Self::get) drops
+    /// them: offering a completion the user cannot `cd` to is worse than
+    /// offering nothing.
+    pub fn prefix_matches(&self, prefix: &str, case_sensitive: bool) -> Vec<PathBuf> {
+        self.bookmarks
+            .iter()
+            .filter(|(name, _)| name_starts_with(name, prefix, case_sensitive))
+            .filter(|(_, path)| path.is_dir())
+            .map(|(_, path)| path.clone())
+            .collect()
+    }
+
     pub(crate) fn to_serializable_map(&self) -> Result<BTreeMap<String, String>, BookmarkError> {
         self.bookmarks
             .iter()
@@ -117,22 +134,62 @@ pub fn validate_name(name: &str) -> Result<(), BookmarkError> {
     Err(BookmarkError::InvalidName(name.to_string()))
 }
 
-pub fn lookup(name: &str) -> Option<PathBuf> {
-    let store = storage::read_store().ok()?;
-    store.get(name)
+/// The store as resolution and completion see it, read from disk at most once.
+///
+/// A corrupt or unreadable store yields no bookmarks rather than an error: a
+/// diagnostic on every `cd` completion would be noise, and `dx bookmarks`
+/// already reports the parse failure along with the offending path.
+#[derive(Debug, Default)]
+pub struct StoredBookmarks {
+    store: OnceLock<BookmarkStore>,
+}
+
+impl StoredBookmarks {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Loaded lazily, not in the constructor: every `dx complete filesystem`,
+    /// `dx menu --mode file` and absolute-path `dx resolve` builds a resolver
+    /// and must not pay for a file read it never uses.
+    fn store(&self) -> &BookmarkStore {
+        self.store
+            .get_or_init(|| storage::read_store().unwrap_or_default())
+    }
+}
+
+impl crate::resolve::BookmarkSource for StoredBookmarks {
+    fn get(&self, name: &str) -> Option<PathBuf> {
+        self.store().get(name)
+    }
+
+    fn prefix_matches(&self, prefix: &str, case_sensitive: bool) -> Vec<PathBuf> {
+        self.store().prefix_matches(prefix, case_sensitive)
+    }
 }
 
 fn is_valid_name(name: &str) -> bool {
     common::is_valid_identifier(name)
 }
 
+/// Bookmark names are ASCII by validation, so ASCII case folding is exact here.
+fn name_starts_with(name: &str, prefix: &str, case_sensitive: bool) -> bool {
+    if case_sensitive {
+        name.starts_with(prefix)
+    } else {
+        name.to_ascii_lowercase()
+            .starts_with(&prefix.to_ascii_lowercase())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
+    use crate::resolve::BookmarkSource;
     use crate::test_support::{self, TempDir};
 
-    use super::{BookmarkError, BookmarkStore, validate_name};
+    use super::{BookmarkError, BookmarkStore, StoredBookmarks, validate_name};
 
     fn make_temp_dir(label: &str) -> TempDir {
         test_support::temp_dir(&format!("bookmarks-{label}"))
@@ -251,6 +308,98 @@ mod tests {
         fs::remove_dir_all(&target).expect("remove target");
 
         assert!(store.get("proj").is_none());
+    }
+
+    #[test]
+    fn prefix_matches_are_name_sorted_and_exclude_stale() {
+        let temp = make_temp_dir("prefix-sorted");
+        let work = temp.path().join("work");
+        let workshop = temp.path().join("workshop");
+        let gone = temp.path().join("gone");
+        for dir in [&work, &workshop, &gone] {
+            fs::create_dir_all(dir).expect("create dir");
+        }
+
+        let mut store = BookmarkStore::default();
+        let workshop = store.set("workshop", &workshop).expect("set workshop");
+        let work = store.set("work", &work).expect("set work");
+        let _ = store.set("worn", &gone).expect("set worn");
+        fs::remove_dir_all(&gone).expect("remove worn target");
+
+        // Name order, not insertion order, and the stale `worn` is absent.
+        assert_eq!(store.prefix_matches("wor", true), vec![work, workshop]);
+    }
+
+    #[test]
+    fn prefix_matches_honour_case_sensitivity() {
+        let temp = make_temp_dir("prefix-case");
+        let target = temp.path().join("target");
+        fs::create_dir_all(&target).expect("create target");
+
+        let mut store = BookmarkStore::default();
+        let target = store.set("Work", &target).expect("set Work");
+
+        assert!(store.prefix_matches("wo", true).is_empty());
+        assert_eq!(store.prefix_matches("Wo", true), vec![target.clone()]);
+        assert_eq!(store.prefix_matches("wo", false), vec![target]);
+    }
+
+    #[test]
+    fn prefix_matches_with_empty_prefix_lists_every_live_bookmark() {
+        let temp = make_temp_dir("prefix-empty");
+        let alpha = temp.path().join("alpha");
+        let beta = temp.path().join("beta");
+        for dir in [&alpha, &beta] {
+            fs::create_dir_all(dir).expect("create dir");
+        }
+
+        let mut store = BookmarkStore::default();
+        let alpha = store.set("alpha", &alpha).expect("set alpha");
+        let beta = store.set("beta", &beta).expect("set beta");
+
+        assert_eq!(store.prefix_matches("", true), vec![alpha, beta]);
+    }
+
+    #[test]
+    fn stored_bookmarks_treat_a_corrupt_store_as_empty() {
+        let temp = make_temp_dir("corrupt-store");
+        let mut process = test_support::ScopedProcess::new();
+        let store_file = temp.path().join("bookmarks.toml");
+        fs::write(&store_file, "{ this is not toml").expect("write corrupt store");
+        process.set("DX_BOOKMARKS_FILE", &store_file);
+
+        // Silently empty rather than an error: a diagnostic on every `cd`
+        // completion would be noise, and `dx bookmarks` reports the parse
+        // failure with the offending path.
+        let bookmarks = StoredBookmarks::new();
+        assert!(bookmarks.get("work").is_none());
+        assert!(bookmarks.prefix_matches("wo", true).is_empty());
+    }
+
+    #[test]
+    fn stored_bookmarks_read_the_store_only_once() {
+        let temp = make_temp_dir("read-once");
+        let mut process = test_support::ScopedProcess::new();
+        let target = temp.path().join("work");
+        fs::create_dir_all(&target).expect("create target");
+        let canonical = fs::canonicalize(&target).expect("canonical target");
+
+        let store_file = temp.path().join("bookmarks.toml");
+        fs::write(
+            &store_file,
+            format!(
+                "[bookmarks]\nwork = \"{}\"\n",
+                canonical.display().to_string().replace('\\', "\\\\")
+            ),
+        )
+        .expect("write store");
+        process.set("DX_BOOKMARKS_FILE", &store_file);
+
+        let bookmarks = StoredBookmarks::new();
+        assert_eq!(bookmarks.get("work"), Some(canonical.clone()));
+
+        fs::remove_file(&store_file).expect("remove store");
+        assert_eq!(bookmarks.get("work"), Some(canonical));
     }
 
     #[test]
