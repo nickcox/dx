@@ -18,6 +18,8 @@ usage:
 
 options:
   --no-verify   skip cargo fmt, clippy and test before committing
+  --allow-empty-changelog
+                release even though Unreleased records no entries
   --push        push master and the new tag once the release commit exists
 USAGE
   exit 2
@@ -27,14 +29,18 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cargo_toml="$repo_root/Cargo.toml"
 cargo_lock="$repo_root/Cargo.lock"
 flake_nix="$repo_root/flake.nix"
+changelog_md="$repo_root/CHANGELOG.md"
+changelog_sh="$repo_root/scripts/changelog.sh"
 
 new_version=""
 run_verify=1
 do_push=0
+require_changelog_entries=1
 
 while (($# > 0)); do
   case "$1" in
     --no-verify) run_verify=0 ;;
+    --allow-empty-changelog) require_changelog_entries=0 ;;
     --push) do_push=1 ;;
     -h | --help) usage ;;
     -*)
@@ -54,7 +60,7 @@ if [[ $do_push -eq 1 && -z "$new_version" ]]; then
   usage
 fi
 
-for file in "$cargo_toml" "$cargo_lock" "$flake_nix"; do
+for file in "$cargo_toml" "$cargo_lock" "$flake_nix" "$changelog_md"; do
   if [[ ! -f "$file" ]]; then
     echo "missing ${file#"$repo_root"/}" >&2
     exit 1
@@ -145,6 +151,9 @@ verify_versions_agree() {
 
 if [[ -z "$new_version" ]]; then
   verify_versions_agree
+  # The published release notes come from this section, so a tag whose version
+  # has none is a failed release rather than a quiet one.
+  "$changelog_sh" extract "$(read_cargo_toml_version)" >/dev/null
   echo "release readiness checks passed"
   exit 0
 fi
@@ -184,9 +193,14 @@ if ! git -C "$repo_root" diff-index --quiet HEAD -- || [[ -n "$(git -C "$repo_ro
   exit 1
 fi
 
+if [[ $require_changelog_entries -eq 1 ]]; then
+  "$changelog_sh" check-unreleased
+fi
+
 echo "bumping $current_version -> $new_version"
 replace_first "$cargo_toml" '^version\s*=\s*"[^"]+"' "version = \"$new_version\""
 replace_first "$flake_nix" 'version\s*=\s*"[^"]+";' "version = \"$new_version\";"
+"$changelog_sh" release "$new_version" "$(date -u +%Y-%m-%d)"
 
 # Rewrites this crate's entry in the lockfile without touching dependencies.
 (cd "$repo_root" && cargo update --workspace --offline --quiet)
@@ -203,7 +217,7 @@ if [[ $run_verify -eq 1 ]]; then
   )
 fi
 
-git -C "$repo_root" add -- "$cargo_toml" "$cargo_lock" "$flake_nix"
+git -C "$repo_root" add -- "$cargo_toml" "$cargo_lock" "$flake_nix" "$changelog_md"
 git -C "$repo_root" commit -m "$tag"
 git -C "$repo_root" tag -a "$tag" -m "$tag"
 echo "committed and tagged $tag"

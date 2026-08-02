@@ -78,9 +78,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # Release notes need the tag history to build the compare link.
+          fetch-depth: 0
 
       - name: Run release readiness checks
         run: scripts/release.sh
+
+      - name: Extract release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          scripts/changelog.sh extract "$version" > release-notes.md
+          previous="$(git describe --tags --abbrev=0 --exclude="$GITHUB_REF_NAME" 2>/dev/null || true)"
+          if [ -n "$previous" ]; then
+            printf '\n**Full changelog**: %s/compare/%s...%s\n' \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$previous" "$GITHUB_REF_NAME" \
+              >> release-notes.md
+          fi
 
       - name: Download release asset artifacts
         uses: actions/download-artifact@v5
@@ -90,7 +104,7 @@ jobs:
       - name: Create or update GitHub Release notes
         uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
+          body_path: release-notes.md
           files: |
             release-assets/dx-linux-x86_64/dx-linux-x86_64
             release-assets/dx-linux-arm64/dx-linux-arm64
