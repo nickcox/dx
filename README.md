@@ -16,7 +16,7 @@ jumping directly to a selected directory.
 - Move to an ancestor: `up`, `up 3`, or `up project`
 - Undo and redo directory changes: `back` / `cd-` and `forward` / `cd+`
 - Jump to recent or frecent directories: `cdr` and `z` / `cdf`
-- Save named directory bookmarks
+- Save named directory bookmarks, completed by name prefix
 - Opt into an inline, keyboard-driven completion menu
 
 ## Install

@@ -99,7 +99,24 @@ prefer lowercase queries such as `p..shell` for mixed-case names.
 Matches must be unambiguous. Use normal literal paths whenever you want to skip
 abbreviation matching.
 
-## 4. Navigate history and ancestors
+## 4. Bookmark a directory
+
+Save a name for the current directory:
+
+```bash
+dx bookmarks add work
+```
+
+`dx` prints the absolute path it saved. Afterwards `cd work` jumps there, and
+`cd wo` plus the completion key offers it alongside any matching directories:
+
+```text
+cd work
+dx bookmarks
+dx bookmarks remove work
+```
+
+## 5. Navigate history and ancestors
 
 After changing directories a few times, try:
 
@@ -124,7 +141,7 @@ up project    # closest matching ancestor
 back 2        # second item in back history
 ```
 
-## 5. Optional frecent navigation
+## 6. Optional frecent navigation
 
 `z` and `cdf` use zoxide as their frecency provider:
 
@@ -136,7 +153,7 @@ cdf project
 Install and use zoxide normally to populate its database. If zoxide is not
 available, frecent queries simply produce no candidates.
 
-## 6. Optional interactive menu
+## 7. Optional interactive menu
 
 Add `--menu` to shell initialization to replace supported completion bindings
 with the inline selector:

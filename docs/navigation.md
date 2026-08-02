@@ -165,6 +165,10 @@ Save a specific directory:
 dx bookmarks add docs /path/to/documentation
 ```
 
+Both `add` and `remove` print the absolute path they acted on. Paths are
+canonicalized when saved, so the echoed path is where the bookmark really
+points — which matters when the directory you named was a symlink.
+
 List or remove bookmarks:
 
 ```bash
@@ -173,8 +177,46 @@ dx bookmarks --json
 dx bookmarks remove work
 ```
 
-A bookmark name participates in path resolution when higher-priority direct and
-abbreviation matches do not resolve it.
+`--json` emits an array of objects:
+
+```json
+[{"name": "work", "path": "/home/me/code/acme", "exists": true}]
+```
+
+### Resolution and completion
+
+The two behave differently, on purpose:
+
+- **Resolution** requires an exact bookmark name. `cd work` reaches the `work`
+  bookmark only when higher-priority direct and abbreviation matches do not
+  resolve first. `cd wo` does not, so a partial name can never quietly land you
+  somewhere you did not ask for.
+- **Completion** matches by name prefix. Typing `cd wo` and pressing the
+  completion key offers the `work` bookmark's target, listed after any
+  filesystem candidates.
+
+Bookmarks whose target no longer exists are excluded from completion and never
+resolve.
+
+### Stale bookmarks
+
+A bookmark whose directory has been deleted or unmounted is marked in the
+listing:
+
+```text
+work = /home/me/code/acme
+old  = /mnt/archive/project (missing)
+```
+
+Remove all of them with:
+
+```bash
+dx bookmarks prune
+```
+
+`prune` prints each bookmark it removed and does nothing when every target is
+present. It is never automatic — a missing target is often just an unmounted
+volume rather than a bookmark you want to lose.
 
 ## Inspect or Clear Session History
 

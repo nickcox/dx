@@ -152,7 +152,9 @@ keeps each shell's back, forward, and recent-directory state separate.
 `dx` command completion is generated from its Clap command definition. It
 completes subcommands, options, enum values, and ordinary filesystem paths.
 The navigation wrappers retain their runtime-aware directory, history, and
-frecency candidates. Bookmark names and session IDs are not completed yet.
+frecency candidates. Completing `cd` also offers bookmarks whose name starts
+with what you have typed, after the filesystem candidates. Session IDs are not
+completed yet.
 
 ## Command-Not-Found Integration
 
