@@ -142,6 +142,10 @@ dx resolve <query> --list
 dx complete paths <query>
 ```
 
+Both print the candidates to stdout. `dx resolve --list` still exits non-zero,
+because the query did not resolve to one directory — see
+[Scripting](./scripting.md#exit-codes).
+
 Use a longer abbreviation, a direct path, or narrower search roots.
 
 ## Protected Directories Break External Programs
@@ -191,3 +195,4 @@ When reporting an issue, include:
 - [Navigation Guide](./navigation.md)
 - [Interactive Menu](./menu.md)
 - [Configuration Reference](./configuration.md)
+- [Scripting](./scripting.md)

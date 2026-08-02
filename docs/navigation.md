@@ -62,6 +62,10 @@ inspect candidates directly, use:
 dx resolve <query> --list
 ```
 
+`--list` changes how the outcome is presented, not whether it succeeded: an
+ambiguous query still exits non-zero, with the candidates on stdout and nothing
+on stderr. See [Scripting](./scripting.md#exit-codes).
+
 ## Search Roots
 
 Search roots let abbreviations resolve from stable locations even when they are
@@ -231,9 +235,13 @@ dx stack --clear
 dx stack --clear --direction redo
 ```
 
+[Scripting](./scripting.md#dx-stack) documents the `--json` shape and the two
+ways `dx stack` differs from `dx complete stack`.
+
 ## Related Guides
 
 - [Quickstart](./quickstart.md)
 - [Shell Setup](./shell-setup.md)
 - [Interactive Menu](./menu.md)
 - [Configuration Reference](./configuration.md)
+- [Scripting](./scripting.md)

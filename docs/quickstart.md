@@ -174,4 +174,5 @@ Equivalent forms are available for every supported shell. See
 - [Navigation Guide](./navigation.md)
 - [Interactive Menu](./menu.md)
 - [Configuration Reference](./configuration.md)
+- [Scripting](./scripting.md)
 - [Troubleshooting](./troubleshooting.md)

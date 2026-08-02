@@ -236,4 +236,5 @@ completion.
 - [Shell Setup](./shell-setup.md)
 - [Navigation Guide](./navigation.md)
 - [Configuration Reference](./configuration.md)
+- [Scripting](./scripting.md)
 - [Troubleshooting](./troubleshooting.md)

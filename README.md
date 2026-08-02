@@ -99,6 +99,7 @@ integration, and verification steps.
 - [Navigation Guide](./docs/navigation.md)
 - [Interactive Menu](./docs/menu.md)
 - [Configuration Reference](./docs/configuration.md)
+- [Scripting](./docs/scripting.md)
 - [Troubleshooting](./docs/troubleshooting.md)
 
 ## License

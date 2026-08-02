@@ -230,3 +230,4 @@ hook has not been loaded. See [Troubleshooting](./troubleshooting.md).
 - [Navigation Guide](./navigation.md)
 - [Interactive Menu](./menu.md)
 - [Configuration Reference](./configuration.md)
+- [Scripting](./scripting.md)
