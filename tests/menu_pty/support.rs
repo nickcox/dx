@@ -223,6 +223,32 @@ impl MenuPty {
         count
     }
 
+    /// Resizes the terminal, which signals the menu the way dragging a window
+    /// edge would.
+    pub fn resize(&mut self, rows: u16, cols: u16) {
+        let winsize = Winsize {
+            ws_row: rows,
+            ws_col: cols,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        // SAFETY: a valid master fd and a correctly typed winsize.
+        let result = unsafe {
+            nix::libc::ioctl(
+                self.master.as_raw_fd(),
+                nix::libc::TIOCSWINSZ as _,
+                &winsize as *const Winsize,
+            )
+        };
+        assert_eq!(result, 0, "could not resize the terminal");
+    }
+
+    /// Waits for the menu to exit on its own, for tests where something other
+    /// than a keypress ends it.
+    pub fn wait_for_exit(&mut self) -> MenuAction {
+        self.finish()
+    }
+
     pub fn send(&mut self, bytes: &[u8]) {
         let deadline = Instant::now() + STEP_TIMEOUT;
         while Instant::now() < deadline {

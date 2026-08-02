@@ -268,10 +268,10 @@ available:
 
 ```bash
 dx stack --list
-dx stack --list --direction undo
-dx stack --list --direction redo --json
+dx stack --list --direction back
+dx stack --list --direction forward --json
 dx stack --clear
-dx stack --clear --direction redo
+dx stack --clear --direction forward
 ```
 
 [Scripting](./scripting.md#dx-stack) documents the `--json` shape and the two

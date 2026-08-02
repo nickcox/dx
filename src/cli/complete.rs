@@ -20,21 +20,21 @@ pub enum CompleteCommand {
         query: Option<String>,
         #[arg(long)]
         json: bool,
-        #[arg(long = "limit", alias = "list")]
+        #[arg(long)]
         limit: Option<usize>,
     },
     Ancestors {
         query: Option<String>,
         #[arg(long)]
         json: bool,
-        #[arg(long = "limit", alias = "list")]
+        #[arg(long)]
         limit: Option<usize>,
     },
     Frecents {
         query: Option<String>,
         #[arg(long)]
         json: bool,
-        #[arg(long = "limit", alias = "list")]
+        #[arg(long)]
         limit: Option<usize>,
     },
     Recents {
@@ -43,7 +43,7 @@ pub enum CompleteCommand {
         session: Option<String>,
         #[arg(long)]
         json: bool,
-        #[arg(long = "limit", alias = "list")]
+        #[arg(long)]
         limit: Option<usize>,
     },
     Stack {
@@ -54,7 +54,7 @@ pub enum CompleteCommand {
         session: Option<String>,
         #[arg(long)]
         json: bool,
-        #[arg(long = "limit", alias = "list")]
+        #[arg(long)]
         limit: Option<usize>,
     },
     Filesystem {
@@ -63,7 +63,7 @@ pub enum CompleteCommand {
         query: Option<String>,
         #[arg(long)]
         json: bool,
-        #[arg(long = "limit", alias = "list")]
+        #[arg(long)]
         limit: Option<usize>,
     },
 }

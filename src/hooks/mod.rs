@@ -339,9 +339,8 @@ mod tests {
         assert!(!pwsh_stack.contains("__dx_push_pwd"));
         assert!(pwsh_stack.contains("--preview"));
         assert!(
-            pwsh_stack.contains(
-                "__dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--target', $dest)"
-            )
+            pwsh_stack
+                .contains("__dx_stack_invoke -CommandArgs @('stack', $Mode, '--target', $dest)")
         );
     }
 

@@ -66,7 +66,7 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
     );
 
     let undo = common::dx()
-        .args(["stack", "undo", "--session", "s1"])
+        .args(["stack", "back", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
         .current_dir(temp.path())
@@ -79,7 +79,7 @@ fn full_push_undo_redo_push_cycle_updates_session_file() {
     );
 
     let redo = common::dx()
-        .args(["stack", "redo", "--session", "s1"])
+        .args(["stack", "forward", "--session", "s1"])
         .env("XDG_RUNTIME_DIR", runtime.display().to_string())
         .env_remove("DX_SESSION")
         .current_dir(temp.path())
@@ -144,7 +144,7 @@ fn stack_preview_reports_destination_without_mutating_history() {
     let session_file = runtime.join("dx-sessions/preview.json");
     let before = fs::read(&session_file).expect("read session before preview");
     let preview = common::dx()
-        .args(["stack", "undo", "--preview", "--session", "preview"])
+        .args(["stack", "back", "--preview", "--session", "preview"])
         .env("XDG_RUNTIME_DIR", &runtime)
         .output()
         .expect("preview undo");
@@ -302,7 +302,7 @@ fn undo_with_target_jumps_multiple_entries() {
     let undo = common::dx()
         .args([
             "stack",
-            "undo",
+            "back",
             "--session",
             "target1",
             "--target",
@@ -362,7 +362,7 @@ fn redo_with_target_jumps_multiple_entries() {
     let undo = common::dx()
         .args([
             "stack",
-            "undo",
+            "back",
             "--session",
             "target2",
             "--target",
@@ -382,7 +382,7 @@ fn redo_with_target_jumps_multiple_entries() {
     let redo = common::dx()
         .args([
             "stack",
-            "redo",
+            "forward",
             "--session",
             "target2",
             "--target",
@@ -441,7 +441,7 @@ fn undo_with_unreachable_target_fails() {
     let undo = common::dx()
         .args([
             "stack",
-            "undo",
+            "back",
             "--session",
             "target3",
             "--target",
@@ -511,7 +511,7 @@ fn stack_list_plain_supports_directions_and_ordering() {
             "stack",
             "--list",
             "--direction",
-            "undo",
+            "back",
             "--session",
             "list1",
         ])
@@ -531,7 +531,7 @@ fn stack_list_plain_supports_directions_and_ordering() {
             "stack",
             "--list",
             "--direction",
-            "redo",
+            "forward",
             "--session",
             "list1",
         ])
@@ -577,7 +577,7 @@ fn stack_list_json_and_read_only_contract() {
             "stack",
             "--list",
             "--direction",
-            "undo",
+            "back",
             "--json",
             "--session",
             "list2",
@@ -646,7 +646,7 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
             "stack",
             "--clear",
             "--direction",
-            "undo",
+            "back",
             "--session",
             "clear1",
         ])
@@ -667,7 +667,7 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
             "stack",
             "--clear",
             "--direction",
-            "undo",
+            "back",
             "--session",
             "clear1",
         ])
@@ -716,7 +716,7 @@ fn stack_list_json_matches_complete_json_bytes() {
     }
 
     let from_stack = common::dx()
-        .args(["stack", "--list", "--direction", "undo", "--json"])
+        .args(["stack", "--list", "--direction", "back", "--json"])
         .env("DX_SESSION", session)
         .env("XDG_RUNTIME_DIR", temp.path())
         .current_dir(temp.path())

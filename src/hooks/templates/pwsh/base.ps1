@@ -184,7 +184,6 @@ function __dx_stack_wrapper {
         return
     }
 
-    $undoOrRedo = if ($Mode -eq 'back') { 'undo' } else { 'redo' }
     $origin = $PWD.Path
 
     $dest = $null
@@ -195,9 +194,9 @@ function __dx_stack_wrapper {
             return
         }
 
-        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--preview', '--target', $target)
+        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $Mode, '--preview', '--target', $target)
     } else {
-        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--preview')
+        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $Mode, '--preview')
     }
     $dest = $previewResult.Output
 
@@ -209,7 +208,7 @@ function __dx_stack_wrapper {
     if (-not $?) {
         return
     }
-    $applyResult = __dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--target', $dest)
+    $applyResult = __dx_stack_invoke -CommandArgs @('stack', $Mode, '--target', $dest)
     if ($applyResult.ExitCode -ne 0) {
         __dx_set_location_native @($origin)
     }

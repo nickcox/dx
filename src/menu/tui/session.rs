@@ -261,6 +261,14 @@ fn run_loop(
             None => match event::read().ok()? {
                 Event::Key(key) => map_key_event(key, use_grid),
                 Event::Mouse(mouse) => map_mouse_event(mouse),
+                // The viewport is fixed at the size and prompt row measured
+                // before the first frame, and the rows below the prompt were
+                // reserved against that. A resize invalidates both, so carrying
+                // on would draw at coordinates the screen no longer has.
+                // Cancelling hands the terminal back cleanly and leaves the
+                // buffer untouched, which is recoverable; redrawing over the
+                // wrong rows is not.
+                Event::Resize(..) => MenuKeyAction::Cancel,
                 _ => MenuKeyAction::Ignore,
             },
         };

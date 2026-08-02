@@ -111,20 +111,17 @@ An array of objects, `rank` counting from 1:
 `label` is a shortened display form — the last one or two path components. It is
 for showing to a person; use `path` for anything else.
 
-### --limit, and the --list alias
+### --limit
 
-`--limit N` caps the number of candidates.
-
-`--list` is a historical alias for `--limit` on completion subcommands, and it
-**takes a value**:
+`--limit N` caps the number of candidates:
 
 ```bash
-dx complete paths --list 20 project    # same as --limit 20
+dx complete paths --limit 20 project
 ```
 
-This is not the same flag as `dx resolve --list` or `dx stack --list`, which are
-both booleans. Prefer `--limit` in new scripts. The alias is kept for
-compatibility and is not offered by shell completion.
+`--list` is not accepted here. It is a boolean on `dx resolve` and `dx stack`,
+and a flag that means two different things depending on the subcommand is worse
+than one spelling.
 
 ## dx navigate
 
@@ -154,24 +151,23 @@ are no candidates, the index is out of range, or nothing matches.
 Inspects and edits the current session's directory history.
 
 ```bash
-dx stack --list [--direction undo|redo|both] [--json]
-dx stack --clear [--direction undo|redo|both]
+dx stack --list [--direction back|forward|both] [--json]
+dx stack --clear [--direction back|forward|both]
 dx stack push <path>
-dx stack undo [--preview]
-dx stack redo [--preview]
+dx stack back [--preview]
+dx stack forward [--preview]
 ```
 
 `--list --json` emits the same array shape as `dx complete`, byte for byte.
 `--preview` prints where the move would land without performing it.
 
-Two things worth knowing:
+`--direction` takes the same words here as on `dx complete stack`, and the same
+words the generated `back` and `forward` commands are named for.
 
-- **`--direction` takes different words here than on `dx complete stack`.**
-  `dx stack` uses `undo`, `redo` and `both`; `dx complete stack` uses `back` and
-  `forward`. `undo` corresponds to `back`.
-- **`dx stack --list` reports the raw stack, while `dx complete stack` collapses
-  repeat visits**, keeping each directory at its most recent position. That is
-  why `back 3` means three *places* back rather than three entries.
+One difference is deliberate: **`dx stack --list` reports the raw stack, while
+`dx complete stack` collapses repeat visits**, keeping each directory at its most
+recent position. Selection wants places, so `back 3` means three *places* back
+rather than three entries; inspection wants what is actually stored.
 
 ## dx bookmarks
 

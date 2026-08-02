@@ -167,3 +167,27 @@ fn menu_releases_the_mouse_before_the_cosmetic_cleanup() {
         );
     }
 }
+
+/// Resizing mid-menu ends it instead of drawing at coordinates the screen no
+/// longer has.
+///
+/// The viewport is fixed at the geometry measured before the first frame, and
+/// the rows below the prompt were reserved against that, so neither survives a
+/// resize. Cancelling is recoverable; painting over the wrong rows is not.
+#[test]
+fn resizing_the_terminal_cancels_the_menu() {
+    let temp = candidate_tree("menu-pty-resize", 200);
+    let mut pty = MenuPty::start("cd ", temp.path());
+
+    pty.resize(24, 80);
+    let action = pty.wait_for_exit();
+
+    assert_eq!(
+        action.action, "cancel",
+        "a resize should end the menu without replacing the buffer"
+    );
+    assert!(
+        pty.wrote(b"\x1b[?1000l"),
+        "cancelling on resize must still hand the terminal back"
+    );
+}

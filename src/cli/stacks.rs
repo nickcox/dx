@@ -15,14 +15,21 @@ use super::CliError;
 #[derive(Debug, Subcommand)]
 pub enum StackCommand {
     Push(StackPushCommand),
-    Undo(StackStepCommand),
-    Redo(StackStepCommand),
+    /// Step back through the session's history, the way `back` does.
+    Back(StackStepCommand),
+    /// Step forward again, the way `forward` does.
+    Forward(StackStepCommand),
 }
 
+/// Which half of a session's history to act on.
+///
+/// Named for the direction of travel rather than the stack operation, so that
+/// `dx stack`, `dx complete stack` and the generated `back`/`forward` commands
+/// all use one vocabulary.
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum StackListDirection {
-    Undo,
-    Redo,
+    Back,
+    Forward,
     Both,
 }
 
@@ -74,11 +81,11 @@ pub fn run_stack(args: StackCommandArgs) -> Result<(), CliError> {
 
         return match command {
             StackCommand::Push(cmd) => run_push(&cmd.path, cmd.session.as_deref()),
-            StackCommand::Undo(cmd) => {
-                run_undo(cmd.session.as_deref(), cmd.target.as_deref(), cmd.preview)
+            StackCommand::Back(cmd) => {
+                run_back(cmd.session.as_deref(), cmd.target.as_deref(), cmd.preview)
             }
-            StackCommand::Redo(cmd) => {
-                run_redo(cmd.session.as_deref(), cmd.target.as_deref(), cmd.preview)
+            StackCommand::Forward(cmd) => {
+                run_forward(cmd.session.as_deref(), cmd.target.as_deref(), cmd.preview)
             }
         };
     }
@@ -111,7 +118,7 @@ pub fn run_push(path: &str, cli_session: Option<&str>) -> Result<(), CliError> {
     Ok(())
 }
 
-pub fn run_undo(
+pub fn run_back(
     cli_session: Option<&str>,
     target: Option<&str>,
     preview: bool,
@@ -122,7 +129,7 @@ pub fn run_undo(
     }
 }
 
-pub fn run_redo(
+pub fn run_forward(
     cli_session: Option<&str>,
     target: Option<&str>,
     preview: bool,
@@ -145,13 +152,13 @@ pub fn run_list(
     let mut paths = Vec::new();
     if matches!(
         direction,
-        StackListDirection::Undo | StackListDirection::Both
+        StackListDirection::Back | StackListDirection::Both
     ) {
         paths.extend(stack.undo.iter().rev().cloned());
     }
     if matches!(
         direction,
-        StackListDirection::Redo | StackListDirection::Both
+        StackListDirection::Forward | StackListDirection::Both
     ) {
         paths.extend(stack.redo.iter().rev().cloned());
     }
@@ -173,13 +180,13 @@ pub fn run_clear(direction: StackListDirection, cli_session: Option<&str>) -> Re
 
     if matches!(
         direction,
-        StackListDirection::Undo | StackListDirection::Both
+        StackListDirection::Back | StackListDirection::Both
     ) {
         stack.undo.clear();
     }
     if matches!(
         direction,
-        StackListDirection::Redo | StackListDirection::Both
+        StackListDirection::Forward | StackListDirection::Both
     ) {
         stack.redo.clear();
     }

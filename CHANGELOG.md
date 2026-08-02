@@ -45,6 +45,18 @@ are always listed under **Breaking**.
 
 ### Changed
 
+- One vocabulary for history direction throughout. `dx stack back` and
+  `dx stack forward` replace `undo` and `redo`, and `--direction` takes
+  `back|forward|both` on both `dx stack` and `dx complete stack`, matching the
+  `back` and `forward` commands the shell integration installs. Every generated
+  hook previously carried a conversion from one spelling to the other; those are
+  gone.
+- `dx complete` no longer accepts `--list` as an alias for `--limit`. It was a
+  boolean everywhere else in the CLI and took a value here.
+- Resizing the terminal while the menu is open now closes it, leaving the
+  command line untouched. The viewport and the rows reserved below the prompt
+  are both measured before the first frame, so after a resize the menu was
+  drawing at coordinates the screen no longer had.
 - `dx complete <mode> --json` now ends with a newline, making it byte-identical
   to `dx stack --list --json` for the same candidates.
 

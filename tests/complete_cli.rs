@@ -108,7 +108,7 @@ fn complete_filesystem_filters_files_and_directories() {
 }
 
 #[test]
-fn complete_limit_and_list_alias_cap_results() {
+fn complete_limit_caps_results_and_list_is_not_an_alias() {
     let temp = common::temp_dir("complete-ancestors-limit");
     let cwd = temp.path().join("a/b/c/d");
     fs::create_dir_all(&cwd).expect("create nested");
@@ -123,15 +123,13 @@ fn complete_limit_and_list_alias_cap_results() {
     let limited_lines = limited_stdout.lines().collect::<Vec<_>>();
     assert_eq!(limited_lines.len(), 1);
 
-    let alias = Command::new(common::dx_bin())
+    // `--list` is a boolean elsewhere in the CLI, so it is not accepted here.
+    let rejected = Command::new(common::dx_bin())
         .args(["complete", "ancestors", "--list", "1"])
         .current_dir(&cwd)
         .output()
         .expect("run complete ancestors --list");
-    assert!(alias.status.success());
-    let alias_stdout = String::from_utf8_lossy(&alias.stdout);
-    let alias_lines = alias_stdout.lines().collect::<Vec<_>>();
-    assert_eq!(alias_lines.len(), 1);
+    assert!(!rejected.status.success());
 }
 
 #[test]

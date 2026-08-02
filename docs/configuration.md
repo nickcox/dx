@@ -234,9 +234,7 @@ Completion commands accept a per-invocation limit:
 dx complete paths --limit 20 project
 ```
 
-`--list` is an alias for `--limit` on completion commands, and takes a value
-like `--limit` does. It is a different flag from the boolean `--list` on
-`dx resolve` and `dx stack`; see [Scripting](./scripting.md#--limit-and-the---list-alias).
+`--limit` is accepted by every completion subcommand.
 
 ## Invalid Values
 

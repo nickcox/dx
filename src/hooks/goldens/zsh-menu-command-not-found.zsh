@@ -59,27 +59,20 @@ __dx_stack_wrapper() {
   local __dx_op="$1"
   local __dx_selector="${2:-}"
   (( $+commands[dx] )) || return 1
-  local __dx_undo_or_redo
-  if [[ "$__dx_op" == "back" ]]; then
-    __dx_undo_or_redo="undo"
-  else
-    __dx_undo_or_redo="redo"
-  fi
-
   local __dx_dest=""
   local __dx_origin="$PWD"
   if [[ -n "$__dx_selector" ]]; then
     local __dx_target
     __dx_target="$(__dx_stack_run navigate "$__dx_op" "$__dx_selector")" || return 1
     [[ -n "$__dx_target" ]] || return 1
-    __dx_dest="$(__dx_stack_run stack "$__dx_undo_or_redo" --preview --target "$__dx_target")" || return 1
+    __dx_dest="$(__dx_stack_run stack "$__dx_op" --preview --target "$__dx_target")" || return 1
   else
-    __dx_dest="$(__dx_stack_run stack "$__dx_undo_or_redo" --preview)" || return 1
+    __dx_dest="$(__dx_stack_run stack "$__dx_op" --preview)" || return 1
   fi
 
   [[ -n "$__dx_dest" ]] || return 1
   builtin cd "$__dx_dest" || return $?
-  __dx_stack_run stack "$__dx_undo_or_redo" --target "$__dx_dest" >/dev/null || {
+  __dx_stack_run stack "$__dx_op" --target "$__dx_dest" >/dev/null || {
     builtin cd "$__dx_origin" >/dev/null 2>&1
     return 1
   }
@@ -520,7 +513,7 @@ esac
 ;;
 (stack)
 _arguments "${_arguments_options[@]}" : \
-'--direction=[]:DIRECTION:(undo redo both)' \
+'--direction=[]:DIRECTION:(back forward both)' \
 '--session=[]:SESSION:_default' \
 '--list[]' \
 '--clear[]' \
@@ -545,7 +538,7 @@ _arguments "${_arguments_options[@]}" : \
 ':path:_files -/' \
 && ret=0
 ;;
-(undo)
+(back)
 _arguments "${_arguments_options[@]}" : \
 '--session=[]:SESSION:_default' \
 '--target=[]:TARGET:_default' \
@@ -554,7 +547,7 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
-(redo)
+(forward)
 _arguments "${_arguments_options[@]}" : \
 '--session=[]:SESSION:_default' \
 '--target=[]:TARGET:_default' \
@@ -579,11 +572,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
-(undo)
+(back)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
-(redo)
+(forward)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -724,11 +717,11 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
-(undo)
+(back)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
-(redo)
+(forward)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1040,25 +1033,25 @@ _dx__subcmd__help__subcmd__resolve_commands() {
 _dx__subcmd__help__subcmd__stack_commands() {
     local commands; commands=(
 'push:' \
-'undo:' \
-'redo:' \
+'back:Step back through the session'\''s history, the way \`back\` does' \
+'forward:Step forward again, the way \`forward\` does' \
     )
     _describe -t commands 'dx help stack commands' commands "$@"
+}
+(( $+functions[_dx__subcmd__help__subcmd__stack__subcmd__back_commands] )) ||
+_dx__subcmd__help__subcmd__stack__subcmd__back_commands() {
+    local commands; commands=()
+    _describe -t commands 'dx help stack back commands' commands "$@"
+}
+(( $+functions[_dx__subcmd__help__subcmd__stack__subcmd__forward_commands] )) ||
+_dx__subcmd__help__subcmd__stack__subcmd__forward_commands() {
+    local commands; commands=()
+    _describe -t commands 'dx help stack forward commands' commands "$@"
 }
 (( $+functions[_dx__subcmd__help__subcmd__stack__subcmd__push_commands] )) ||
 _dx__subcmd__help__subcmd__stack__subcmd__push_commands() {
     local commands; commands=()
     _describe -t commands 'dx help stack push commands' commands "$@"
-}
-(( $+functions[_dx__subcmd__help__subcmd__stack__subcmd__redo_commands] )) ||
-_dx__subcmd__help__subcmd__stack__subcmd__redo_commands() {
-    local commands; commands=()
-    _describe -t commands 'dx help stack redo commands' commands "$@"
-}
-(( $+functions[_dx__subcmd__help__subcmd__stack__subcmd__undo_commands] )) ||
-_dx__subcmd__help__subcmd__stack__subcmd__undo_commands() {
-    local commands; commands=()
-    _describe -t commands 'dx help stack undo commands' commands "$@"
 }
 (( $+functions[_dx__subcmd__init_commands] )) ||
 _dx__subcmd__init_commands() {
@@ -1084,21 +1077,41 @@ _dx__subcmd__resolve_commands() {
 _dx__subcmd__stack_commands() {
     local commands; commands=(
 'push:' \
-'undo:' \
-'redo:' \
+'back:Step back through the session'\''s history, the way \`back\` does' \
+'forward:Step forward again, the way \`forward\` does' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'dx stack commands' commands "$@"
+}
+(( $+functions[_dx__subcmd__stack__subcmd__back_commands] )) ||
+_dx__subcmd__stack__subcmd__back_commands() {
+    local commands; commands=()
+    _describe -t commands 'dx stack back commands' commands "$@"
+}
+(( $+functions[_dx__subcmd__stack__subcmd__forward_commands] )) ||
+_dx__subcmd__stack__subcmd__forward_commands() {
+    local commands; commands=()
+    _describe -t commands 'dx stack forward commands' commands "$@"
 }
 (( $+functions[_dx__subcmd__stack__subcmd__help_commands] )) ||
 _dx__subcmd__stack__subcmd__help_commands() {
     local commands; commands=(
 'push:' \
-'undo:' \
-'redo:' \
+'back:Step back through the session'\''s history, the way \`back\` does' \
+'forward:Step forward again, the way \`forward\` does' \
 'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'dx stack help commands' commands "$@"
+}
+(( $+functions[_dx__subcmd__stack__subcmd__help__subcmd__back_commands] )) ||
+_dx__subcmd__stack__subcmd__help__subcmd__back_commands() {
+    local commands; commands=()
+    _describe -t commands 'dx stack help back commands' commands "$@"
+}
+(( $+functions[_dx__subcmd__stack__subcmd__help__subcmd__forward_commands] )) ||
+_dx__subcmd__stack__subcmd__help__subcmd__forward_commands() {
+    local commands; commands=()
+    _describe -t commands 'dx stack help forward commands' commands "$@"
 }
 (( $+functions[_dx__subcmd__stack__subcmd__help__subcmd__help_commands] )) ||
 _dx__subcmd__stack__subcmd__help__subcmd__help_commands() {
@@ -1110,30 +1123,10 @@ _dx__subcmd__stack__subcmd__help__subcmd__push_commands() {
     local commands; commands=()
     _describe -t commands 'dx stack help push commands' commands "$@"
 }
-(( $+functions[_dx__subcmd__stack__subcmd__help__subcmd__redo_commands] )) ||
-_dx__subcmd__stack__subcmd__help__subcmd__redo_commands() {
-    local commands; commands=()
-    _describe -t commands 'dx stack help redo commands' commands "$@"
-}
-(( $+functions[_dx__subcmd__stack__subcmd__help__subcmd__undo_commands] )) ||
-_dx__subcmd__stack__subcmd__help__subcmd__undo_commands() {
-    local commands; commands=()
-    _describe -t commands 'dx stack help undo commands' commands "$@"
-}
 (( $+functions[_dx__subcmd__stack__subcmd__push_commands] )) ||
 _dx__subcmd__stack__subcmd__push_commands() {
     local commands; commands=()
     _describe -t commands 'dx stack push commands' commands "$@"
-}
-(( $+functions[_dx__subcmd__stack__subcmd__redo_commands] )) ||
-_dx__subcmd__stack__subcmd__redo_commands() {
-    local commands; commands=()
-    _describe -t commands 'dx stack redo commands' commands "$@"
-}
-(( $+functions[_dx__subcmd__stack__subcmd__undo_commands] )) ||
-_dx__subcmd__stack__subcmd__undo_commands() {
-    local commands; commands=()
-    _describe -t commands 'dx stack undo commands' commands "$@"
 }
 
 if [ "$funcstack[1]" = "_dx" ]; then

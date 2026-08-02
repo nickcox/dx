@@ -63,27 +63,20 @@ __dx_stack_wrapper() {
   local __dx_op="$1"
   local __dx_selector="${2:-}"
   command -v dx >/dev/null 2>&1 || return 1
-  local __dx_undo_or_redo
-  if [[ "$__dx_op" == "back" ]]; then
-    __dx_undo_or_redo="undo"
-  else
-    __dx_undo_or_redo="redo"
-  fi
-
   local __dx_dest=""
   local __dx_origin="$PWD"
   if [[ -n "$__dx_selector" ]]; then
     local __dx_target
     __dx_target="$(__dx_stack_run navigate "$__dx_op" "$__dx_selector")" || return 1
     [[ -n "$__dx_target" ]] || return 1
-    __dx_dest="$(__dx_stack_run stack "$__dx_undo_or_redo" --preview --target "$__dx_target")" || return 1
+    __dx_dest="$(__dx_stack_run stack "$__dx_op" --preview --target "$__dx_target")" || return 1
   else
-    __dx_dest="$(__dx_stack_run stack "$__dx_undo_or_redo" --preview)" || return 1
+    __dx_dest="$(__dx_stack_run stack "$__dx_op" --preview)" || return 1
   fi
 
   [[ -n "$__dx_dest" ]] || return 1
   __dx_cd_native "$__dx_dest" || return $?
-  __dx_stack_run stack "$__dx_undo_or_redo" --target "$__dx_dest" >/dev/null || {
+  __dx_stack_run stack "$__dx_op" --target "$__dx_dest" >/dev/null || {
     __dx_cd_native "$__dx_origin" >/dev/null 2>&1
     return 1
   }
@@ -438,14 +431,20 @@ _dx() {
             dx__subcmd__help__subcmd__complete,stack)
                 cmd="dx__subcmd__help__subcmd__complete__subcmd__stack"
                 ;;
+            dx__subcmd__help__subcmd__stack,back)
+                cmd="dx__subcmd__help__subcmd__stack__subcmd__back"
+                ;;
+            dx__subcmd__help__subcmd__stack,forward)
+                cmd="dx__subcmd__help__subcmd__stack__subcmd__forward"
+                ;;
             dx__subcmd__help__subcmd__stack,push)
                 cmd="dx__subcmd__help__subcmd__stack__subcmd__push"
                 ;;
-            dx__subcmd__help__subcmd__stack,redo)
-                cmd="dx__subcmd__help__subcmd__stack__subcmd__redo"
+            dx__subcmd__stack,back)
+                cmd="dx__subcmd__stack__subcmd__back"
                 ;;
-            dx__subcmd__help__subcmd__stack,undo)
-                cmd="dx__subcmd__help__subcmd__stack__subcmd__undo"
+            dx__subcmd__stack,forward)
+                cmd="dx__subcmd__stack__subcmd__forward"
                 ;;
             dx__subcmd__stack,help)
                 cmd="dx__subcmd__stack__subcmd__help"
@@ -453,23 +452,17 @@ _dx() {
             dx__subcmd__stack,push)
                 cmd="dx__subcmd__stack__subcmd__push"
                 ;;
-            dx__subcmd__stack,redo)
-                cmd="dx__subcmd__stack__subcmd__redo"
+            dx__subcmd__stack__subcmd__help,back)
+                cmd="dx__subcmd__stack__subcmd__help__subcmd__back"
                 ;;
-            dx__subcmd__stack,undo)
-                cmd="dx__subcmd__stack__subcmd__undo"
+            dx__subcmd__stack__subcmd__help,forward)
+                cmd="dx__subcmd__stack__subcmd__help__subcmd__forward"
                 ;;
             dx__subcmd__stack__subcmd__help,help)
                 cmd="dx__subcmd__stack__subcmd__help__subcmd__help"
                 ;;
             dx__subcmd__stack__subcmd__help,push)
                 cmd="dx__subcmd__stack__subcmd__help__subcmd__push"
-                ;;
-            dx__subcmd__stack__subcmd__help,redo)
-                cmd="dx__subcmd__stack__subcmd__help__subcmd__redo"
-                ;;
-            dx__subcmd__stack__subcmd__help,undo)
-                cmd="dx__subcmd__stack__subcmd__help__subcmd__undo"
                 ;;
             *)
                 ;;
@@ -1144,7 +1137,7 @@ _dx() {
             return 0
             ;;
         dx__subcmd__help__subcmd__stack)
-            opts="push undo redo"
+            opts="push back forward"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1157,35 +1150,35 @@ _dx() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        dx__subcmd__help__subcmd__stack__subcmd__back)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        dx__subcmd__help__subcmd__stack__subcmd__forward)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         dx__subcmd__help__subcmd__stack__subcmd__push)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        dx__subcmd__help__subcmd__stack__subcmd__redo)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        dx__subcmd__help__subcmd__stack__subcmd__undo)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -1291,14 +1284,14 @@ _dx() {
             return 0
             ;;
         dx__subcmd__stack)
-            opts="-h --list --clear --direction --json --session --help push undo redo help"
+            opts="-h --list --clear --direction --json --session --help push back forward help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
                 --direction)
-                    COMPREPLY=($(compgen -W "undo redo both" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "back forward both" -- "${cur}"))
                     return 0
                     ;;
                 --session)
@@ -1312,9 +1305,81 @@ _dx() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        dx__subcmd__stack__subcmd__help)
-            opts="push undo redo help"
+        dx__subcmd__stack__subcmd__back)
+            opts="-h --session --target --preview --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --session)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --target)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        dx__subcmd__stack__subcmd__forward)
+            opts="-h --session --target --preview --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --session)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --target)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        dx__subcmd__stack__subcmd__help)
+            opts="push back forward help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        dx__subcmd__stack__subcmd__help__subcmd__back)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        dx__subcmd__stack__subcmd__help__subcmd__forward)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -1354,34 +1419,6 @@ _dx() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        dx__subcmd__stack__subcmd__help__subcmd__redo)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        dx__subcmd__stack__subcmd__help__subcmd__undo)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
         dx__subcmd__stack__subcmd__push)
             opts="-h --session --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
@@ -1390,50 +1427,6 @@ _dx() {
             fi
             case "${prev}" in
                 --session)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        dx__subcmd__stack__subcmd__redo)
-            opts="-h --session --target --preview --help"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --session)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --target)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        dx__subcmd__stack__subcmd__undo)
-            opts="-h --session --target --preview --help"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --session)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --target)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

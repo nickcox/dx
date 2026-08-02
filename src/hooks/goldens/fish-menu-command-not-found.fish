@@ -69,23 +69,16 @@ function __dx_stack_wrapper --argument op selector
     return 1
   end
 
-  set -l undo_or_redo
-  if test "$op" = "back"
-    set undo_or_redo "undo"
-  else
-    set undo_or_redo "redo"
-  end
-
   set -l dest
   set -l origin "$PWD"
   if test -n "$selector"
     set -l target (__dx_stack_run navigate $op "$selector")
     or return 1
     test -n "$target"; or return 1
-    set dest (__dx_stack_run stack $undo_or_redo --preview --target "$target")
+    set dest (__dx_stack_run stack $op --preview --target "$target")
     or return 1
   else
-    set dest (__dx_stack_run stack $undo_or_redo --preview)
+    set dest (__dx_stack_run stack $op --preview)
     or return 1
   end
 
@@ -95,7 +88,7 @@ function __dx_stack_wrapper --argument op selector
   if test $dx_status -ne 0
     return $dx_status
   end
-  __dx_stack_run stack $undo_or_redo --target "$dest" >/dev/null
+  __dx_stack_run stack $op --target "$dest" >/dev/null
   set dx_status $status
   if test $dx_status -ne 0
     __dx_cd_native "$origin" >/dev/null 2>/dev/null
@@ -334,31 +327,31 @@ complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcomm
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "list" -d 'List saved bookmarks (default when no subcommand given)'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "prune" -d 'Remove bookmarks whose target directory no longer exists'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -l direction -r -f -a "undo\t''
-redo\t''
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -l direction -r -f -a "back\t''
+forward\t''
 both\t''"
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -l session -r
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -l list
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -l clear
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -l json
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -s h -l help -d 'Print help'
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -f -a "push"
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -f -a "undo"
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -f -a "redo"
-complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push undo redo help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -l session -r
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -l list
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -l clear
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -l json
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -s h -l help -d 'Print help'
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -f -a "push"
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -f -a "back" -d 'Step back through the session\'s history, the way `back` does'
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -f -a "forward" -d 'Step forward again, the way `forward` does'
+complete -c dx -n "__fish_dx_using_subcommand stack; and not __fish_seen_subcommand_from push back forward help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from push" -l session -r
 complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from push" -s h -l help -d 'Print help'
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from undo" -l session -r
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from undo" -l target -r
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from undo" -l preview -d 'Print the destination without changing session history'
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from undo" -s h -l help -d 'Print help'
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from redo" -l session -r
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from redo" -l target -r
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from redo" -l preview -d 'Print the destination without changing session history'
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from redo" -s h -l help -d 'Print help'
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from back" -l session -r
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from back" -l target -r
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from back" -l preview -d 'Print the destination without changing session history'
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from back" -s h -l help -d 'Print help'
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from forward" -l session -r
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from forward" -l target -r
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from forward" -l preview -d 'Print the destination without changing session history'
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from forward" -s h -l help -d 'Print help'
 complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from help" -f -a "push"
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from help" -f -a "undo"
-complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from help" -f -a "redo"
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from help" -f -a "back" -d 'Step back through the session\'s history, the way `back` does'
+complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from help" -f -a "forward" -d 'Step forward again, the way `forward` does'
 complete -c dx -n "__fish_dx_using_subcommand stack; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c dx -n "__fish_dx_using_subcommand menu" -l buffer -d 'Full command-line buffer text' -r
 complete -c dx -n "__fish_dx_using_subcommand menu" -l cursor -d 'Cursor byte position within the buffer' -r
@@ -392,8 +385,8 @@ complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_f
 complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from bookmarks" -f -a "list" -d 'List saved bookmarks (default when no subcommand given)'
 complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from bookmarks" -f -a "prune" -d 'Remove bookmarks whose target directory no longer exists'
 complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from stack" -f -a "push"
-complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from stack" -f -a "undo"
-complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from stack" -f -a "redo"
+complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from stack" -f -a "back" -d 'Step back through the session\'s history, the way `back` does'
+complete -c dx -n "__fish_dx_using_subcommand help; and __fish_seen_subcommand_from stack" -f -a "forward" -d 'Step forward again, the way `forward` does'
 
 
 complete -c cd -a '(dx complete paths (commandline -ct) 2>/dev/null)'

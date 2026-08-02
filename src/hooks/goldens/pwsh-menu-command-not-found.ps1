@@ -186,7 +186,6 @@ function __dx_stack_wrapper {
         return
     }
 
-    $undoOrRedo = if ($Mode -eq 'back') { 'undo' } else { 'redo' }
     $origin = $PWD.Path
 
     $dest = $null
@@ -197,9 +196,9 @@ function __dx_stack_wrapper {
             return
         }
 
-        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--preview', '--target', $target)
+        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $Mode, '--preview', '--target', $target)
     } else {
-        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--preview')
+        $previewResult = __dx_stack_invoke -CommandArgs @('stack', $Mode, '--preview')
     }
     $dest = $previewResult.Output
 
@@ -211,7 +210,7 @@ function __dx_stack_wrapper {
     if (-not $?) {
         return
     }
-    $applyResult = __dx_stack_invoke -CommandArgs @('stack', $undoOrRedo, '--target', $dest)
+    $applyResult = __dx_stack_invoke -CommandArgs @('stack', $Mode, '--target', $dest)
     if ($applyResult.ExitCode -ne 0) {
         __dx_set_location_native @($origin)
     }
@@ -597,8 +596,8 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
             [CompletionResult]::new('-h', '-h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('push', 'push', [CompletionResultType]::ParameterValue, 'push')
-            [CompletionResult]::new('undo', 'undo', [CompletionResultType]::ParameterValue, 'undo')
-            [CompletionResult]::new('redo', 'redo', [CompletionResultType]::ParameterValue, 'redo')
+            [CompletionResult]::new('back', 'back', [CompletionResultType]::ParameterValue, 'Step back through the session''s history, the way `back` does')
+            [CompletionResult]::new('forward', 'forward', [CompletionResultType]::ParameterValue, 'Step forward again, the way `forward` does')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -608,7 +607,7 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
-        'dx;stack;undo' {
+        'dx;stack;back' {
             [CompletionResult]::new('--session', '--session', [CompletionResultType]::ParameterName, 'session')
             [CompletionResult]::new('--target', '--target', [CompletionResultType]::ParameterName, 'target')
             [CompletionResult]::new('--preview', '--preview', [CompletionResultType]::ParameterName, 'Print the destination without changing session history')
@@ -616,7 +615,7 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
             [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
-        'dx;stack;redo' {
+        'dx;stack;forward' {
             [CompletionResult]::new('--session', '--session', [CompletionResultType]::ParameterName, 'session')
             [CompletionResult]::new('--target', '--target', [CompletionResultType]::ParameterName, 'target')
             [CompletionResult]::new('--preview', '--preview', [CompletionResultType]::ParameterName, 'Print the destination without changing session history')
@@ -626,18 +625,18 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
         }
         'dx;stack;help' {
             [CompletionResult]::new('push', 'push', [CompletionResultType]::ParameterValue, 'push')
-            [CompletionResult]::new('undo', 'undo', [CompletionResultType]::ParameterValue, 'undo')
-            [CompletionResult]::new('redo', 'redo', [CompletionResultType]::ParameterValue, 'redo')
+            [CompletionResult]::new('back', 'back', [CompletionResultType]::ParameterValue, 'Step back through the session''s history, the way `back` does')
+            [CompletionResult]::new('forward', 'forward', [CompletionResultType]::ParameterValue, 'Step forward again, the way `forward` does')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
         'dx;stack;help;push' {
             break
         }
-        'dx;stack;help;undo' {
+        'dx;stack;help;back' {
             break
         }
-        'dx;stack;help;redo' {
+        'dx;stack;help;forward' {
             break
         }
         'dx;stack;help;help' {
@@ -723,17 +722,17 @@ Register-ArgumentCompleter -Native -CommandName 'dx' -ScriptBlock {
         }
         'dx;help;stack' {
             [CompletionResult]::new('push', 'push', [CompletionResultType]::ParameterValue, 'push')
-            [CompletionResult]::new('undo', 'undo', [CompletionResultType]::ParameterValue, 'undo')
-            [CompletionResult]::new('redo', 'redo', [CompletionResultType]::ParameterValue, 'redo')
+            [CompletionResult]::new('back', 'back', [CompletionResultType]::ParameterValue, 'Step back through the session''s history, the way `back` does')
+            [CompletionResult]::new('forward', 'forward', [CompletionResultType]::ParameterValue, 'Step forward again, the way `forward` does')
             break
         }
         'dx;help;stack;push' {
             break
         }
-        'dx;help;stack;undo' {
+        'dx;help;stack;back' {
             break
         }
-        'dx;help;stack;redo' {
+        'dx;help;stack;forward' {
             break
         }
         'dx;help;menu' {

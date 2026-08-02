@@ -69,23 +69,16 @@ function __dx_stack_wrapper --argument op selector
     return 1
   end
 
-  set -l undo_or_redo
-  if test "$op" = "back"
-    set undo_or_redo "undo"
-  else
-    set undo_or_redo "redo"
-  end
-
   set -l dest
   set -l origin "$PWD"
   if test -n "$selector"
     set -l target (__dx_stack_run navigate $op "$selector")
     or return 1
     test -n "$target"; or return 1
-    set dest (__dx_stack_run stack $undo_or_redo --preview --target "$target")
+    set dest (__dx_stack_run stack $op --preview --target "$target")
     or return 1
   else
-    set dest (__dx_stack_run stack $undo_or_redo --preview)
+    set dest (__dx_stack_run stack $op --preview)
     or return 1
   end
 
@@ -95,7 +88,7 @@ function __dx_stack_wrapper --argument op selector
   if test $dx_status -ne 0
     return $dx_status
   end
-  __dx_stack_run stack $undo_or_redo --target "$dest" >/dev/null
+  __dx_stack_run stack $op --target "$dest" >/dev/null
   set dx_status $status
   if test $dx_status -ne 0
     __dx_cd_native "$origin" >/dev/null 2>/dev/null
