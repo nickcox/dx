@@ -156,6 +156,44 @@ frecency candidates. Completing `cd` also offers bookmarks whose name starts
 with what you have typed, after the filesystem candidates. Session IDs are not
 completed yet.
 
+## Loading Alongside Other `cd` Wrappers
+
+`dx` replaces `cd` with a shell function. So does zoxide when initialised with
+`--cmd cd`, and so do some prompt and directory tools. Whichever loads **last**
+wins, which makes the order in your profile significant.
+
+**Initialise `dx` last.**
+
+```zsh
+eval "$(zoxide init zsh --cmd cd)"
+eval "$(dx init zsh)"          # dx last, so its cd is the one that survives
+```
+
+Reversed, zoxide's `cd` replaces the one `dx` installed, and `dx` quietly stops
+working: abbreviated paths no longer resolve, and because nothing records the
+move, `back` and `forward` stay empty. Nothing reports an error — `cd pr/dx`
+simply fails as an unknown directory.
+
+### Why this is safe for zoxide
+
+`dx` changes directory with the shell builtin, which bypasses zoxide's `cd`
+function. That does not cost zoxide anything, because zoxide does not record
+directories from its `cd` shim: it registers a hook that fires on any directory
+change — `chpwd_functions` in Zsh, `PROMPT_COMMAND` in Bash, and a `PWD` watcher
+in Fish. Those still run, so zoxide's database keeps up to date with directories
+you reach through `dx`.
+
+`dx` only ever reads from zoxide, by running `zoxide query`. It never adds,
+removes, or reweights entries.
+
+### Overlapping command names
+
+Plain `zoxide init <shell>`, without `--cmd cd`, defines `z` and `zi`. `dx` also
+defines `z`. With `dx` loaded last its version wins, which is usually what you
+want: it queries the same zoxide database, but also records the jump in the
+back/forward stack and can open the interactive menu. Use `zoxide init --cmd cd`
+if you would rather keep the two sets of commands distinct.
+
 ## Command-Not-Found Integration
 
 `--command-not-found` enables directory resolution for unknown commands that

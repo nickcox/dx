@@ -23,6 +23,26 @@ Invoke-Expression ((& dx init pwsh | Out-String))
 Then make sure the same command is present in the shell profile. Regenerate
 hooks after upgrading `dx`.
 
+## Abbreviated Paths Stopped Working, and History Is Empty
+
+If `up` and `back` exist but `cd pr/dx` fails as an unknown directory, and
+`dx stack --list` stays empty however much you navigate, something else has
+replaced the `cd` function after `dx` installed its own. zoxide initialised with
+`--cmd cd` is the usual cause.
+
+Check what owns `cd`:
+
+```zsh
+whence -w cd        # Zsh: want "cd: function"
+type cd             # Bash
+functions cd        # Fish
+```
+
+The definition should be the one `dx` generates — it calls `dx resolve`. Fix it
+by moving the `dx init` line after every other tool that wraps `cd` in your
+profile, then reload. See
+[Loading Alongside Other `cd` Wrappers](./shell-setup.md#loading-alongside-other-cd-wrappers).
+
 ## PowerShell Hook Loading Fails
 
 PowerShell output contains multiline module definitions. Evaluate it as one

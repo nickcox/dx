@@ -19,6 +19,10 @@ are always listed under **Breaking**.
 - `dx bookmarks` marks entries whose target is missing with `(missing)`.
 - `dx bookmarks add` and `remove` print the absolute path they acted on, making
   the symlink resolution done at save time visible.
+- Guidance on loading `dx` alongside other tools that wrap `cd`, such as
+  zoxide's `--cmd cd` integration: initialise `dx` last, or its `cd` is replaced
+  and abbreviated paths silently stop resolving. Includes a troubleshooting
+  entry for that symptom.
 - A [scripting guide](docs/scripting.md) documenting every JSON shape, the
   exit-code contract, the stdout/stderr split, and `dx navigate`, which was
   previously undocumented.

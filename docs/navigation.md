@@ -151,6 +151,9 @@ z project
 cdf project
 ```
 
+If you run zoxide's own `cd` integration, initialise `dx` after it — see
+[Loading Alongside Other `cd` Wrappers](./shell-setup.md#loading-alongside-other-cd-wrappers).
+
 `dx` does not maintain a separate frecency database. Install zoxide and use it
 normally to populate its history. If zoxide is unavailable, frecent completion
 returns no candidates.
