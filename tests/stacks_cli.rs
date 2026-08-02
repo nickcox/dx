@@ -690,3 +690,48 @@ fn stack_clear_scope_idempotent_and_preserves_cwd() {
     assert!(end.undo.is_empty());
     assert!(end.redo.is_empty());
 }
+
+/// `dx stack --list --json` and `dx complete stack --json` share a formatter, so
+/// they must stay byte-identical. They print through different call sites, which
+/// is exactly how they diverged before.
+#[test]
+fn stack_list_json_matches_complete_json_bytes() {
+    let temp = common::temp_dir("stack-json-parity");
+    let session = "stack-json-parity";
+    let first = temp.path().join("first");
+    let second = temp.path().join("second");
+    for dir in [&first, &second] {
+        fs::create_dir_all(dir).expect("create dir");
+    }
+
+    for dir in [&first, &second] {
+        let push = common::dx()
+            .args(["stack", "push", dir.to_str().expect("utf8 path")])
+            .env("DX_SESSION", session)
+            .env("XDG_RUNTIME_DIR", temp.path())
+            .current_dir(temp.path())
+            .output()
+            .expect("run stack push");
+        assert!(push.status.success());
+    }
+
+    let from_stack = common::dx()
+        .args(["stack", "--list", "--direction", "undo", "--json"])
+        .env("DX_SESSION", session)
+        .env("XDG_RUNTIME_DIR", temp.path())
+        .current_dir(temp.path())
+        .output()
+        .expect("run stack list json");
+
+    let from_complete = common::dx()
+        .args(["complete", "stack", "--direction", "back", "--json"])
+        .env("DX_SESSION", session)
+        .env("XDG_RUNTIME_DIR", temp.path())
+        .current_dir(temp.path())
+        .output()
+        .expect("run complete stack json");
+
+    assert!(from_stack.status.success());
+    assert!(from_complete.status.success());
+    assert_eq!(from_stack.stdout, from_complete.stdout);
+}

@@ -70,7 +70,7 @@ fn ambiguous_default_mode_fails_with_stderr_diagnostic() {
 }
 
 #[test]
-fn ambiguous_json_mode_returns_candidates_and_zero_exit() {
+fn ambiguous_json_mode_returns_candidates_and_non_zero_exit() {
     let cwd = common::temp_dir("precedence-json-ambiguous");
     let root = cwd.path().join("root");
     fs::create_dir_all(root.join("proj/alpha")).expect("create proj alpha");
@@ -85,7 +85,11 @@ fn ambiguous_json_mode_returns_candidates_and_zero_exit() {
         .output()
         .expect("run dx");
 
-    assert!(output.status.success());
+    // `--json` changes presentation, not success: an ambiguous query did not
+    // resolve to one directory, so the exit code says so while stderr stays
+    // empty and the detail goes to stdout.
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
     let json = serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("parse json");
     assert_eq!(json["status"], "error");
     assert_eq!(json["reason"], "ambiguous");

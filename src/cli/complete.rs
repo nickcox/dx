@@ -137,8 +137,9 @@ pub fn run_complete(resolver: &Resolver, command: CompleteCommand) -> Result<(),
 
     if json {
         let output = complete::format_json(&candidates).map_err(CliError::CompleteJson)?;
-        print!("{output}");
+        println!("{output}");
     } else {
+        // `format_plain` already terminates its last line.
         print!("{}", complete::format_plain(&candidates));
     }
 

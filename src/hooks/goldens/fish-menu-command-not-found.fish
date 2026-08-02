@@ -325,9 +325,9 @@ complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcomm
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from add" -s h -l help -d 'Print help'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from remove" -l json -d 'Output as JSON'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from remove" -s h -l help -d 'Print help'
-complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from list" -l json
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from list" -l json -d 'Output as JSON'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from list" -s h -l help -d 'Print help'
-complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from prune" -l json
+complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from prune" -l json -d 'Output as JSON'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from prune" -s h -l help -d 'Print help'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "add" -d 'Save a bookmark for a directory'
 complete -c dx -n "__fish_dx_using_subcommand bookmarks; and __fish_seen_subcommand_from help" -f -a "remove" -d 'Remove a saved bookmark'

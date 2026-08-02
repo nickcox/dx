@@ -31,10 +31,11 @@ pub enum CliError {
     ResolveCurrentDir(#[source] io::Error),
     #[error("dx resolve: failed to serialize json: {0}")]
     ResolveJson(#[source] serde_json::Error),
-    /// Resolution failed in a machine-readable mode, so the diagnostic is
-    /// already on stdout. Carries no stderr output — see [`CliError::is_silent`].
-    #[error("resolve reported the failure as json")]
-    ResolveReportedAsJson,
+    /// Resolution failed in a machine-readable mode (`--list` or `--json`), so
+    /// the outcome is already on stdout. Carries no stderr output — see
+    /// [`CliError::is_silent`].
+    #[error("resolve reported the failure on stdout")]
+    ResolveReportedOnStdout,
 
     #[error("dx complete: failed to serialize json: {0}")]
     CompleteJson(#[source] serde_json::Error),
@@ -86,7 +87,7 @@ impl CliError {
     /// True when the failure has already been communicated on stdout and must
     /// not be repeated on stderr. The exit code is still non-zero.
     pub fn is_silent(&self) -> bool {
-        matches!(self, Self::ResolveReportedAsJson)
+        matches!(self, Self::ResolveReportedOnStdout)
     }
 }
 
@@ -127,8 +128,8 @@ mod tests {
     }
 
     #[test]
-    fn only_json_reported_failures_are_silent() {
-        assert!(CliError::ResolveReportedAsJson.is_silent());
+    fn stdout_reported_failures_are_silent() {
+        assert!(CliError::ResolveReportedOnStdout.is_silent());
         assert!(!CliError::MissingSessionId.is_silent());
         assert!(!CliError::Resolve(ResolveError::NotFound).is_silent());
     }

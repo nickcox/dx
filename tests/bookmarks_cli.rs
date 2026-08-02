@@ -331,3 +331,74 @@ fn bookmarks_prune_with_nothing_stale_is_silent_and_succeeds() {
     assert!(String::from_utf8_lossy(&prune.stdout).trim().is_empty());
     assert!(String::from_utf8_lossy(&prune.stderr).trim().is_empty());
 }
+
+#[test]
+fn bookmarks_add_json_emits_single_object() {
+    let temp = common::temp_dir("bookmarks-add-json");
+    let target = temp.path().join("proj");
+    fs::create_dir_all(&target).expect("create target");
+    let target = common::canonical(&target);
+    let store = temp.path().join("bookmarks.toml");
+
+    let add = common::dx()
+        .args([
+            "bookmarks",
+            "add",
+            "proj",
+            target.to_str().expect("utf8 path"),
+            "--json",
+        ])
+        .env("DX_BOOKMARKS_FILE", store.display().to_string())
+        .current_dir(temp.path())
+        .output()
+        .expect("run bookmarks add json");
+
+    assert!(add.status.success());
+    // A single-bookmark operation reports one object; `list` and `prune` report
+    // an array of the same shape.
+    let json = serde_json::from_slice::<serde_json::Value>(&add.stdout).expect("parse json");
+    assert!(json.is_object());
+    assert_eq!(json["name"], "proj");
+    assert_eq!(
+        common::canonical(Path::new(json["path"].as_str().expect("path string"))),
+        target
+    );
+    assert_eq!(json["exists"], true);
+}
+
+#[test]
+fn bookmarks_remove_json_reports_whether_the_target_was_live() {
+    let temp = common::temp_dir("bookmarks-remove-json");
+    let target = temp.path().join("proj");
+    fs::create_dir_all(&target).expect("create target");
+    let target = common::canonical(&target);
+    let store = temp.path().join("bookmarks.toml");
+    let _ = add_bookmark(&store, temp.path(), "proj", &target);
+    fs::remove_dir_all(&target).expect("remove target");
+
+    let remove = common::dx()
+        .args(["bookmarks", "--json", "remove", "proj"])
+        .env("DX_BOOKMARKS_FILE", store.display().to_string())
+        .current_dir(temp.path())
+        .output()
+        .expect("run bookmarks remove json");
+
+    assert!(remove.status.success());
+    let json = serde_json::from_slice::<serde_json::Value>(&remove.stdout).expect("parse json");
+    assert_eq!(json["name"], "proj");
+    // The bookmark had already gone stale, and removal says so.
+    assert_eq!(json["exists"], false);
+}
+
+#[test]
+fn bookmarks_add_plain_still_prints_bare_path() {
+    let temp = common::temp_dir("bookmarks-add-plain");
+    let target = temp.path().join("proj");
+    fs::create_dir_all(&target).expect("create target");
+    let target = common::canonical(&target);
+    let store = temp.path().join("bookmarks.toml");
+
+    let echoed = add_bookmark(&store, temp.path(), "proj", &target);
+    assert_eq!(common::canonical(Path::new(&echoed)), target);
+    assert!(!echoed.starts_with('{'));
+}

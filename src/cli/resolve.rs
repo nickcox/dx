@@ -67,8 +67,15 @@ fn emit_success(path: &Path, mode: ResolveMode) -> Result<(), CliError> {
 
 /// Renders a failed resolution.
 ///
-/// Ambiguity is a reportable outcome rather than a failure in the
-/// machine-readable modes, so those arms write to stdout and return `Ok`.
+/// The machine-readable modes put the outcome on stdout and suppress the stderr
+/// diagnostic, but the exit code is still non-zero: `dx resolve` exits 0 if and
+/// only if the query resolved to exactly one directory. That leaves two ways to
+/// tell ambiguity from a hard failure without parsing, and both are contract:
+/// ambiguity writes stdout and leaves stderr empty, while a hard failure writes
+/// stderr and leaves stdout empty.
+///
+/// Only ambiguity and not-found have a JSON vocabulary. Every other resolver
+/// error falls through to a stderr diagnostic even under `--json`.
 fn emit_error(error: ResolveError, mode: ResolveMode) -> Result<(), CliError> {
     match (mode, error) {
         (ResolveMode::Json, ResolveError::Ambiguous { candidates, .. }) => {
@@ -81,13 +88,13 @@ fn emit_error(error: ResolveError, mode: ResolveMode) -> Result<(), CliError> {
                     candidates: Some(display_all(&candidates)),
                 })?
             );
-            Ok(())
+            Err(CliError::ResolveReportedOnStdout)
         }
         (ResolveMode::List, ResolveError::Ambiguous { candidates, .. }) => {
             for candidate in candidates {
                 println!("{}", candidate.display());
             }
-            Ok(())
+            Err(CliError::ResolveReportedOnStdout)
         }
         (ResolveMode::Json, ResolveError::NotFound) => {
             println!(
@@ -99,7 +106,7 @@ fn emit_error(error: ResolveError, mode: ResolveMode) -> Result<(), CliError> {
                     candidates: None,
                 })?
             );
-            Err(CliError::ResolveReportedAsJson)
+            Err(CliError::ResolveReportedOnStdout)
         }
         (_, ResolveError::Ambiguous { candidates, .. }) => {
             Err(CliError::AmbiguousResolve(candidates))

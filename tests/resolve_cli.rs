@@ -69,7 +69,10 @@ fn list_mode_returns_candidates_for_ambiguity() {
         .output()
         .expect("run dx");
 
-    assert!(output.status.success());
+    // Candidates on stdout, nothing on stderr, but still a failure: the query
+    // did not resolve to one directory.
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let paths = stdout.lines().map(std::path::Path::new).collect::<Vec<_>>();
     assert!(
@@ -171,4 +174,119 @@ fn resolves_doubled_period_segment_query() {
         String::from_utf8_lossy(&output.stderr)
     );
     common::assert_same_path(String::from_utf8_lossy(&output.stdout).trim(), &target);
+}
+
+/// The whole exit-code rule in one place: `dx resolve` exits 0 if and only if
+/// the query resolved to exactly one directory. `--list` and `--json` choose how
+/// the outcome is presented; they never change whether it succeeded.
+///
+/// The stream split is contract too, because it is the only way to tell
+/// ambiguity from a hard failure without parsing: ambiguity writes stdout and
+/// leaves stderr empty, a hard failure does the reverse.
+#[test]
+fn resolve_exit_code_is_one_directory_or_failure() {
+    let cwd = common::temp_dir("cli-exit-code-matrix");
+    let root = cwd.path().join("root");
+    fs::create_dir_all(root.join("solo")).expect("create solo");
+    fs::create_dir_all(root.join("proj/alpha")).expect("create proj alpha");
+    fs::create_dir_all(root.join("prod/alpha")).expect("create prod alpha");
+
+    /// Expectations are stated for plain mode; the loop below adjusts them for
+    /// the modes that can report the outcome on stdout instead.
+    struct Case {
+        query: &'static str,
+        outcome: &'static str,
+        code: i32,
+        stdout_empty: bool,
+        stderr_empty: bool,
+    }
+
+    let cases = [
+        Case {
+            query: "solo",
+            outcome: "resolved",
+            code: 0,
+            stdout_empty: false,
+            stderr_empty: true,
+        },
+        Case {
+            query: "pro/al",
+            outcome: "ambiguous",
+            code: 1,
+            stdout_empty: true,
+            stderr_empty: false,
+        },
+        Case {
+            query: "nothing-matches-this",
+            outcome: "not found",
+            code: 1,
+            stdout_empty: true,
+            stderr_empty: false,
+        },
+    ];
+
+    for case in cases {
+        for flags in [vec![], vec!["--list"], vec!["--json"]] {
+            let mode = flags.first().copied().unwrap_or("plain");
+            let output = common::dx()
+                .arg("resolve")
+                .args(&flags)
+                .arg(case.query)
+                .env("DX_SEARCH_ROOTS", root.display().to_string())
+                .current_dir(cwd.path())
+                .output()
+                .expect("run dx");
+
+            // The case table describes plain mode. A machine-readable mode moves
+            // the outcome to stdout only where it has a representation there:
+            // both modes can list candidates, but only `--json` can say
+            // "not_found" — plain `--list` has nothing to list on a miss.
+            let reported_on_stdout = (case.outcome == "ambiguous" && mode != "plain")
+                || (case.outcome == "not found" && mode == "--json");
+            let stdout_empty = !reported_on_stdout && case.stdout_empty;
+            let stderr_empty = reported_on_stdout || case.stderr_empty;
+
+            assert_eq!(
+                output.status.code(),
+                Some(case.code),
+                "{} query in {mode} mode should exit {}",
+                case.outcome,
+                case.code
+            );
+            assert_eq!(
+                output.stdout.is_empty(),
+                stdout_empty,
+                "{} query in {mode} mode: unexpected stdout {:?}",
+                case.outcome,
+                String::from_utf8_lossy(&output.stdout)
+            );
+            assert_eq!(
+                output.stderr.is_empty(),
+                stderr_empty,
+                "{} query in {mode} mode: unexpected stderr {:?}",
+                case.outcome,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}
+
+#[test]
+fn json_not_found_writes_json_and_no_stderr() {
+    let cwd = common::temp_dir("cli-json-not-found");
+
+    let output = common::dx()
+        .args(["resolve", "--json", "nothing-matches-this"])
+        .env("DX_SEARCH_ROOTS", cwd.path().display().to_string())
+        .current_dir(cwd.path())
+        .output()
+        .expect("run dx");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    let json = serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("parse json");
+    assert_eq!(json["status"], "error");
+    assert_eq!(json["reason"], "not_found");
+    assert!(json["path"].is_null());
+    assert!(json["candidates"].is_null());
 }

@@ -25,29 +25,25 @@ pub enum BookmarksCommand {
         name: String,
     },
     /// List saved bookmarks (default when no subcommand given)
-    List {
-        #[arg(long)]
-        json: bool,
-    },
+    List,
     /// Remove bookmarks whose target directory no longer exists
-    Prune {
-        #[arg(long)]
-        json: bool,
-    },
+    Prune,
 }
 
+/// `--json` is declared once, globally, on the parent command, so it is accepted
+/// either side of the subcommand.
 pub fn run_bookmarks(command: Option<BookmarksCommand>, json: bool) -> Result<(), CliError> {
     match command {
-        Some(BookmarksCommand::Add { name, path }) => run_add(&name, path.as_deref()),
-        Some(BookmarksCommand::Remove { name }) => run_remove(&name),
-        Some(BookmarksCommand::List { json: list_json }) => run_list(list_json),
-        Some(BookmarksCommand::Prune { json: prune_json }) => run_prune(prune_json),
+        Some(BookmarksCommand::Add { name, path }) => run_add(&name, path.as_deref(), json),
+        Some(BookmarksCommand::Remove { name }) => run_remove(&name, json),
+        Some(BookmarksCommand::List) => run_list(json),
+        Some(BookmarksCommand::Prune) => run_prune(json),
         // bare `dx bookmarks` or `dx bookmarks --json`
         None => run_list(json),
     }
 }
 
-fn run_add(name: &str, path: Option<&str>) -> Result<(), CliError> {
+fn run_add(name: &str, path: Option<&str>, json: bool) -> Result<(), CliError> {
     let mut store = storage::read_store()?;
     let resolved = resolve_bookmark_path(path)?;
 
@@ -55,19 +51,34 @@ fn run_add(name: &str, path: Option<&str>) -> Result<(), CliError> {
     // was resolved, or which directory a bare `add` actually captured.
     let canonical = store.set(name, &resolved)?;
     storage::write_store(&store)?;
-    println!("{}", canonical.display());
 
-    Ok(())
+    print_entry(
+        &bookmarks::BookmarkEntry {
+            name: name.to_string(),
+            path: canonical,
+            exists: true,
+        },
+        json,
+    )
 }
 
-fn run_remove(name: &str) -> Result<(), CliError> {
+fn run_remove(name: &str, json: bool) -> Result<(), CliError> {
     let mut store = storage::read_store()?;
 
     let removed = store.remove(name)?;
     storage::write_store(&store)?;
-    println!("{}", removed.display());
 
-    Ok(())
+    // `exists` answers the question worth asking on removal: was this a live
+    // bookmark or one that had already gone stale?
+    let exists = removed.is_dir();
+    print_entry(
+        &bookmarks::BookmarkEntry {
+            name: name.to_string(),
+            path: removed,
+            exists,
+        },
+        json,
+    )
 }
 
 fn run_list(json: bool) -> Result<(), CliError> {
@@ -86,6 +97,21 @@ fn run_prune(json: bool) -> Result<(), CliError> {
     }
 
     print_entries(&removed, json)
+}
+
+/// A single-bookmark operation reports one object, where the plural operations
+/// report an array of the same shape. Plain output stays the bare path, which is
+/// what a shell wants to capture.
+fn print_entry(entry: &bookmarks::BookmarkEntry, json: bool) -> Result<(), CliError> {
+    if json {
+        let output =
+            serde_json::to_string(&entry.to_serializable()?).map_err(CliError::BookmarksJson)?;
+        println!("{output}");
+    } else {
+        println!("{}", entry.path.display());
+    }
+
+    Ok(())
 }
 
 fn print_entries(entries: &[bookmarks::BookmarkEntry], json: bool) -> Result<(), CliError> {

@@ -434,3 +434,37 @@ fn complete_paths_offers_bookmark_by_prefix() {
         .any(|line| common::canonical(Path::new(line.trim())) == target);
     assert!(found, "expected bookmark target in: {stdout}");
 }
+
+#[test]
+fn complete_json_output_ends_with_single_newline() {
+    let temp = common::temp_dir("complete-json-newline");
+    fs::create_dir_all(temp.path().join("alpha")).expect("create alpha");
+
+    let output = Command::new(common::dx_bin())
+        .args(["complete", "paths", "al", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .expect("run complete paths json");
+
+    assert!(output.status.success());
+    assert!(
+        output.stdout.ends_with(b"]\n"),
+        "expected a single trailing newline, got {:?}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(!output.stdout.ends_with(b"]\n\n"));
+}
+
+#[test]
+fn empty_json_result_is_bracket_pair_and_newline() {
+    let temp = common::temp_dir("complete-json-empty");
+
+    let output = Command::new(common::dx_bin())
+        .args(["complete", "paths", "nothing-matches-this", "--json"])
+        .current_dir(temp.path())
+        .output()
+        .expect("run complete paths json empty");
+
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"[]\n");
+}

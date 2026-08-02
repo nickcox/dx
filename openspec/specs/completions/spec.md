@@ -1,8 +1,6 @@
 ## Purpose
 Define expected behavior for mode-specific completion and selector-driven navigation in `dx`.
-
 ## Requirements
-
 ### Requirement: Complete Subcommand Tree
 The `dx complete` subcommand SHALL expose mode-specific subcommands: `paths`, `ancestors`, `frecents`, `recents`, and `stack`. Each subcommand SHALL accept an optional positional `query` argument and an optional `--json` flag. The `stack` subcommand SHALL additionally require a `--direction` flag with value `back` or `forward`.
 
@@ -21,13 +19,19 @@ Invoking `dx complete` without a mode subcommand SHALL print usage help and exit
 - **THEN** the command SHALL print an error diagnostic and exit non-zero
 
 ### Requirement: Paths Mode
-`dx complete paths <query>` SHALL return directory candidates by running the query through the resolver's candidate-collection strategy. This SHALL include abbreviated segment matches, delimiter-aware abbreviated matches, doubled-period gap matches, fallback root matches, and bookmark name matches - the same sources as `dx resolve`, but collecting all candidates instead of failing on ambiguity.
+`dx complete paths <query>` SHALL return directory candidates by running the query through the resolver's candidate-collection strategy. This SHALL include abbreviated segment matches, delimiter-aware abbreviated matches, doubled-period gap matches, fallback root matches, and bookmark name prefix matches - the same sources as `dx resolve`, but collecting all candidates instead of failing on ambiguity.
+
+Bookmark names SHALL be matched by prefix rather than only exactly, and a bookmark whose target is no longer a directory SHALL be excluded. Because `dx resolve` matches bookmark names exactly, a bookmark name prefix SHALL complete without resolving.
 
 Candidates SHALL be deduplicated by absolute path and ordered by resolution precedence (direct > step-up > abbreviated > fallback > bookmark).
 
 #### Scenario: Abbreviated query returns multiple candidates
 - **WHEN** `dx complete paths pr` is invoked and abbreviation expansion finds `/home/user/projects` and `/home/user/presentations`
 - **THEN** the output SHALL contain both paths, one per line
+
+#### Scenario: Bookmark name prefix matches
+- **WHEN** `dx complete paths wo` is invoked and a bookmark named `work` exists pointing to an existing `/home/user/work`
+- **THEN** the output SHALL contain `/home/user/work`, ordered after any filesystem-derived candidates
 
 ### Requirement: Portable Path Candidate Handling
 Path completion, ancestor filtering, session filtering, and navigation selector matching SHALL preserve the native path identity of each candidate through collection, deduplication, ranking, and selection.
@@ -286,3 +290,4 @@ If the selector does not match any candidate, the system SHALL print a diagnosti
 #### Scenario: Path selector with no match
 - **WHEN** `back` is invoked with selector `nonexistent` and no stack entry matches
 - **THEN** the system SHALL print a diagnostic to stderr and exit non-zero
+

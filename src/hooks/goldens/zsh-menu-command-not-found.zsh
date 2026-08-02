@@ -466,14 +466,14 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (list)
 _arguments "${_arguments_options[@]}" : \
-'--json[]' \
+'--json[Output as JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
 ;;
 (prune)
 _arguments "${_arguments_options[@]}" : \
-'--json[]' \
+'--json[Output as JSON]' \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
