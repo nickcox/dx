@@ -19,6 +19,14 @@ are always listed under **Breaking**.
 - `dx bookmarks` marks entries whose target is missing with `(missing)`.
 - `dx bookmarks add` and `remove` print the absolute path they acted on, making
   the symlink resolution done at save time visible.
+- The path matching rules are documented properly: the one-segment-per-level
+  model, a worked directory tree with a table of eleven queries and what each
+  resolves to, the grammar of a single segment, and why case sensitivity
+  defaults on. This makes explicit that a query with no separator only matches
+  directories directly inside a search root — `dx` alone will not find
+  `projects/dx`, which nothing previously said.
+- How to remove the shell integration, for every supported shell, including
+  which stored state survives on purpose and where it lives.
 - Search roots and `--command-not-found` now appear in the README highlights and
   have their own quickstart steps. Abbreviated paths only reach below the
   current directory until search roots are configured, which was easy to miss.

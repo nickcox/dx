@@ -13,18 +13,9 @@ When multiple sources configure the same behavior, precedence is:
 3. Config file values
 4. Built-in defaults
 
-## Value Formats
-
-Boolean settings accept `1/0`, `true/false`, `yes/no`, and `on/off`, in any
-case and with surrounding whitespace ignored.
-
-A value that cannot be understood — an unrecognised boolean, or a number that is
-not a number — is skipped rather than treated as "off" or reset to the default.
-The next source in the precedence list applies instead, so a typo in an
-environment variable leaves the config file's value in place.
-
-Numbers that are out of range or nonsensical for a setting, such as a
-`max_rows` of `0`, fall back to the built-in default from either source.
+Boolean settings accept `1/0`, `true/false`, `yes/no`, and `on/off`, in any case
+and with surrounding whitespace ignored. [Invalid
+Values](#invalid-values) covers what happens when a setting cannot be read.
 
 ## Config File
 
@@ -246,6 +237,19 @@ dx complete paths --limit 20 project
 `--list` is an alias for `--limit` on completion commands, and takes a value
 like `--limit` does. It is a different flag from the boolean `--list` on
 `dx resolve` and `dx stack`; see [Scripting](./scripting.md#--limit-and-the---list-alias).
+
+## Invalid Values
+
+A value that cannot be understood — an unrecognised boolean, or a number that is
+not a number — is skipped rather than treated as "off" or reset to the default.
+The next source in the precedence list applies instead, so a typo in an
+environment variable leaves the config file's value in place.
+
+Numbers that are out of range or nonsensical for a setting, such as a
+`max_rows` of `0`, fall back to the built-in default from either source.
+
+`dx init` is the exception that proves the rule; see
+[Hook Generation Settings](#hook-generation-settings).
 
 ## Internal Variables
 

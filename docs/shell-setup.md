@@ -250,6 +250,44 @@ positional string parameter; native applications use native command completion.
 Valid mapping modes are `path`, `directory`, and `file`. See
 [Interactive Menu](./menu.md) for details.
 
+## Removing the Integration
+
+`dx init` only ever prints shell code; it does not edit your profile, so
+removing it is a matter of deleting the line you added and starting a new shell.
+
+To drop it from the shell you are in without restarting, unset what the hooks
+defined:
+
+```bash
+unset -f cd up back forward cd- cd+ cdf z cdr 2>/dev/null
+unset -f __dx_push_pwd __dx_nav_wrapper __dx_stack_wrapper __dx_jump_mode \
+         __dx_cd_native __dx_complete_first 2>/dev/null
+unset DX_SESSION
+```
+
+```fish
+functions -e cd up back forward cd- cd+ cdf z cdr
+set -e DX_SESSION
+```
+
+```powershell
+Remove-Module dx
+```
+
+`Remove-Module dx` also restores aliases the module replaced, where it can.
+
+Anything `dx` stored outside the shell survives on purpose, so reinstalling
+picks up where you left off. To remove that too:
+
+- Bookmarks: the file named by `DX_BOOKMARKS_FILE`, otherwise
+  `dx/bookmarks.toml` under your platform data directory.
+- Session history: the `dx-sessions` directory under `XDG_RUNTIME_DIR` or the
+  system temporary directory. These expire on their own after seven days.
+- Configuration: `dx/config.toml` under your platform configuration directory,
+  or wherever `DX_CONFIG` points.
+
+[Configuration Reference](./configuration.md) gives the exact locations.
+
 ## Verify Setup
 
 After reloading the profile:

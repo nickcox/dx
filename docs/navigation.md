@@ -18,40 +18,76 @@ cd ~/code
 Direct paths take precedence. If the path does not resolve literally, `dx`
 tries its shortening rules and configured search roots.
 
-### Segment prefixes
+### One segment, one level
 
-A plain fragment matches the start of a directory segment:
+This is the rule everything else builds on: **each `/`-separated piece of your
+query matches exactly one level of directory.** `pr/dx` means "a directory whose
+name starts with `pr`, containing one whose name starts with `dx`".
 
-```text
-cd pr/dx
-```
+The consequence is worth stating outright, because it is easy to trip over: a
+query with no separator only matches directories sitting *directly* inside a
+search root. `dx` on its own will not find `projects/dx`, however unique that
+name is — you have to say `pr/dx` and account for the level in between.
 
-For example, this can resolve to `projects/dx` when the match is unambiguous.
+### A worked example
 
-### Word delimiters
-
-The characters `.`, `_`, and `-` identify literal boundaries inside a segment:
-
-```text
-cd cd-e
-cd .sdk
-```
-
-These can match names containing the same delimiters or word boundaries.
-
-### In-segment gaps
-
-A doubled period inside a segment represents a gap:
+Given this tree, with `~/code` as a search root:
 
 ```text
-cd P..Shell
-cd S..32
+~/code
+├── projects
+│   ├── dx
+│   └── dx-extras
+├── presentations
+├── PowerShell
+├── System32
+├── cd-extras
+├── my_module
+└── .config
 ```
 
-These can match names such as `PowerShell` and `System32`. Matching is
-case-sensitive by default; with `DX_CASE_SENSITIVE=false`, lowercase queries
-such as `p..shell` work too. A token made only of periods keeps its
-ancestor-navigation meaning, so `...` is not treated as an in-segment query.
+| Query | Resolves to | Why |
+|---|---|---|
+| `pro` | `projects` | prefix of a directory in the root |
+| `pre` | `presentations` | prefix; `pro` and `pre` pick different ones |
+| `pro/dx-e` | `projects/dx-extras` | one segment per level |
+| `p/dx-e` | `projects/dx-extras` | segments can be as short as you like |
+| `cd-e` | `cd-extras` | `-` is a boundary: starts `cd`, then `e` after a `-` |
+| `my_mod` | `my_module` | `_` works the same way |
+| `.con` | `.config` | so does a leading `.` |
+| `P..Shell` | `PowerShell` | `..` is a gap: starts `P`, then `Shell` somewhere later |
+| `S..32` | `System32` | same, mid-name |
+| `dx` | *nothing* | one segment never descends past the root's children |
+| `pro/dx` | *ambiguous* | matches both `dx` and `dx-extras` |
+
+### What a segment can contain
+
+A segment with none of `.`, `_` or `-` in it is a plain **prefix**: `pro`
+matches `projects`.
+
+Adding any of those characters switches the segment into a more precise mode:
+
+- **`.`, `_` and `-` are boundaries.** They must appear literally in the name,
+  and text after one is matched anywhere following it rather than immediately.
+  So `cd-e` requires a name starting `cd`, containing `-`, with an `e` after it.
+- **`..` is a gap.** Whatever follows may appear anywhere later in the name, with
+  no boundary character required — which is what lets `P..Shell` reach into the
+  middle of `PowerShell`.
+- The first piece is still anchored to the start of the name unless a gap comes
+  before it, and a segment made only of operators matches nothing. That is why
+  `...` keeps its ancestor meaning instead of being read as a name query.
+
+### Case sensitivity
+
+Matching is case-sensitive by default, so `P..Shell` finds `PowerShell` while
+`p..shell` does not. That keeps queries precise in trees holding many
+similarly-named directories, at the cost of having to reproduce capitalisation.
+
+Set `DX_CASE_SENSITIVE=false` if you would rather type everything lowercase:
+
+```bash
+export DX_CASE_SENSITIVE=false
+```
 
 ### Ambiguous results
 
