@@ -213,15 +213,7 @@ function cd+
   forward $argv
 end
 
-function cdf
-  __dx_jump_mode frecents "$argv[1]"
-end
-
-function z
-  cdf $argv
-end
-
-function cdr
+__DX_FISH_FRECENCY_WRAPPERS__function cdr
   __dx_jump_mode recents "$argv[1]"
 end
 

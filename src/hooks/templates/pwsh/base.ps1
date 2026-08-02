@@ -5,7 +5,7 @@ if (-not $env:DX_SESSION) {
 Get-Module -Name dx | Remove-Module -ErrorAction SilentlyContinue
 
 $__dx_previous_aliases = @{}
-foreach ($__dx_alias_name in @('cd', 'up', '..', 'back', 'forward', 'cd-', 'cd+', 'cdf', 'cdr', 'z')) {
+foreach ($__dx_alias_name in @(__DX_PWSH_MANAGED_ALIASES__)) {
     $__dx_alias = Get-Alias -Name $__dx_alias_name -ErrorAction SilentlyContinue
     if ($__dx_alias) {
         $__dx_previous_aliases[$__dx_alias_name] = [PSCustomObject]@{
@@ -19,7 +19,7 @@ foreach ($__dx_alias_name in @('cd', 'up', '..', 'back', 'forward', 'cd-', 'cd+'
 
 $Global:__dx_previous_aliases_for_cleanup = $__dx_previous_aliases
 function global:__dx_restore_aliases {
-    foreach ($__dx_alias_name in @('cd', 'up', '..', 'back', 'forward', 'cd-', 'cd+', 'cdf', 'cdr', 'z')) {
+    foreach ($__dx_alias_name in @(__DX_PWSH_MANAGED_ALIASES__)) {
         $__dx_previous = $Global:__dx_previous_aliases_for_cleanup[$__dx_alias_name]
         if ($null -ne $__dx_previous) {
             Set-Alias -Name $__dx_alias_name -Value $__dx_previous.Definition -Scope Global -Option $__dx_previous.Options -Force
@@ -350,18 +350,7 @@ __dx_set_alias 'cd-' Undo-Location
 __dx_set_alias forward Redo-Location
 __dx_set_alias 'cd+' Redo-Location
 
-function Set-FrecentLocation {
-    param([string]$Query)
-    $target = __dx_complete_first (__dx_complete_mode -Mode frecents -Word $Query)
-    if ($target) {
-        __dx_push_pwd
-        __dx_set_location_native @($target)
-        if ($?) { __dx_push_pwd }
-    }
-}
-
-__dx_set_alias cdf Set-FrecentLocation
-__dx_set_alias z Set-FrecentLocation
+__DX_PWSH_FRECENCY_WRAPPERS__
 
 function Set-RecentLocation {
     param([string]$Query)

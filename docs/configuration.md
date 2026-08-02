@@ -86,6 +86,22 @@ Overrides matching case behavior. Accepted values are `1/0`, `true/false`,
 export DX_CASE_SENSITIVE=false
 ```
 
+### `DX_FRECENCY`
+
+Whether the generated hooks install `z` and `cdf`. By default `dx init` decides
+by looking for zoxide on `PATH`, since those commands are useless without it.
+
+Set it to force the answer, which is worth doing if `PATH` gains zoxide only
+after the line that runs `dx init`:
+
+```bash
+export DX_FRECENCY=1
+```
+
+Read when hooks are generated, so re-run `dx init` after changing it. Like every
+other boolean, an unrecognised value falls through to the default rather than
+meaning off.
+
 ## Bookmark Storage
 
 ### `DX_BOOKMARKS_FILE`

@@ -3,8 +3,8 @@
 use super::MenuCommandMapping;
 use super::common::{
     apply_template_replacements, render_bash_completion_bindings, render_bash_completion_functions,
-    render_bash_menu_fallback_case, render_bash_menu_mapping_case,
-    render_posix_wrapper_declarations,
+    render_bash_menu_complete_bindings, render_bash_menu_fallback_case,
+    render_bash_menu_mapping_case, render_posix_wrapper_declarations,
 };
 
 pub fn generate(
@@ -12,6 +12,7 @@ pub fn generate(
     menu: bool,
     mappings: &[MenuCommandMapping],
     clap_completion: &str,
+    frecency: bool,
 ) -> String {
     let mut script = String::from(include_str!("templates/bash/base.sh"));
 
@@ -29,23 +30,27 @@ pub fn generate(
             ("__DX_CLAP_COMPLETION__", clap_completion.to_string()),
             (
                 "__DX_BASH_COMPLETION_BINDINGS__",
-                render_bash_completion_bindings(),
+                render_bash_completion_bindings(frecency),
             ),
             (
                 "__DX_BASH_COMPLETION_FUNCTIONS__",
-                render_bash_completion_functions(),
+                render_bash_completion_functions(frecency),
             ),
             (
                 "__DX_POSIX_WRAPPER_DECLARATIONS__",
-                render_posix_wrapper_declarations(),
+                render_posix_wrapper_declarations(frecency),
             ),
             (
                 "__DX_BASH_MENU_FALLBACK_CASE__",
-                render_bash_menu_fallback_case(),
+                render_bash_menu_fallback_case(frecency),
             ),
             (
                 "__DX_BASH_MENU_MAPPING_CASE__",
                 render_bash_menu_mapping_case(mappings),
+            ),
+            (
+                "__DX_BASH_MENU_COMPLETE_BINDINGS__",
+                render_bash_menu_complete_bindings(frecency),
             ),
             (
                 "__DX_BASH_MAPPED_MENU_BINDINGS__",

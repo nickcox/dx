@@ -112,13 +112,5 @@ __DX_BASH_MENU_FALLBACK_CASE__
   esac
 }
 
-complete -o default -F _dx_menu_wrapper cd
-complete -F _dx_menu_wrapper up
-complete -F _dx_menu_wrapper cdf
-complete -F _dx_menu_wrapper z
-complete -F _dx_menu_wrapper cdr
-complete -F _dx_menu_wrapper back
-complete -F _dx_menu_wrapper cd-
-complete -F _dx_menu_wrapper forward
-complete -F _dx_menu_wrapper cd+
+__DX_BASH_MENU_COMPLETE_BINDINGS__
 __DX_BASH_MAPPED_MENU_BINDINGS__

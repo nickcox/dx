@@ -191,8 +191,12 @@ If you run zoxide's own `cd` integration, initialise `dx` after it — see
 [Loading Alongside Other `cd` Wrappers](./shell-setup.md#loading-alongside-other-cd-wrappers).
 
 `dx` does not maintain a separate frecency database. Install zoxide and use it
-normally to populate its history. If zoxide is unavailable, frecent completion
-returns no candidates.
+normally to populate its history.
+
+If zoxide is not installed when `dx init` runs, `z` and `cdf` are not created at
+all, so the shell reports them as unknown commands rather than appearing to work
+and finding nothing. `cdr` is unaffected — it reads this shell's own history.
+See [What Gets Installed](./shell-setup.md#what-gets-installed).
 
 ## Bookmarks
 

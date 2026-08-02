@@ -51,6 +51,9 @@ pub fn run_init(
                 menu_mode,
                 mappings,
                 pwsh_menu_key,
+                // Decided here rather than at use time, so a shell without
+                // zoxide simply never gets `z` and `cdf`.
+                frecency: crate::frecency::frecency_commands_available(),
             },
             &super::completion_script(shell),
         )

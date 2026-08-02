@@ -12,6 +12,7 @@ pub fn generate(
     menu: bool,
     mappings: &[MenuCommandMapping],
     clap_completion: &str,
+    frecency: bool,
 ) -> String {
     let mut script = String::from(include_str!("templates/zsh/base.zsh"));
 
@@ -29,19 +30,19 @@ pub fn generate(
             ("__DX_CLAP_COMPLETION__", clap_completion.to_string()),
             (
                 "__DX_ZSH_COMPLETION_BINDINGS__",
-                render_zsh_completion_bindings(),
+                render_zsh_completion_bindings(frecency),
             ),
             (
                 "__DX_ZSH_COMPLETION_FUNCTIONS__",
-                render_zsh_completion_functions(),
+                render_zsh_completion_functions(frecency),
             ),
             (
                 "__DX_POSIX_WRAPPER_DECLARATIONS__",
-                render_posix_wrapper_declarations(),
+                render_posix_wrapper_declarations(frecency),
             ),
             (
                 "__DX_ZSH_MENU_CASE__",
-                render_posix_menu_eligible_case_pattern(),
+                render_posix_menu_eligible_case_pattern(frecency),
             ),
             (
                 "__DX_ZSH_MENU_MAPPING_CASE__",

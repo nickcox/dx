@@ -143,8 +143,14 @@ The generated hooks provide these interactive commands:
 | `up` | Move to an ancestor (`..` is also installed in PowerShell) |
 | `back` / `cd-` | Undo directory navigation |
 | `forward` / `cd+` | Redo directory navigation |
-| `z` / `cdf` | Jump using zoxide frecency results |
+| `z` / `cdf` | Jump using zoxide frecency results, when zoxide is installed |
 | `cdr` | Jump to a directory recently visited in this shell session |
+
+`z` and `cdf` are the only commands that need anything beyond `dx` itself. If
+zoxide is not on `PATH` when `dx init` runs, they are left out rather than
+installed as commands that could only ever find nothing — which also means a `z`
+from another tool keeps working. Install zoxide and re-run `dx init` (a new
+shell is enough) to pick them up. `DX_FRECENCY` overrides the detection.
 
 The hooks also set `DX_SESSION` when it is not already present. This session ID
 keeps each shell's back, forward, and recent-directory state separate.

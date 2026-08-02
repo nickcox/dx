@@ -191,16 +191,16 @@ cd+() {
   forward "$@"
 }
 
+cdr() {
+  __dx_jump_mode recents "${1:-}"
+}
+
 cdf() {
   __dx_jump_mode frecents "${1:-}"
 }
 
 z() {
   cdf "$@"
-}
-
-cdr() {
-  __dx_jump_mode recents "${1:-}"
 }
 
 _dx_complete_paths() {
@@ -1581,8 +1581,8 @@ complete -F _dx_menu_wrapper cdf
 complete -F _dx_menu_wrapper z
 complete -F _dx_menu_wrapper cdr
 complete -F _dx_menu_wrapper back
-complete -F _dx_menu_wrapper cd-
 complete -F _dx_menu_wrapper forward
+complete -F _dx_menu_wrapper cd-
 complete -F _dx_menu_wrapper cd+
 
 

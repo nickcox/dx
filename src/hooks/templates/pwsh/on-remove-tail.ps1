@@ -4,5 +4,5 @@
     }
 }
 
-Export-ModuleMember -Function Set-DxLocation, Step-Up, Undo-Location, Redo-Location, Set-FrecentLocation, Set-RecentLocation
+Export-ModuleMember -Function __DX_PWSH_EXPORTED_FUNCTIONS__
 } | Import-Module -Global

@@ -2,8 +2,9 @@
 //! native `TabExpansion2` completer.
 
 use super::common::{
-    MENU_ELIGIBLE_COMMANDS, apply_template_replacements, pwsh_quoted_words,
-    render_pwsh_completion_bindings, render_pwsh_menu_mapping_list,
+    apply_template_replacements, menu_eligible_commands, pwsh_quoted_words,
+    render_pwsh_completion_bindings, render_pwsh_exported_functions, render_pwsh_frecency_wrappers,
+    render_pwsh_managed_aliases, render_pwsh_menu_mapping_list,
     render_pwsh_native_completion_bindings,
 };
 use thiserror::Error;
@@ -37,6 +38,7 @@ pub fn generate(
     mappings: &[MenuCommandMapping],
     menu_key: &str,
     clap_completion: &str,
+    frecency: bool,
 ) -> String {
     let menu = menu_mode == InitMenuMode::Tui;
     let native_menu = menu_mode == InitMenuMode::NativePwsh;
@@ -65,7 +67,7 @@ pub fn generate(
     let navigation_completion_bindings = if native_menu {
         render_pwsh_native_completion_bindings()
     } else {
-        render_pwsh_completion_bindings()
+        render_pwsh_completion_bindings(frecency)
     };
     let completion_bindings = format!("{}\n\n{}", clap_completion, navigation_completion_bindings);
 
@@ -74,7 +76,7 @@ pub fn generate(
         [
             (
                 "__DX_MENU_ELIGIBLE_COMMANDS__",
-                pwsh_quoted_words(MENU_ELIGIBLE_COMMANDS),
+                pwsh_quoted_words(&menu_eligible_commands(frecency)),
             ),
             (
                 "__DX_MENU_MAPPINGS__",
@@ -82,6 +84,18 @@ pub fn generate(
             ),
             ("__DX_PWSH_MENU_KEY__", menu_key.to_string()),
             ("__DX_PWSH_COMPLETION_BINDINGS__", completion_bindings),
+            (
+                "__DX_PWSH_FRECENCY_WRAPPERS__",
+                render_pwsh_frecency_wrappers(frecency),
+            ),
+            (
+                "__DX_PWSH_EXPORTED_FUNCTIONS__",
+                render_pwsh_exported_functions(frecency),
+            ),
+            (
+                "__DX_PWSH_MANAGED_ALIASES__",
+                render_pwsh_managed_aliases(frecency),
+            ),
         ],
     );
 

@@ -45,6 +45,11 @@ are always listed under **Breaking**.
 
 ### Changed
 
+- `z` and `cdf` are only installed when zoxide is on `PATH` at `dx init` time.
+  They cannot do anything without it, so a shell that lacks zoxide now reports
+  them as unknown commands rather than offering ones that silently find nothing
+  — and a `z` provided by another tool is left alone instead of being shadowed.
+  `cdr` is unaffected. `DX_FRECENCY` forces the decision either way.
 - One vocabulary for history direction throughout. `dx stack back` and
   `dx stack forward` replace `undo` and `redo`, and `--direction` takes
   `back|forward|both` on both `dx stack` and `dx complete stack`, matching the

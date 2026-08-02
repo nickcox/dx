@@ -27,6 +27,9 @@ pub struct HookOptions {
     pub mappings: Vec<MenuCommandMapping>,
     /// PSReadLine chord that opens the menu. Ignored by every other shell.
     pub pwsh_menu_key: String,
+    /// Whether to install `z` and `cdf`. False when zoxide is not on `PATH`,
+    /// since those wrappers can only ever find nothing without it.
+    pub frecency: bool,
 }
 
 impl Default for HookOptions {
@@ -36,6 +39,7 @@ impl Default for HookOptions {
             menu_mode: InitMenuMode::Disabled,
             mappings: Vec::new(),
             pwsh_menu_key: DEFAULT_PWSH_MENU_KEY.to_string(),
+            frecency: true,
         }
     }
 }
@@ -53,18 +57,21 @@ pub fn generate(shell: Shell, options: &HookOptions, clap_completion: &str) -> S
             menu,
             &options.mappings,
             clap_completion,
+            options.frecency,
         ),
         Shell::Zsh => zsh::generate(
             options.command_not_found,
             menu,
             &options.mappings,
             clap_completion,
+            options.frecency,
         ),
         Shell::Fish => fish::generate(
             options.command_not_found,
             menu,
             &options.mappings,
             clap_completion,
+            options.frecency,
         ),
         Shell::Pwsh => pwsh::generate(
             options.command_not_found,
@@ -72,6 +79,7 @@ pub fn generate(shell: Shell, options: &HookOptions, clap_completion: &str) -> S
             &options.mappings,
             &options.pwsh_menu_key,
             clap_completion,
+            options.frecency,
         ),
     }
 }
@@ -471,6 +479,57 @@ mod tests {
             "if ($ExecutionContext.InvokeCommand.PSObject.Properties.Name -contains 'CommandNotFoundAction') {",
         ),
     ];
+
+    /// Without zoxide the frecency commands are left out entirely, rather than
+    /// installed as wrappers that can only ever find nothing — and, just as
+    /// importantly, rather than shadowing a `z` from another tool.
+    ///
+    /// The check covers the bindings as well as the definitions: completion
+    /// bound to a command dx did not define would hijack whatever completion
+    /// that command already had.
+    #[test]
+    fn omitting_frecency_removes_the_commands_and_every_binding() {
+        for shell in [Shell::Bash, Shell::Zsh, Shell::Fish, Shell::Pwsh] {
+            for menu in [false, true] {
+                let without = generate(
+                    shell,
+                    &HookOptions {
+                        frecency: false,
+                        ..options(false, menu)
+                    },
+                );
+
+                // Precise needles: `dx complete frecents` is still a valid
+                // subcommand, so clap's own completion mentions it either way.
+                // What must disappear is anything dx installs for `cdf`/`z`.
+                for needle in [
+                    "_dx_complete_frecents",
+                    "__dx_jump_mode frecents",
+                    "_dx_menu_wrapper cdf",
+                    "_dx_menu_wrapper z",
+                    "compdef _dx_complete_frecents",
+                    "Set-FrecentLocation",
+                    "'cdf'",
+                ] {
+                    assert!(
+                        !without.contains(needle),
+                        "{shell:?} (menu={menu}) still installs {needle} without zoxide"
+                    );
+                }
+
+                // `cdr` reads the session stack, so it is unaffected.
+                let with = generate(shell, &options(false, menu));
+                assert!(
+                    with.contains("frecents"),
+                    "{shell:?} should install the frecency commands normally"
+                );
+                assert!(
+                    without.contains("cdr") && with.contains("cdr"),
+                    "{shell:?} recents must not depend on zoxide"
+                );
+            }
+        }
+    }
 
     #[test]
     fn options_select_the_expected_template_blocks() {

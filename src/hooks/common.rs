@@ -4,6 +4,28 @@
 
 use super::MenuCommandMapping;
 
+/// The frecency commands, omitted from generated hooks when zoxide is absent.
+/// They are the only ones that depend on it; `cdr` reads the session stack.
+const FRECENCY_COMMANDS: &[&str] = &["cdf", "z"];
+
+/// Menu-eligible commands, minus the frecency ones when they are not installed.
+pub fn menu_eligible_commands(frecency: bool) -> Vec<&'static str> {
+    MENU_ELIGIBLE_COMMANDS
+        .iter()
+        .copied()
+        .filter(|command| frecency || !FRECENCY_COMMANDS.contains(command))
+        .collect()
+}
+
+/// Completion routes, minus the frecency route when it is not installed.
+pub fn completion_routes(frecency: bool) -> Vec<CompletionRoute> {
+    COMPLETION_ROUTES
+        .iter()
+        .copied()
+        .filter(|route| frecency || route.mode != "frecents")
+        .collect()
+}
+
 pub const MENU_ELIGIBLE_COMMANDS: &[&str] = &[
     "cd", "up", "cdf", "z", "cdr", "back", "forward", "cd-", "cd+",
 ];
@@ -107,9 +129,9 @@ where
     template
 }
 
-pub fn render_bash_completion_bindings() -> String {
+pub fn render_bash_completion_bindings(frecency: bool) -> String {
     let mut lines = Vec::new();
-    for route in COMPLETION_ROUTES {
+    for route in completion_routes(frecency) {
         for command in route.commands {
             if *command == "cd" {
                 lines.push(format!(
@@ -125,13 +147,14 @@ pub fn render_bash_completion_bindings() -> String {
 }
 
 fn unique_completion_handlers(
+    frecency: bool,
     pick_handler: impl Fn(&CompletionRoute) -> &'static str,
 ) -> Vec<UniqueCompletionHandler> {
     let mut seen_handlers: Vec<&str> = Vec::new();
     let mut unique = Vec::new();
 
-    for route in COMPLETION_ROUTES {
-        let handler = pick_handler(route);
+    for route in completion_routes(frecency) {
+        let handler = pick_handler(&route);
         if seen_handlers.contains(&handler) {
             continue;
         }
@@ -172,9 +195,9 @@ fn pwsh_complete_invocation(mode: &str, stack_direction: Option<&str>) -> String
     }
 }
 
-pub fn render_zsh_completion_bindings() -> String {
+pub fn render_zsh_completion_bindings(frecency: bool) -> String {
     let mut lines = Vec::new();
-    for route in COMPLETION_ROUTES {
+    for route in completion_routes(frecency) {
         let commands = route
             .commands
             .iter()
@@ -186,9 +209,9 @@ pub fn render_zsh_completion_bindings() -> String {
     lines.join("\n")
 }
 
-pub fn render_fish_completion_bindings() -> String {
+pub fn render_fish_completion_bindings(frecency: bool) -> String {
     let mut lines = Vec::new();
-    for route in COMPLETION_ROUTES {
+    for route in completion_routes(frecency) {
         for command in route.commands {
             let rhs = fish_complete_rhs(route.mode, route.stack_direction);
             lines.push(format!("complete -c {command} -a {rhs}"));
@@ -197,8 +220,100 @@ pub fn render_fish_completion_bindings() -> String {
     lines.join("\n")
 }
 
-pub fn render_bash_menu_fallback_case() -> String {
-    COMPLETION_ROUTES
+/// Binds the menu completer to each command the hook actually installs, so a
+/// command dx chose not to define keeps whatever completion it already had.
+/// The fish `cdf`/`z` wrappers, or nothing when zoxide is absent.
+/// The module's exported functions. `Set-FrecentLocation` is only defined when
+/// zoxide is present, and exporting a function that does not exist is an error.
+/// Aliases the module takes over and hands back on unload.
+///
+/// `cdf` and `z` belong here only when dx actually defines them. Listing an
+/// alias dx never installs would have the module remove somebody else's on the
+/// way out.
+pub fn render_pwsh_managed_aliases(frecency: bool) -> String {
+    let mut names = vec!["cd", "up", "..", "back", "forward", "cd-", "cd+"];
+    if frecency {
+        names.push("cdf");
+    }
+    names.push("cdr");
+    if frecency {
+        names.push("z");
+    }
+    names
+        .into_iter()
+        .map(|name| format!("'{name}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub fn render_pwsh_exported_functions(frecency: bool) -> String {
+    let mut names = vec![
+        "Set-DxLocation",
+        "Step-Up",
+        "Undo-Location",
+        "Redo-Location",
+    ];
+    if frecency {
+        names.push("Set-FrecentLocation");
+    }
+    names.push("Set-RecentLocation");
+    names.join(", ")
+}
+
+pub fn render_fish_frecency_wrappers(frecency: bool) -> String {
+    if !frecency {
+        return String::new();
+    }
+
+    r#"function cdf
+  __dx_jump_mode frecents "$argv[1]"
+end
+
+function z
+  cdf $argv
+end
+
+"#
+    .to_string()
+}
+
+/// The PowerShell frecency command and its aliases, or nothing without zoxide.
+pub fn render_pwsh_frecency_wrappers(frecency: bool) -> String {
+    if !frecency {
+        return String::new();
+    }
+
+    r#"function Set-FrecentLocation {
+    param([string]$Query)
+    $target = __dx_complete_first (__dx_complete_mode -Mode frecents -Word $Query)
+    if ($target) {
+        __dx_push_pwd
+        __dx_set_location_native @($target)
+        if ($?) { __dx_push_pwd }
+    }
+}
+
+__dx_set_alias cdf Set-FrecentLocation
+__dx_set_alias z Set-FrecentLocation"#
+        .to_string()
+}
+
+pub fn render_bash_menu_complete_bindings(frecency: bool) -> String {
+    menu_eligible_commands(frecency)
+        .into_iter()
+        .map(|command| {
+            if command == "cd" {
+                "complete -o default -F _dx_menu_wrapper cd".to_string()
+            } else {
+                format!("complete -F _dx_menu_wrapper {command}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn render_bash_menu_fallback_case(frecency: bool) -> String {
+    completion_routes(frecency)
         .iter()
         .map(|route| {
             format!(
@@ -261,8 +376,8 @@ pub fn render_pwsh_menu_mapping_list(mappings: &[MenuCommandMapping]) -> String 
         .join(", ")
 }
 
-pub fn render_posix_wrapper_declarations() -> String {
-    r#"up() {
+pub fn render_posix_wrapper_declarations(frecency: bool) -> String {
+    let mut out = r#"up() {
   __dx_nav_wrapper up "${1:-}"
 }
 
@@ -282,24 +397,35 @@ cd+() {
   forward "$@"
 }
 
+cdr() {
+  __dx_jump_mode recents "${1:-}"
+}"#
+    .to_string();
+
+    // `cdr` reads the session stack, so it works regardless; only these two go
+    // through zoxide, and a wrapper that can only ever find nothing is worse
+    // than no command at all.
+    if frecency {
+        out.push_str(
+            r#"
+
 cdf() {
   __dx_jump_mode frecents "${1:-}"
 }
 
 z() {
   cdf "$@"
+}"#,
+        );
+    }
+
+    out
 }
 
-cdr() {
-  __dx_jump_mode recents "${1:-}"
-}"#
-    .to_string()
-}
-
-pub fn render_bash_completion_functions() -> String {
+pub fn render_bash_completion_functions(frecency: bool) -> String {
     let mut out = Vec::new();
 
-    for handler in unique_completion_handlers(|route| route.bash_handler) {
+    for handler in unique_completion_handlers(frecency, |route| route.bash_handler) {
         let dx_complete_call = dx_complete_command(handler.mode, handler.stack_direction, "$cur");
 
         out.push(format!(
@@ -319,10 +445,10 @@ pub fn render_bash_completion_functions() -> String {
     out.join("\n\n")
 }
 
-pub fn render_zsh_completion_functions() -> String {
+pub fn render_zsh_completion_functions(frecency: bool) -> String {
     let mut out = Vec::new();
 
-    for handler in unique_completion_handlers(|route| route.zsh_handler) {
+    for handler in unique_completion_handlers(frecency, |route| route.zsh_handler) {
         let dx_complete_call = dx_complete_command(handler.mode, handler.stack_direction, "$cur");
 
         out.push(format!(
@@ -340,8 +466,8 @@ pub fn render_zsh_completion_functions() -> String {
     out.join("\n\n")
 }
 
-pub fn render_posix_menu_eligible_case_pattern() -> String {
-    bash_case_pattern(MENU_ELIGIBLE_COMMANDS)
+pub fn render_posix_menu_eligible_case_pattern(frecency: bool) -> String {
+    bash_case_pattern(&menu_eligible_commands(frecency))
 }
 
 fn render_pwsh_route_binding(route: &CompletionRoute) -> String {
@@ -352,8 +478,8 @@ fn render_pwsh_route_binding(route: &CompletionRoute) -> String {
     )
 }
 
-pub fn render_pwsh_navigation_completion_bindings() -> String {
-    COMPLETION_ROUTES
+pub fn render_pwsh_navigation_completion_bindings(frecency: bool) -> String {
+    completion_routes(frecency)
         .iter()
         .filter(|route| route.commands != ["cd"])
         .map(render_pwsh_route_binding)
@@ -361,13 +487,17 @@ pub fn render_pwsh_navigation_completion_bindings() -> String {
         .join("\n\n")
 }
 
-pub fn render_pwsh_completion_bindings() -> String {
+pub fn render_pwsh_completion_bindings(frecency: bool) -> String {
     let cd = r#"Register-ArgumentCompleter -CommandName cd,Set-Location -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
     __dx_emit_completion (__dx_complete_mode -Mode paths -Word $wordToComplete)
 }"#;
 
-    [cd.to_string(), render_pwsh_navigation_completion_bindings()].join("\n\n")
+    [
+        cd.to_string(),
+        render_pwsh_navigation_completion_bindings(frecency),
+    ]
+    .join("\n\n")
 }
 
 pub fn render_pwsh_native_completion_bindings() -> String {
@@ -412,8 +542,8 @@ mod tests {
 
     #[test]
     fn unique_completion_handlers_dedupes_by_selected_handler() {
-        let bash_handlers = unique_completion_handlers(|route| route.bash_handler);
-        let zsh_handlers = unique_completion_handlers(|route| route.zsh_handler);
+        let bash_handlers = unique_completion_handlers(true, |route| route.bash_handler);
+        let zsh_handlers = unique_completion_handlers(true, |route| route.zsh_handler);
         let bash_handler_names = bash_handlers
             .iter()
             .map(|handler| handler.handler)
