@@ -204,6 +204,8 @@ In plain mode (no `--json` flag), all completion modes SHALL output one absolute
 ### Requirement: JSON Output Format
 When `--json` is specified, all completion modes SHALL output a JSON array of candidate objects to stdout. Each object SHALL contain a `path` field (absolute path string), a `label` field (human-readable display string), and a `rank` field (1-based integer reflecting position in the candidate list). Empty results SHALL produce `[]`. The command SHALL always exit with code 0.
 
+The JSON document SHALL be terminated by exactly one newline. Every command that emits this array — including `dx stack --list --json` — SHALL produce byte-identical output for the same candidate list.
+
 No `mode` or `direction` fields SHALL be included in the JSON output; the caller already knows its invocation context.
 
 #### Scenario: JSON output with candidates
@@ -217,6 +219,14 @@ No `mode` or `direction` fields SHALL be included in the JSON output; the caller
 #### Scenario: Empty JSON results
 - **WHEN** a completion mode produces no candidates and `--json` is specified
 - **THEN** stdout SHALL contain `[]` and the exit code SHALL be 0
+
+#### Scenario: JSON output is newline-terminated
+- **WHEN** any completion mode is invoked with `--json`
+- **THEN** stdout SHALL end with exactly one newline following the closing bracket
+
+#### Scenario: Stack listing matches completion output
+- **WHEN** `dx stack --list --json` and `dx complete stack --json` are invoked over the same session stack in the same direction
+- **THEN** both SHALL write byte-identical output to stdout
 
 ### Requirement: FrecencyProvider Abstraction
 The system SHALL define a `FrecencyProvider` trait with methods `query(filter) -> Vec<PathBuf>` and `is_available() -> bool`. The initial implementation SHALL be `ZoxideProvider`, which invokes `zoxide query --list [filter]` via `std::process::Command` and parses one-path-per-line output.
@@ -290,4 +300,3 @@ If the selector does not match any candidate, the system SHALL print a diagnosti
 #### Scenario: Path selector with no match
 - **WHEN** `back` is invoked with selector `nonexistent` and no stack entry matches
 - **THEN** the system SHALL print a diagnostic to stderr and exit non-zero
-
